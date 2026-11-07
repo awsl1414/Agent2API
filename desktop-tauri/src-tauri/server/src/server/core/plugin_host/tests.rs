@@ -615,3 +615,60 @@ async fn dropping_the_stream_aborts_the_plugin_call() {
 
     host.shutdown().await;
 }
+
+// ── spawn 失败分类与 loader 包装（#527 回归）──────────────────
+
+#[cfg(unix)]
+mod spawn_env {
+    use super::*;
+
+    fn temp_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("agent2api-plugin-host-{}-{}", std::process::id(), line!()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// ENOENT + 入口在 + cwd 在 → 按「运行环境问题」改写文案（带标记与
+    /// loader 出路）；入口真不存在 → 维持原口径，不带标记。
+    #[test]
+    fn enoent_with_existing_entry_is_classified_as_env_failure() {
+        let dir = temp_dir();
+        let exe = dir.join("fake-plugin-bin");
+        std::fs::write(&exe, b"placeholder").unwrap();
+        let host = Host::new(HostOptions::new(exe.clone()), Arc::new(TestCallbacks));
+        let error = std::io::Error::from(std::io::ErrorKind::NotFound);
+
+        let message = host.spawn_failure_message(&error);
+        assert!(message.contains(SPAWN_ENV_FAILURE_TAG), "got: {message}");
+        assert!(message.contains("AGENT2API_PLUGIN_LOADER"));
+        assert!(message.contains("host-bin"));
+
+        // 入口不存在：不是环境问题，维持原口径
+        std::fs::remove_file(&exe).unwrap();
+        let plain = host.spawn_failure_message(&error);
+        assert!(!plain.contains(SPAWN_ENV_FAILURE_TAG), "got: {plain}");
+    }
+
+    /// loader 路径把启动命令折成「loader --library-path 入口目录 入口」；
+    /// 未设置时行为不变。
+    #[test]
+    fn loader_env_var_wraps_spawn_command() {
+        let exe = std::path::PathBuf::from("/opt/plugins/pack/1.0.0/entry-bin");
+        let args = vec!["serve".to_string()];
+
+        let (program, argv) = super::super::lifecycle::command_argv(None, &exe, &args);
+        assert_eq!(program, exe);
+        assert_eq!(argv, args);
+
+        let (program, argv) =
+            super::super::lifecycle::command_argv(Some(" /lib/ld-linux-aarch64.so.1 "), &exe, &args);
+        assert_eq!(program, std::path::PathBuf::from("/lib/ld-linux-aarch64.so.1"));
+        assert_eq!(argv, vec![
+            "--library-path".to_string(),
+            "/opt/plugins/pack/1.0.0".to_string(),
+            "/opt/plugins/pack/1.0.0/entry-bin".to_string(),
+            "serve".to_string(),
+        ]);
+    }
+}

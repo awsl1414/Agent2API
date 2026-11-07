@@ -35,6 +35,8 @@ mod bootstrap;
 mod callbacks;
 pub mod catalog;
 mod compatibility;
+#[cfg(unix)]
+mod elf;
 mod errors;
 mod gemini_signatures;
 mod install;
@@ -62,6 +64,16 @@ pub mod update;
 mod tests;
 
 pub use callbacks::GatewayCallbacks;
+
+/// spawn 失败但**入口文件完好**的失败类别标记（ELF 动态解释器缺失这类运行
+/// 环境问题，见 `lifecycle` 的失败文案与 `elf` 模块）。
+///
+/// 安装事务（`operations::activation`）据此保留新版本目录现场：文件留给用户
+/// 诊断（ldd / patchelf），登记照常回滚。走标记而不是结构化错误，是因为
+/// 宿主全链路（`switching::start` → `last_error`）的错误载体都是 String，
+/// 为这一个类别引入错误类型不值得；标记常量同时用于文案拼接与判定，
+/// 改文案时两处不会脱节。
+pub const SPAWN_ENV_FAILURE_TAG: &str = "插件入口存在但无法启动";
 pub use bootstrap::{
     reload as reload_host, set_loopback_port, spawn as spawn_bootstrap, start as bootstrap_host,
     StoreCallbacks,

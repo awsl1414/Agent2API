@@ -7,6 +7,7 @@ use serde_json::json;
 use tokio::sync::Mutex;
 
 use super::process::{self, ExitReport, ProcessRun};
+use super::rpc::HostOptions;
 use super::{Host, Inner, StreamEvent};
 
 impl Host {
@@ -99,7 +100,7 @@ impl Host {
         }
         *self.inner.lock().await = None;
 
-        let mut command = tokio::process::Command::new(&self.options.exe);
+        let mut command = plugin_command(&self.options);
         command.args(&self.options.args)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -109,7 +110,7 @@ impl Host {
         command.creation_flags(0x0800_0000);
         if let Some(dir) = &self.options.cwd { command.current_dir(dir); }
         let mut child = command.spawn().map_err(|error| {
-            let message = process::redact(&format!("启动插件进程失败（{}）：{error}", self.executable()));
+            let message = process::redact(&self.spawn_failure_message(&error));
             self.note_failure(&message);
             message
         })?;
@@ -224,6 +225,35 @@ impl Host {
         self.options.exe.file_name().and_then(|name| name.to_str()).unwrap_or("plugin")
     }
 
+    /// spawn 失败的文案。「入口不存在」与「入口在但内核 execve 找不到东西」
+    /// 同报 ENOENT（os error 2），排障方向完全不同，必须拆开说：前者维持
+    /// 原口径；后者是 ELF 动态解释器缺失这类运行环境问题（精简系统常见），
+    /// 给出确切解释器路径与两条出路（loader 环境变量 / host-bin 副本），
+    /// 并带上 [`super::SPAWN_ENV_FAILURE_TAG`] 标记 —— 安装事务据此保留
+    /// 版本目录现场（见 `packages::InstalledTransaction::rollback`）。
+    pub(super) fn spawn_failure_message(&self, error: &std::io::Error) -> String {
+        let base = format!("启动插件进程失败（{}）：{error}", self.executable());
+        if error.kind() != std::io::ErrorKind::NotFound
+            || !self.options.exe.exists()
+            // cwd 不存在也报 ENOENT：先排掉这种，再谈解释器
+            || self.options.cwd.as_ref().is_some_and(|dir| !dir.exists())
+        {
+            return base;
+        }
+        #[cfg(unix)]
+        let reason = match super::elf::missing_interpreter(&self.options.exe) {
+            Some(path) => format!("动态解释器 {path} 不存在（精简系统常见）"),
+            None => "疑似动态解释器缺失（入口是有效文件，内核却报找不到）".to_string(),
+        };
+        #[cfg(not(unix))]
+        let reason = "入口是有效文件，系统却报找不到".to_string();
+        format!(
+            "{base}；{}（{}）：{reason}。可设置环境变量 AGENT2API_PLUGIN_LOADER 指定动态链接器路径（网关会以「<loader> --library-path <入口目录> <入口>」拉起插件进程），或在插件版本目录的 host-bin/ 下放一份静态链接（或 patchelf 调整过解释器）的入口副本",
+            super::SPAWN_ENV_FAILURE_TAG,
+            self.options.exe.display(),
+        )
+    }
+
     fn failure_message(&self) -> String {
         self.last_error.lock().ok().and_then(|last| last.clone())
             .unwrap_or_else(|| "插件进程不可用".to_string())
@@ -293,4 +323,50 @@ impl Host {
             }
         }
     }
+}
+
+/// 组装插件进程的启动命令。
+///
+/// ── AGENT2API_PLUGIN_LOADER（ELF 动态解释器缺失的出路）──────────
+/// 精简 Linux（无 /lib、glibc 解释器不在默认路径）上，插件 ELF 的
+/// PT_INTERP 指向的解释器不存在，execve 直接报 ENOENT。设置该环境变量
+/// 后，网关改用「<loader> --library-path <入口目录> <入口>」拉起插件；
+/// 未设置时行为与从前完全一致（零回归面）。库目录取入口所在目录：
+/// 随包分发的 .so 与入口在同一层；系统库继续走继承下来的
+/// LD_LIBRARY_PATH。仅 Unix 生效 —— Windows 没有 ld.so，
+/// --library-path 是 Linux 链接器的参数。
+#[cfg(unix)]
+fn plugin_command(options: &HostOptions) -> tokio::process::Command {
+    let loader = std::env::var("AGENT2API_PLUGIN_LOADER").ok();
+    let (program, argv) = command_argv(loader.as_deref(), &options.exe, &options.args);
+    let mut command = tokio::process::Command::new(program);
+    command.args(argv);
+    command
+}
+
+/// 纯函数形态的启动命令（env 读取留在 [`plugin_command`]，便于单测）。
+/// 返回 (程序, 参数表)。loader 首尾空白忽略：环境变量里带个空格不该让
+/// spawn 直接失败。
+#[cfg(unix)]
+pub(super) fn command_argv(
+    loader: Option<&str>,
+    exe: &std::path::Path,
+    args: &[String],
+) -> (std::path::PathBuf, Vec<String>) {
+    let Some(loader) = loader.map(str::trim).filter(|value| !value.is_empty()) else {
+        return (exe.to_path_buf(), args.to_vec());
+    };
+    let mut argv = vec!["--library-path".to_string()];
+    if let Some(dir) = exe.parent().filter(|dir| !dir.as_os_str().is_empty()) {
+        argv.push(dir.display().to_string());
+    }
+    argv.push(exe.display().to_string());
+    argv.extend(args.iter().cloned());
+    (std::path::PathBuf::from(loader), argv)
+}
+
+/// Windows（无 loader 语义）直接用入口启动。
+#[cfg(not(unix))]
+fn plugin_command(options: &HostOptions) -> tokio::process::Command {
+    tokio::process::Command::new(&options.exe)
 }

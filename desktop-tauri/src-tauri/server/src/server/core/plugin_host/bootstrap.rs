@@ -416,7 +416,13 @@ pub(super) async fn start_pack(
         .as_ref()
         .and_then(|manifest| install::entry_for_target(manifest, &super::rpc::target_triple()))
         .unwrap_or_else(|| pack.entry.clone());
-    let exe = dir.join(&entry);
+    // ── 入口副本：host-bin/ 优先（#527）──────────────────────────
+    // 用户（或安装脚本）可以在版本目录放一份 host-bin/<入口>：静态链接或
+    // patchelf 调过解释器的副本，解决精简系统上 PT_INTERP 指向的解释器
+    // 不存在的问题。副本只影响本机启动，登记（registry.entry）不动 ——
+    // 它描述的是发布包，不是本机补丁。
+    let patched = dir.join("host-bin").join(&entry);
+    let exe = if patched.is_file() { patched } else { dir.join(&entry) };
     if !exe.exists() {
         logging::log(
             "Plugin",

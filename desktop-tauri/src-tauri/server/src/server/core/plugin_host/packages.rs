@@ -230,9 +230,21 @@ impl InstalledTransaction {
         }
     }
 
-    pub fn rollback(self) -> Result<(), String> {
-        install::remove_dir_retrying(&self.version_dir)
-            .map_err(|error| format!("移除未能启动的插件文件失败，旧版本备份已保留：{error}"))?;
+    pub fn rollback(self, keep_new_files: bool) -> Result<(), String> {
+        // 入口完好却起不来的环境类失败（见 `SPAWN_ENV_FAILURE_TAG`）保留新版本
+        // 目录现场：文件留给用户诊断（ldd / patchelf），登记照常回滚。只对
+        // 全新安装生效 —— 更新失败时目录必须让位给备份恢复，现场由
+        // last_error 与事件日志承载。
+        let keep_new_files = keep_new_files && self.backup.is_none();
+        if !keep_new_files {
+            install::remove_dir_retrying(&self.version_dir)
+                .map_err(|error| format!("移除未能启动的插件文件失败，旧版本备份已保留：{error}"))?;
+        } else {
+            crate::server::logging::log("[Plugin]", &format!(
+                "插件启动失败源于运行环境，版本目录现场保留在 {}（登记已回滚，可诊断后重装）",
+                self.version_dir.display(),
+            ));
+        };
         if let Some(backup) = self.backup {
             install::move_dir_retrying(&backup, &self.version_dir)
                 .map_err(|error| format!("恢复插件文件失败，旧版本备份已保留：{error}"))?;
