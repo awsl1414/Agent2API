@@ -125,6 +125,9 @@ pub mod models;
 pub mod onboarding;
 pub mod panel;
 pub mod pipeline;
+// 收尾记账（record_entry）与 telemetry 快照 → 落库形态的转换，从 pipeline 拆出
+// （b1dbef8f #496：转换由在途回写与收尾两处共用，放独立文件好过互相嵌进）
+mod record_persist;
 mod live_progress;
 // 提供商插件包的管理面（列表 / 安装 / 卸载 / 启停）：插件是用户安装的，
 // 这一组端点就是「装插件」的唯一入口，见该文件模块头

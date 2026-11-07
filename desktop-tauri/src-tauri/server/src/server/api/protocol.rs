@@ -160,9 +160,6 @@ pub async fn responses_endpoint(
     };
     // 协议翻译前识别，保留原始文本块边界。
     let compact_client = compact_routing::client_for_request(&source.behavior_client, &raw, RequestFormat::Responses);
-    let body_len = body.len();
-    let dedupe_key = pipeline::sha256_hex(&body);
-    let raw_request = pipeline::capture_raw_body(&body);
     // 原始请求体留一份：回程要用它回显请求侧字段（instructions / tools / …），
     // 而下面会把 payload 改写成 Chat 形态
     let original = raw.clone();
@@ -206,12 +203,12 @@ pub async fn responses_endpoint(
         &format!(
             "← POST {path} model={} stream={stream} bytes={} ua={user_agent}",
             if requested_model.is_empty() { "(未指定)" } else { &requested_model },
-            body_len,
+            body.len(),
         ),
     );
     pipeline::write_debug_files(&body, "POST", path, &user_agent);
-    // 原始字节已转成去重键、调试正文与回显所需的值；解析后的协议体已持有
-    // 内容，这里释放 Bytes，避免大请求在转换与转发期间保留两份完整正文
+    let dedupe_key = pipeline::sha256_hex(&body);
+    let raw_request = pipeline::capture_raw_body(&body);
     drop(body);
 
     // 上游恒走流式（理由见模块头）
@@ -247,7 +244,7 @@ pub async fn responses_endpoint(
     if let Some(token) = cancellation::register(&telemetry_id) {
         telemetry.set_cancel_token(token);
     }
-    let mut guard = DisconnectGuard::new(state.request_stats(), telemetry_id.clone());
+    let mut guard = DisconnectGuard::new(state.request_stats(), telemetry.clone(), started_at);
     let outcome = forward_chat(
         &state,
         chat_body,
@@ -364,9 +361,6 @@ pub async fn messages_endpoint(
         Ok(value) => value,
         Err(response) => return response,
     };
-    let body_len = body.len();
-    let dedupe_key = pipeline::sha256_hex(&body);
-    let raw_request = pipeline::capture_raw_body(&body);
     let stream = raw.get("stream").and_then(Value::as_bool).unwrap_or(false);
 
     let compact_client = compact_routing::client_for_request(&source.behavior_client, &raw, RequestFormat::Anthropic);
@@ -396,11 +390,12 @@ pub async fn messages_endpoint(
         &format!(
             "← POST {path} model={} stream={stream} bytes={} ua={user_agent}",
             if requested_model.is_empty() { "(未指定)" } else { &requested_model },
-            body_len,
+            body.len(),
         ),
     );
     pipeline::write_debug_files(&body, "POST", path, &user_agent);
-    // 与 responses_endpoint 同一处理：释放原始字节，避免大请求保留两份正文
+    let dedupe_key = pipeline::sha256_hex(&body);
+    let raw_request = pipeline::capture_raw_body(&body);
     drop(body);
 
     // scope 的**提供商**那一半进转发层（选路时按承载家过滤）；
@@ -439,7 +434,7 @@ pub async fn messages_endpoint(
     if let Some(token) = cancellation::register(&telemetry_id) {
         telemetry.set_cancel_token(token);
     }
-    let mut guard = DisconnectGuard::new(state.request_stats(), telemetry_id.clone());
+    let mut guard = DisconnectGuard::new(state.request_stats(), telemetry.clone(), started_at);
     let outcome = forward_chat(
         &state,
         chat_body,
