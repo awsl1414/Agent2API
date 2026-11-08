@@ -30,10 +30,12 @@ use crate::server::core::update::{compare_versions, is_prerelease_version, sourc
 pub const INDEX_REPO: &str = "awsl1414/Agent2plugin";
 /// 官方配套插件包的内置兜底源：上游构建仓（`Agent2Builder`）的发布仓。
 ///
-/// 网页提供商包（agent2api-web-providers）仍从这里取：上游 web-v3.4.3
-/// 过版本门且带官方签名，fork 未改动它的发布链路。主包（
-/// agent2api-providers）的实际来源由索引条目的 `source.repo` 决定，本
-/// 常量只在索引读不到时的兜底路径与 required.rs 的默认 detail 里生效。
+/// 网页提供商包（agent2api-web-providers）的发布链路仍在那里，但注意
+/// v3.4.3-beta.2 起信任根只认 fork 自有钥（见 `install::OFFICIAL_PUBKEYS`），
+/// 上游签名（official-2026）的 web 包在本网关验不过，任何安装路径都会被拒。
+/// 索引里该条目保持 official=false 让自动机器跳过；本常量只在索引读不到
+/// 时的兜底路径与 required.rs 的默认 detail 里生效，主包（
+/// agent2api-providers）的实际来源由索引条目的 `source.repo` 决定。
 pub const FALLBACK_REPO: &str = "Agent2Builder/agent2api-providers-releases";
 const GITHUB_API: &str = "https://api.github.com";
 const QUERY_TIMEOUT_MS: u64 = 30_000;
@@ -662,8 +664,10 @@ mod tests {
     #[test]
     fn update_channel_points_at_own_repos() {
         assert_eq!(INDEX_REPO, "awsl1414/Agent2plugin");
-        // 网页提供商包仍走上游发布仓（web-v3.4.3 过版本门且带官方签名），
-        // 这是记录在案的保守取舍，不是遗漏。
+        // 网页提供商包的发布仓仍指上游（那个包只在构建仓出，fork 无源码
+        // 无签名权）；信任根隔离后上游签名过不了验签，索引条目
+        // official=false 让自动机器跳过，这里只兜「索引读不到」的底。
+        // 记录在案的保守取舍，不是遗漏。
         assert_eq!(FALLBACK_REPO, "Agent2Builder/agent2api-providers-releases");
         assert_eq!(
             format!("https://raw.githubusercontent.com/{INDEX_REPO}/main/index.json"),

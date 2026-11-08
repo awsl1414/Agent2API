@@ -67,25 +67,24 @@ pub use super::pack_view::{
 /// `key_id` 是给这件事用的标识，不是安全边界 —— 验签只认「表里有没有这把」。
 ///
 /// ── 现在表里有哪几把 ────────────────────────────────────────
-/// `official-2026`：上游发布者（2026-10 生成，私钥只存在上游构建仓与插件
-/// 仓库的 GitHub Actions secret 里）。**必须保留**——网页提供商继续跟上游
-/// 发版，删了它上游签名包全变 Invalid。
 /// `fork-2026`：fork 自建签名链（2026-11-08 生成），私钥存 awsl1414/
 /// Agent2Providers 的 Actions secret（`AGENT2API_PLUGIN_KEY`）与发布者
 /// 本地（`~/.config/agent2api-signing/`，权限 600，永不进仓库）；fork 的
 /// 插件包 CI 打包后自动签名，无人值守路径靠这把验过。
+///
+/// ── 与上游的信任关系（v3.4.3-beta.2 起解除）─────────────────
+/// 上游发布者的 `official-2026` 公钥已从表里移除：信任根只认 fork 自己的
+/// 钥，与上游完全隔离。上游签名的包（网页提供商包、上游构建仓的
+/// providers 包）从此验签一律 Invalid，而带签名验不过的包**任何**安装
+/// 路径都拒绝（见模块注释）——索引里网页提供商条目因此保持
+/// official=false，让自动化机器跳过，不去做注定失败的下载。上游若需要
+/// 重新接入，按下面的轮换流程把那把钥加回来。
 /// key_id 换新钥时必须**换名字**——查表按 key_id 精确匹配，重名会解析到
 /// 错的那把。轮换顺序：新钥追加进来 → 全部包重签 → 再删旧钥。
-pub const OFFICIAL_PUBKEYS: &[(&str, &str)] = &[
-    (
-        "official-2026",
-        "7cdac378ff9bf23b72ae1b686f19859b3c802c26eed13c699f7df39f027352d6",
-    ),
-    (
-        "fork-2026",
-        "b1b265d1a78031431455eb2f134704695a94759fede9213fc448b5678da85d96",
-    ),
-];
+pub const OFFICIAL_PUBKEYS: &[(&str, &str)] = &[(
+    "fork-2026",
+    "b1b265d1a78031431455eb2f134704695a94759fede9213fc448b5678da85d96",
+)];
 
 /// 验签结果。
 ///
@@ -749,24 +748,24 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ── 信任根（fork 自建签名链）──────────────────────────────
+    // ── 信任根（fork 自建签名链，与上游完全隔离）────────────────
     //
-    // fork-2026 是 fork 自己的发布钥（私钥在 Agent2Providers 的 Actions
-    // secret 与发布者本地，永不进仓库）；official-2026 是上游的。两条钉子
-    // 各防一种回归：
-    //   · 上游公钥被删 → 上游签名包（网页提供商，跟上游发版）全变 Invalid；
+    // fork-2026 是 fork 唯一的发布钥（私钥在 Agent2Providers 的 Actions
+    // secret 与发布者本地，永不进仓库）。两条钉子各防一种回归：
+    //   · 上游公钥回流 → 与上游的签名信任关系重新建立，上游签的包又能
+    //     通过验证，完全隔离被悄悄破坏；
     //   · fork 公钥丢失 → fork 签的包全报「密钥不在信任列表」，无人值守
     //     路径重新被拒 —— 正是这条链要修的问题。
     #[test]
-    fn trust_root_keeps_upstream_and_fork_keys() {
+    fn trust_root_is_fork_only() {
         let keys: Vec<_> = OFFICIAL_PUBKEYS.iter().collect();
-        assert!(
-            keys.iter().any(|(id, _)| *id == "official-2026"),
-            "上游公钥必须保留：上游签名包仍要能验过（追加不替换）"
-        );
         assert!(
             keys.iter().any(|(id, _)| *id == "fork-2026"),
             "fork 公钥必须在表里：fork 签的包靠它过无人值守路径"
+        );
+        assert!(
+            !keys.iter().any(|(id, _)| *id == "official-2026"),
+            "信任根只保留 fork 自有钥：上游公钥回流等于解除完全隔离"
         );
         for (id, hex) in keys {
             assert!(
@@ -811,11 +810,12 @@ mod tests {
     }
 
     /// 端到端验收（本地手跑，CI 无样本不跑）：上游构建仓发布的官方签名包
-    /// （official-2026）在本仓信任根下仍然验过 —— 证明追加 fork 公钥没有
-    /// 动摇上游链路。用 AGENT2API_E2E_UPSTREAM_ZIP 指向一份上游 zip。
+    /// （official-2026）在本仓信任根下必须**验不过** —— 完全隔离的反向
+    /// 钉子：表里没有上游钥，上游签名包任何安装路径都不再放行。用
+    /// AGENT2API_E2E_UPSTREAM_ZIP 指向一份上游 zip。
     #[test]
     #[ignore = "需要本地样本：AGENT2API_E2E_UPSTREAM_ZIP 指向上游签名包"]
-    fn e2e_upstream_signed_sample_still_verifies() {
+    fn e2e_upstream_signed_sample_is_rejected() {
         let Some(zip_path) = std::env::var_os("AGENT2API_E2E_UPSTREAM_ZIP") else {
             panic!("设 AGENT2API_E2E_UPSTREAM_ZIP 指向上游签名包 zip 后重跑");
         };
@@ -831,8 +831,12 @@ mod tests {
         let (state, reason) = verify_signature(&dir, &m, &target);
         assert_eq!(
             state,
-            SignatureState::Verified,
-            "上游签名包必须仍然验过（key official-2026）: {reason:?}"
+            SignatureState::Invalid,
+            "上游签名包必须验不过（完全隔离，official-2026 不在信任根）: {reason:?}"
+        );
+        assert!(
+            reason.unwrap_or_default().contains("official-2026"),
+            "拒绝原因应点名上游密钥不在信任列表"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
