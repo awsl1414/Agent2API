@@ -322,13 +322,13 @@ jobs:
           ls -lh
 
       # ── 发布正文：把 tag 附注解析成分节 Markdown ─────────────────
-      # 附注（= 发布提交的更新日志）是「N. 类别：内容」的扁平清单，逐字
-      # 挂出去没有结构。解析规则：条目按行首类别前缀归入 修复/新增/优化/
-      # 插件/文档 五节并统一从 1 编号；条目开始前的首个非空行是版本说明
-      # 标题，作「## 概述」；「版本：」行只是版本号记录，不上正文；归不
-      # 了类的行进「## 其他」而不是丢掉——问题在发布前肉眼可见。末尾
-      # 固定追加「## 说明」（未签名提示 + 更新通道指向本仓库）。将来
-      # 新增类别时在 item_re 补一个词、case 里补一行。
+# 附注（= 发布提交的更新日志）是「N. 类别：内容」的扁平清单，逐字
+# 挂出去没有结构。解析规则：条目按行首类别前缀归入 修复/变更/新增/
+# 优化/插件/文档 六节并统一从 1 编号；条目开始前的首个非空行是版本说明
+# 标题，作「## 概述」；「版本：」行只是版本号记录，不上正文；归不
+# 了类的行进「## 其他」而不是丢掉——问题在发布前肉眼可见。末尾
+# 固定追加「## 说明」（未签名提示 + 更新通道指向本仓库）。将来
+# 新增类别时在 item_re 补一个词、case 里补一行。
       - name: 解析发布正文
         env:
           REF: ${{ needs.meta.outputs.ref }}
@@ -347,10 +347,10 @@ jobs:
           # 修复：xxx 都算；标记与类别间的空格可有可无。类别清单与
           # 提交规范一致
           marker='([[:space:]]*([-*][[:space:]]+|[0-9]+[.、)][[:space:]]*))?'
-          item_re="^${marker}(修复|新增|优化|插件|文档)：(.*)\$"
+          item_re="^${marker}(修复|变更|新增|优化|插件|文档)：(.*)\$"
           version_re="^${marker}版本："
           overview=''
-          fix='' add='' opt='' plg='' doc='' other=''
+          fix='' chg='' add='' opt='' plg='' doc='' other=''
           seen_item=0
           while IFS= read -r line; do
             line=${line%$'\r'}
@@ -360,6 +360,7 @@ jobs:
               [[ -n "${BASH_REMATCH[4]//[[:space:]]/}" ]] || continue
               case ${BASH_REMATCH[3]} in
                 修复) fix+="${BASH_REMATCH[4]}"$'\n' ;;
+                变更) chg+="${BASH_REMATCH[4]}"$'\n' ;;
                 新增) add+="${BASH_REMATCH[4]}"$'\n' ;;
                 优化) opt+="${BASH_REMATCH[4]}"$'\n' ;;
                 插件) plg+="${BASH_REMATCH[4]}"$'\n' ;;
@@ -387,7 +388,7 @@ jobs:
 
           # 附注里一条内容都解析不出来时，这种只剩「## 说明」的空正文
           # 挂出去还得返工，直接失败把问题挡在发布前
-          if [[ -z "$overview$fix$add$opt$plg$doc$other" ]]; then
+          if [[ -z "$overview$fix$chg$add$opt$plg$doc$other" ]]; then
             echo "tag $REF 的附注里没有可解析的更新日志条目，拒绝发布空正文" >&2
             cat /tmp/tag-message.txt >&2
             exit 1
@@ -414,6 +415,7 @@ jobs:
               echo
             fi
             emit 修复 "$fix"
+            emit 变更 "$chg"
             emit 新增 "$add"
             emit 优化 "$opt"
             emit 插件 "$plg"
