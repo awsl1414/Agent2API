@@ -1,0 +1,39 @@
+# git-untracked: files propagated from the main worktree to other worktrees.
+# See https://github.com/linyows/git-untracked
+#
+# 目标：新 worktree 开箱即用，且不复制可以重生成 / 不该共享的东西。
+# 本仓最大的痛点是 Rust target/（当前 23G）——src-tauri/.cargo/config.toml
+# 把 target-dir 指到仓库根，每个 worktree 各自冷编译一遍不可接受。
+# 用法：新建 worktree 后在其中跑一次 `git-untracked` 即落地（本机已安装）。
+version: 1
+# debug: true       # log to $GIT_COMMON_DIR/git-untracked.log
+defaults:
+  conflict: skip    # skip | overwrite | backup
+  link: relative    # relative | absolute
+rules:
+  # Rust 编译产物（23G）。link 而非 copy/clone：所有 worktree 共享同一份
+  # target/，磁盘零增量、增量编译全量复用。代价：跨 worktree 并行 cargo
+  # 会在 target 锁上排队——正确性无损，省 23G 值得。某个 worktree 需要
+  # 独立编译时 rm target（删的是符号链接）再自建目录即可退出共享。
+  - path: target/
+    action: link
+
+# ── 以下一律不同步（故意不启用）────────────────────────────────────
+#
+# desktop-tauri/node_modules/ —— 仅 14M，`npm --prefix desktop-tauri ci`
+#   走全局缓存几十秒即恢复；共享/克隆对 npm 的原子替换与 .bin 符号链接
+#   都不友好（两个 worktree 的 npm 改写同一目录会互相踩），各自安装最稳。
+# - path: desktop-tauri/node_modules/
+#   action: clone
+#
+# desktop-tauri/target/ 与 desktop-tauri/src-tauri/target/ —— .gitignore 的
+#   历史残留路径，实际构建已统一落在根 target/，为空无需同步。
+#
+# .credentials.yaml / agent2api.db 等运行态 —— 本机不存在于仓内（在用户
+#   目录），worktree 跑测试无需凭据；真实账号与活体转发留在主 worktree，
+#   不复制进任何 worktree。
+#
+# dist/、mobile 产物、Service Worker 产物 —— 一切可由 npm run build 重建。
+#
+# .claude/settings.local.json —— 本机未启用；Orca 托管的 worktree 自带
+#   hooks 配置。
