@@ -14,9 +14,10 @@ name: build
 # 任何 secret。
 #
 # ── 触发方式 ──────────────────────────────────────────────────
-#   · 推送 v* tag：正式发版路径。构建完由 release job 挂 Release，正文取
+#   · 推送 v* tag：正式发版路径。构建完由 release job 挂 Release，正文由
 #     tag 附注（= 发布提交的更新日志，发布提交信息即 Release 正文这条
-#     规矩在这里落地）；版本号带 -（beta 预发布）自动标 prerelease ——
+#     规矩在这里落地）解析成分节 Markdown，再固定追加「## 说明」；
+#     版本号带 -（beta 预发布）自动标 prerelease ——
 #     这道标记就是应用内「加入 beta 版」开关的分界线
 #     （core::update::version::is_prerelease_version 同款判据）。
 #   · workflow_dispatch(version)：对**已存在**的 tag 重跑构建并补发 ——
@@ -266,8 +267,10 @@ jobs:
           if-no-files-found: error
 
   # ── 发布 ─────────────────────────────────────────────────────
-  # 四个安装包各补一份 .sha256 后挂 Release。正文 = tag 附注（annotated tag
-  # 的 contents）= 发布提交里的更新日志，逐字一致，不追加任何说明行。
+  # 四个安装包各补一份 .sha256 后挂 Release。正文不是 tag 附注的逐字照
+  # 搬：解析步按行首类别前缀把它拆成分节 Markdown，末尾固定追加
+  # 「## 说明」；一条条目都解析不出来就直接失败——多半是 tag 忘了写
+  # 更新日志，空正文挂出去还得手工返工。
   # 幂等：Release 已存在（补附件重跑）就改标题 / 正文 / 预发布标记后覆盖
   # 上传，不存在才 create —— 「删旧 tag 重打」与「dispatch 补发」两条
   # 重试路都走得通。上传逐文件 --clobber：gh 批量上传遇到「附件已存在」
@@ -318,6 +321,128 @@ jobs:
           cat ./*.sha256
           ls -lh
 
+      # ── 发布正文：把 tag 附注解析成分节 Markdown ─────────────────
+      # 附注（= 发布提交的更新日志）是「N. 类别：内容」的扁平清单，逐字
+      # 挂出去没有结构。解析规则：条目按行首类别前缀归入 修复/新增/优化/
+      # 插件/文档 五节并统一从 1 编号；条目开始前的首个非空行是版本说明
+      # 标题，作「## 概述」；「版本：」行只是版本号记录，不上正文；归不
+      # 了类的行进「## 其他」而不是丢掉——问题在发布前肉眼可见。末尾
+      # 固定追加「## 说明」（未签名提示 + 更新通道指向本仓库）。将来
+      # 新增类别时在 item_re 补一个词、case 里补一行。
+      - name: 解析发布正文
+        env:
+          REF: ${{ needs.meta.outputs.ref }}
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          # 附注取 annotated tag 的 contents；轻量 tag 会回落成提交信息。
+          # 签名 tag 的 contents 末尾带 PGP armor（正文末尾的固定收尾块），
+          # 从 BEGIN 行删到结尾即可；$ 是 sed 的行尾锚点，双引号里转义
+          armor_re="/^-----BEGIN PGP SIGNATURE-----\$/,\$d"
+          git tag -l --format='%(contents)' "$REF" \
+            | sed "$armor_re" \
+            > /tmp/tag-message.txt
+
+          # 条目行 = 可选列表标记 + 类别前缀，12. 修复：xxx、- 新增：xxx、
+          # 修复：xxx 都算；标记与类别间的空格可有可无。类别清单与
+          # 提交规范一致
+          marker='([[:space:]]*([-*][[:space:]]+|[0-9]+[.、)][[:space:]]*))?'
+          item_re="^${marker}(修复|新增|优化|插件|文档)：(.*)\$"
+          version_re="^${marker}版本："
+          overview=''
+          fix='' add='' opt='' plg='' doc='' other=''
+          seen_item=0
+          while IFS= read -r line; do
+            line=${line%$'\r'}
+            [[ -n "${line//[[:space:]]/}" ]] || continue
+            if [[ $line =~ $item_re ]]; then
+              # 只有前缀没有内容的行（手滑写出的空「修复：」）不算条目
+              [[ -n "${BASH_REMATCH[4]//[[:space:]]/}" ]] || continue
+              case ${BASH_REMATCH[3]} in
+                修复) fix+="${BASH_REMATCH[4]}"$'\n' ;;
+                新增) add+="${BASH_REMATCH[4]}"$'\n' ;;
+                优化) opt+="${BASH_REMATCH[4]}"$'\n' ;;
+                插件) plg+="${BASH_REMATCH[4]}"$'\n' ;;
+                文档) doc+="${BASH_REMATCH[4]}"$'\n' ;;
+              esac
+              seen_item=1
+            elif [[ $line =~ $version_re ]]; then
+              :
+            elif [[ $seen_item == 0 ]]; then
+              # 标题文本剥掉手写的 markdown 井号后直接当概述段落；
+              # 剥完为空的行（光杆井号）不占标题位
+              candidate=$line
+              while [[ $candidate == '#'* ]]; do
+                candidate=${candidate#'#'}
+              done
+              candidate=${candidate#"${candidate%%[![:space:]]*}"}
+              if [[ -n $candidate ]]; then
+                overview=$candidate
+                seen_item=1
+              fi
+            else
+              other+="$line"$'\n'
+            fi
+          done < /tmp/tag-message.txt
+
+          # 附注里一条内容都解析不出来时，这种只剩「## 说明」的空正文
+          # 挂出去还得返工，直接失败把问题挡在发布前
+          if [[ -z "$overview$fix$add$opt$plg$doc$other" ]]; then
+            echo "tag $REF 的附注里没有可解析的更新日志条目，拒绝发布空正文" >&2
+            cat /tmp/tag-message.txt >&2
+            exit 1
+          fi
+
+          # 一节一条标题；节内统一从 1 重新编号——源清单的序号跨类别连排，
+          # 拆节后照抄会出现 8. 9. 开头的孤节
+          emit() {
+            local title=$1 body=$2 n=1 item
+            [[ -n $body ]] || return 0
+            echo "## $title"
+            while IFS= read -r item; do
+              [[ -n $item ]] || continue
+              echo "$n. $item"
+              n=$((n + 1))
+            done <<< "$body"
+            echo
+          }
+
+          {
+            if [[ -n $overview ]]; then
+              echo '## 概述'
+              echo "$overview"
+              echo
+            fi
+            emit 修复 "$fix"
+            emit 新增 "$add"
+            emit 优化 "$opt"
+            emit 插件 "$plg"
+            emit 文档 "$doc"
+            emit 其他 "$other"
+            echo '## 说明'
+            # 未签名提示是两个版本形态共用的尾巴；预发布在前面点明 fork
+            # 身份，正式版只留提示本身
+            unsigned='桌面安装包未签名——macOS 首次打开需右键→打开，'
+            unsigned+='Windows 可能提示 SmartScreen（与上游桌面端同形态）'
+            if [[ "$VERSION" == *-* ]]; then
+              echo "- 本版为 fork 预发布（prerelease）；$unsigned"
+            else
+              echo "- $unsigned"
+            fi
+            # 桌面端「软件更新」的兜底仓库就是本仓库（core/update/version.rs
+            # 的 DEFAULT_REPO），通道说明跟着仓库走
+            echo '- 自动更新通道已指向本仓库 Releases'
+          } > /tmp/notes.md
+
+          # 版本号带 - 即预发布（与 core::update::version::is_prerelease_version
+          # 同一条约定：tag 带 `-` ↔ 标 pre-release）；挂 Release 一步用同一个值
+          if [[ "$VERSION" == *-* ]]; then
+            echo 'PRERELEASE=true' >> "$GITHUB_ENV"
+          else
+            echo 'PRERELEASE=false' >> "$GITHUB_ENV"
+          fi
+          cat /tmp/notes.md
+
       - name: 挂 Release 并上传附件
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -325,15 +450,9 @@ jobs:
           VERSION: ${{ needs.meta.outputs.version }}
         run: |
           set -euo pipefail
-          # 附注取 annotated tag 的 contents；轻量 tag 会回落成提交信息
-          git tag -l --format='%(contents)' "$REF" > /tmp/notes.md
-          # 版本号带 - 即预发布（与 core::update::version::is_prerelease_version
-          # 同一条约定：tag 带 `-` ↔ 标 pre-release）
-          PRERELEASE=false
-          if [[ "$VERSION" == *-* ]]; then
-            PRERELEASE=true
-          fi
-          # 已 checkout 本仓库，gh 能从 remote 自认仓库，不必 --repo
+          # /tmp/notes.md 与 PRERELEASE 都出自上一步的解析，这一步只管 gh
+          # 的编辑 / 创建 / 传附件；已 checkout 本仓库，gh 能从 remote
+          # 自认仓库，不必 --repo
           if gh release view "$REF" >/dev/null 2>&1
           then
             gh release edit "$REF" \
