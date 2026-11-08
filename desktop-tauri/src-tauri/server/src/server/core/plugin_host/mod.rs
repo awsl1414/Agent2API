@@ -104,26 +104,43 @@ pub fn host_target() -> String {
     rpc::target_triple()
 }
 
-/// 某个 provider 的**展示名**（按已安装包的清单查，不看它是否在跑）。
+/// 某个 provider 的**展示名**（按已安装包的清单查，不看它是否在跑、
+/// 也不看包是否被停用）。
 ///
 /// ── 为什么不走 `lookup(id).label()` ─────────────────────────
 /// 那个只认**握手成功**的家。停用的家（如示例提供商 `demo`）不参与握手，
 /// 于是「库里还有它的账号」时界面只能显示裸 id —— 用户看到一个 `demo`
-/// 分组，不知道那是什么。清单里写着 label，读它即可。
+/// 分组，不知道那是什么。清单在宿主崩溃、包被停用、网关刚启动握手未完成
+/// 时都读得到，读它即可。
 ///
-/// 代价是每次调用都读一遍注册表与 `pack.json`。这个函数的唯一消费方是
-/// provider 摘要（一次 `/api/session` 调一次、只对「有账号但没在跑」的家
-/// 问），量级可以忽略；真要优化再加缓存，别在这里提前做。
+/// ── 为什么已启用的包优先 ──────────────────────────────────
+/// 同一个 provider id 出现在两个包里属于错装 / 升级残留（正常不会有），
+/// 此时以还能跑起来的那份为准；都没命中才翻停用包的清单。
+///
+/// 代价是每次调用都读一遍注册表与 `pack.json`。消费方是
+/// `providers::label_of` 的插件家回退（账号 / 模型 / 报表 / 签到共用的展示
+/// 路径），低频且只对拿不到注册表名的 id 发生，量级可以忽略；真要优化再
+/// 加缓存，别在这里提前做。
 pub fn provider_label(id: &str) -> Option<String> {
-    for pack in install::list_packs() {
-        if !pack.enabled {
-            continue;
-        }
-        if let Some(found) = pack.providers.iter().find(|item| item.id == id) {
-            return Some(found.label.clone());
-        }
-    }
-    None
+    provider_label_in_packs(&install::list_packs(), id)
+}
+
+/// `provider_label` 的纯函数芯：包清单进、名字出，便于钉住「启用包优先」
+/// 这个顺序（停用包回退是 #504 接收时补的判据，没有测试它就会悄悄退化成
+/// 「跳过停用包」）。
+fn provider_label_in_packs(packs: &[install::PackSummary], id: &str) -> Option<String> {
+    let find = |enabled: bool| {
+        packs
+            .iter()
+            .filter(|pack| pack.enabled == enabled)
+            .find_map(|pack| {
+                pack.providers
+                    .iter()
+                    .find(|item| item.id == id)
+                    .map(|found| found.label.clone())
+            })
+    };
+    find(true).or_else(|| find(false))
 }
 
 /// 插件目录的展示路径（界面显示「装到哪儿了」用）。
@@ -745,5 +762,72 @@ impl HostStatus {
             Some(error) => format!("插件未运行：{error}"),
             None => "插件未启动".to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod provider_label_tests {
+    use super::*;
+
+    /// 造一个只填名字检索会用到的字段的包摘要，其余按空值给 —— 测试只关心
+    /// enabled 与 providers 两列，字段再多也读不到。
+    fn pack(id: &str, enabled: bool, providers: &[(&str, &str)]) -> install::PackSummary {
+        install::PackSummary {
+            id: id.into(),
+            name: id.into(),
+            description: None,
+            version: "1.0.0".into(),
+            required_version: None,
+            update_required: false,
+            compatibility_error: None,
+            enabled,
+            signed: false,
+            installed_at: 0,
+            providers: providers
+                .iter()
+                .map(|(pid, label)| install::PackProviderSummary {
+                    id: (*pid).into(),
+                    label: (*label).into(),
+                    enabled: true,
+                    loaded: false,
+                })
+                .collect(),
+            host: None,
+            provider_category: crate::server::core::plugin_host::ProviderCategory::Web,
+            entry_present: true,
+            protocol: 1,
+            homepage: None,
+            icon: None,
+            ui: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn disabled_pack_still_yields_label() {
+        // 整包停用后账号还在库里：分组标题得是人名，不能退回裸 id（#504）。
+        let packs = vec![pack("demo-pack", false, &[("demo", "示例提供商")])];
+        assert_eq!(
+            provider_label_in_packs(&packs, "demo").as_deref(),
+            Some("示例提供商")
+        );
+    }
+
+    #[test]
+    fn enabled_pack_wins_over_disabled_duplicate() {
+        // 同一家被两个包同时提供（错装 / 升级残留）：以还能跑的那份为准。
+        let packs = vec![
+            pack("old-pack", false, &[("quwork", "QuWork 旧包")]),
+            pack("new-pack", true, &[("quwork", "QuWork")]),
+        ];
+        assert_eq!(
+            provider_label_in_packs(&packs, "quwork").as_deref(),
+            Some("QuWork")
+        );
+    }
+
+    #[test]
+    fn unknown_id_returns_none() {
+        let packs = vec![pack("demo-pack", true, &[("demo", "示例提供商")])];
+        assert_eq!(provider_label_in_packs(&packs, "missing"), None);
     }
 }
