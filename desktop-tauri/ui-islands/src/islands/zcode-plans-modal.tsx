@@ -7,7 +7,8 @@ import { refreshUsageAfterCheckin, usageEntryOf } from './accounts-data'
 import { findAccount, getStore, subscribe } from './accounts-store'
 import { errorMessage, shared } from './accounts-shared'
 import { ZcodeCaptchaStatus } from './accounts-zcode-plan'
-import { planClaimResultApplies, planClaimState, planQueryErrors, type ClaimResult, type Entitlement, type OwnedPlan, type PreviewResult } from '../../../ui-shared/zcode-plans'
+import { useDisplayClock } from '../../../ui-shared/use-display-clock'
+import { planActivityEnded, planClaimResultApplies, planClaimState, planQueryErrors, unconfirmedPlanIds, type ClaimResult, type Entitlement, type OwnedPlan, type PreviewResult } from '../../../ui-shared/zcode-plans'
 
 /** 本期活动目录和账号领取状态由插件合并；余额明细仍来自账号余额查询。 */
 
@@ -155,6 +156,8 @@ function PlansModal({ options, onClose }: { options: OpenOptions; onClose: () =>
   const [claimPhase, setClaimPhase] = React.useState('')
   const [claimResults, setClaimResults] = React.useState<Record<string, ClaimResult>>({})
   const [verifyingChannel, setVerifyingChannel] = React.useState(false)
+  // 活动结束判定用展示时钟：跨午夜停在城市页面时也能正确翻到「已结束」
+  const now = useDisplayClock()
   const previewRequest = React.useRef(0)
   const claimController = React.useRef<AbortController | null>(null)
   const mounted = React.useRef(true)
@@ -174,21 +177,19 @@ function PlansModal({ options, onClose }: { options: OpenOptions; onClose: () =>
   const data = entry && typeof entry === 'object' && !Array.isArray(entry)
     ? entry as Record<string, unknown>
     : null
-  const activityPlans = preview.status === 'ready' ? preview.result.plans || [] : []
+  const previewPlans = preview.status === 'ready' ? preview.result.plans || [] : []
+  // 已结束的活动不进清单也不进「未确认」判定 —— 过期计划留着只会诱导再点一次
+  // 然后收到一个莫名的失败（#487 的缺陷形态）。
+  const activityPlans = previewPlans.filter(plan => !planActivityEnded(plan, now))
   const queryErrors = preview.status === 'ready' ? planQueryErrors(preview.result) : []
   const balancePlans = data && Array.isArray(data.plans) ? data.plans as OwnedPlan[] : []
   const ownedPlans = [...balancePlans]
-  for (const plan of activityPlans) {
+  for (const plan of previewPlans) {
     const owned = plan.ownedPlan
     if (owned && !ownedPlans.some(item => owned.userPlanId
       ? item.userPlanId === owned.userPlanId : item.planId === owned.planId)) ownedPlans.push(owned)
   }
-  // 台账里今天领过、但上面的读数里还没有的那些 id。**为什么要有这一段**：
-  // 刚领到的那一份可能不会立刻出现在上游的余额读数里（读数要重新查、上游也可能
-  // 稍后才把这份计划挂到账号上），那样「领到了却什么都看不到」会原样重现。
-  // 这里拿本地台账兜一句 —— 有它至少能证明「领到了、什么时候领的」。
-  const unconfirmed = claimed.filter(planId => planId
-    && !ownedPlans.some(plan => String(plan.planId || '') === planId))
+  const unconfirmed = unconfirmedPlanIds(claimed, previewPlans, ownedPlans, now)
   const inflight = getStore().usageInflight.has(id)
   const bridge = shared().wbZcodeClaim as ClaimBridge | undefined
 
@@ -226,6 +227,8 @@ function PlansModal({ options, onClose }: { options: OpenOptions; onClose: () =>
   /** 领一份：验证码与请求在 ui/zcode-claim.js，这里只收结果并刷新 */
   async function claim(planId: string): Promise<void> {
     if (!bridge?.claim || claimController.current || verifyingChannel) return
+    const plan = activityPlans.find(item => String(item.planId || '') === planId)
+    if (!plan || planActivityEnded(plan)) return
     const controller = new AbortController()
     claimController.current = controller
     setClaiming(planId)
