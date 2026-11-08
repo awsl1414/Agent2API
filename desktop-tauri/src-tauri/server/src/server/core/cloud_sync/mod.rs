@@ -33,6 +33,7 @@
 //!   · 面板登录态、桌面设置、任务排期**不在同步范围**，因此不需要重装。
 
 pub(crate) mod auto_sync;
+mod fingerprint;
 pub(crate) mod keyfile;
 pub(crate) mod manifest;
 pub(crate) mod s3;
@@ -268,7 +269,7 @@ pub(crate) async fn upload_locked(
         .put(REMOTE_MANIFEST, manifest_bytes, "application/json")
         .await?;
 
-    let content_hash = snapshot.content_hash();
+    let content_hash = snapshot.content_hash(key_bytes.as_ref())?;
     let snapshot_id = manifest.snapshot_id.clone();
     settings::update_status(|status| {
         status.last_sync_at = Some(logging::now_ms());
@@ -318,7 +319,7 @@ pub(crate) async fn download_locked(
     settings: &settings::CloudSyncSettings,
 ) -> Result<Value, String> {
     let transport = Transport::from_settings(settings)?;
-    let Some((manifest_bytes, manifest)) = transport.get_manifest().await? else {
+    let Some((_, manifest)) = transport.get_manifest().await? else {
         return Err("远端还没有可下载的同步数据".to_string());
     };
     manifest::validate_compat(&manifest)?;
@@ -344,19 +345,22 @@ pub(crate) async fn download_locked(
         snapshot::safety_backup(&current, config_dir)?
     };
 
-    let applied = {
+    let (applied, content_hash) = {
         let _suppress = auto_sync::SuppressionGuard::new();
-        let applied = snapshot::apply(db, &snapshot)?;
+        // 下载路径本机密钥已通过上面的指纹比对，这里取出来给恢复后的
+        // 业务指纹用（解密 accounts.data 信封）；取不到时指纹自然报错，
+        // 比落一个错的「已同步」哈希好。
+        let key = crypto::existing_key_bytes(SecretScope::Accounts);
+        let (applied, content_hash) = snapshot::apply(db, &snapshot, key.as_ref())?;
         // 配置快照重读：下载改的就是 kv，不重读的话本次运行还是旧配置
         crate::server::config::reload();
         // 余额事实表重读：选路依赖它（账号可能被换掉了一半）
         crate::server::core::usage_records::reload_facts();
         crate::server::core::limiter::sources::reload();
         crate::server::core::limiter::counter::invalidate();
-        applied
+        (applied, content_hash)
     };
 
-    let manifest_hash = sha256_hex(&manifest_bytes);
     let snapshot_id = manifest.snapshot_id.clone();
     let device = manifest.device_name.clone();
     let created_at = manifest.created_at.clone();
@@ -364,7 +368,7 @@ pub(crate) async fn download_locked(
         status.last_sync_at = Some(logging::now_ms());
         status.last_action = Some("download".to_string());
         status.last_snapshot_id = Some(snapshot_id.clone());
-        status.last_local_hash = Some(manifest_hash.clone());
+        status.last_local_hash = Some(content_hash);
         status.last_key_fingerprint = manifest.key_fingerprint.clone();
         status.last_error = None;
         status.last_error_source = None;

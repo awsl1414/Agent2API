@@ -164,9 +164,11 @@ async fn run_once(db: &Db) -> Result<bool, String> {
     }
     settings.validate()?;
 
-    // 内容没变就跳过：先构建快照算哈希（本地操作，不发网络请求）
+    // 内容没变就跳过：先构建快照算哈希（本地操作，不发网络请求）。
+    // 业务指纹要解开 accounts.data 的信封，这里把本机账号密钥一并取出来。
     let snapshot = snapshot::build(db)?;
-    let content_hash = snapshot.content_hash();
+    let key = crypto::existing_key_bytes(SecretScope::Accounts);
+    let content_hash = snapshot.content_hash(key.as_ref())?;
     let key_fingerprint = crypto::key_fingerprint(SecretScope::Accounts);
     let unchanged = settings.status.last_local_hash.as_deref() == Some(content_hash.as_str())
         && settings.status.last_key_fingerprint == key_fingerprint;
