@@ -910,6 +910,13 @@ async fn attempt_queue(
                     if strict_runtime && !matches!(&class, UpstreamErrorClass::QuotaLimited { .. }) {
                         return Err(error);
                     }
+                    // ── 本地校验类 4xx：换号无意义，直接透传（#524）──────
+                    // 插件用控制面信封标了 local_validation（请求形状问题，
+                    // prepare 阶段还没碰上游）；换任何账号重发都是同一份坏请求，
+                    // 顺延只会把一次 400 变成四条。冷却同理不记。
+                    if error.code.as_deref() == Some(crate::server::core::plugin_host::LOCAL_VALIDATION_CODE) {
+                        return Err(error);
+                    }
                     if let (UpstreamErrorClass::QuotaLimited { .. }, Some(account_id)) =
                         (&class, &stateful_account_id)
                     {
@@ -1571,6 +1578,16 @@ async fn attempt_queue(
                         Some(i64::from(failure.error.status_code)),
                         Some(&failure.error.message),
                     );
+                    // ── 本地校验类 4xx：退避 / 熔断 / 换号全部跳过（#524）──
+                    // 请求形状问题（插件 prepare 阶段的 4xx，还没碰上游），换账号
+                    // 重发同一份请求必然同一结果；把它算进账号的退避与熔断，等于
+                    // 让健康账号替客户端的坏请求背锅。直接透传给客户端 ——
+                    // 呈现的是原始状态码（信封已解码），不是 502。
+                    if failure.error.code.as_deref()
+                        == Some(crate::server::core::plugin_host::LOCAL_VALIDATION_CODE)
+                    {
+                        return Err(failure.error);
+                    }
                     // ── 动作 1：限额 → 标记冷却 + 换下一个账号 ──────────
                     if let (
                         UpstreamErrorClass::QuotaLimited {

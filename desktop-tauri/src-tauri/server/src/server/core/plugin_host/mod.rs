@@ -74,6 +74,15 @@ pub use callbacks::GatewayCallbacks;
 /// 为这一个类别引入错误类型不值得；标记常量同时用于文案拼接与判定，
 /// 改文案时两处不会脱节。
 pub const SPAWN_ENV_FAILURE_TAG: &str = "插件入口存在但无法启动";
+
+/// 「插件本地校验类失败」的 wire 类别码（与插件仓
+/// `crates/providers/src/errors.rs` 的同名常量逐字相同；两份是同一契约的两半，
+/// 改动必须同步 —— 同 `usage_not_configured` 的既有先例）。
+///
+/// 插件在请求形状校验失败（prepare 阶段 4xx）时用控制面信封 + 这个码过线，
+/// [`errors::control_error`] 按原状态码解码呈现；编排层（`upstream::provider_loop`）
+/// 凭它跳过换号 / 退避 / 熔断：请求形状问题，换任何账号重发都是同一份坏请求。
+pub const LOCAL_VALIDATION_CODE: &str = "local_validation";
 pub use bootstrap::{
     reload as reload_host, set_loopback_port, spawn as spawn_bootstrap, start as bootstrap_host,
     StoreCallbacks,
