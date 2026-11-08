@@ -72,7 +72,7 @@
 
 use std::sync::Arc;
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::server::core::account_store::AccountStore;
 use crate::server::core::custom_providers;
@@ -238,7 +238,8 @@ pub(crate) async fn forward(
         .unwrap_or("")
         .trim()
         .to_string();
-    let (mut outbound, rewrite) = rewrite_for_route(body, provider_id, &requested, route_model);
+    let (mut outbound, rewrite) =
+        rewrite_for_route(body, provider_id, &requested, route_model, false);
     // 客户端形态伪装（OpenCode 免费档）：补桩工具。未开启时不碰请求体。
     // 放在 `rewrite_body` 之后、序列化之前 —— 会话种子取自**改写后**的体，
     // 与最终发出去的字节同源（模型名换了不影响 messages，两种取法等价，
@@ -499,7 +500,8 @@ async fn forward_translated(
         .unwrap_or("")
         .trim()
         .to_string();
-    let (mut outbound_chat, rewrite) = rewrite_for_route(body, provider_id, &requested, route_model);
+    let (mut outbound_chat, rewrite) =
+        rewrite_for_route(body, provider_id, &requested, route_model, matches!(kind, OutboundKind::Anthropic));
     // 客户端形态伪装：与 chat 分支同一时机（改写后、翻译前）—— 桩工具要由
     // 转换器一起翻成上游协议的形态（anthropic 的 tools 数组）；Go 面不改请求体
     quirks.apply_emulation_to_body(&mut outbound_chat, base_url);
@@ -805,15 +807,26 @@ impl futures::Stream for ProtocolTranslateStream {
 ///
 /// `rewrite` 是 SSE/聚合的 model 回写参数：请求带了 model 才给 ——
 /// 客户端没点名模型时（上游用自家默认）没有「回写成什么」的答案。
-fn rewrite_for_route(body: &Value, provider_id: &str, requested: &str, route_model: Option<&str>) -> (Value, Option<ModelRewrite>) {
+fn rewrite_for_route(
+    body: &Value,
+    provider_id: &str,
+    requested: &str,
+    route_model: Option<&str>,
+    anthropic_protocol: bool,
+) -> (Value, Option<ModelRewrite>) {
     if let Some(client_model) = route_model {
         // 组内模型已由请求快照选定，不再经同名映射改写。
         return (body.clone(), Some(ModelRewrite { requested: client_model.to_string() }));
     }
-    rewrite_body(body, provider_id, requested)
+    rewrite_body(body, provider_id, requested, anthropic_protocol)
 }
 
-fn rewrite_body(body: &Value, provider_id: &str, requested: &str) -> (Value, Option<ModelRewrite>) {
+fn rewrite_body(
+    body: &Value,
+    provider_id: &str,
+    requested: &str,
+    anthropic_protocol: bool,
+) -> (Value, Option<ModelRewrite>) {
     let mut outbound = body.clone();
     if requested.is_empty() {
         return (outbound, None);
@@ -833,8 +846,12 @@ fn rewrite_body(body: &Value, provider_id: &str, requested: &str) -> (Value, Opt
         .map(str::trim)
         .filter(|text| !text.is_empty())
     {
-        let explicit =
-            outbound.get("reasoning_effort").is_some() || outbound.get("reasoning").is_some();
+        // 客户端已带思考意图的判据按协议分野：chat 客户端看
+        // reasoning_effort / reasoning；anthropic 入口翻译后的体看暂存的
+        // 原生 thinking/output_config（有暂存 = 客户端原话在，注入必须让位）。
+        let explicit = outbound.get("reasoning_effort").is_some()
+            || outbound.get("reasoning").is_some()
+            || outbound.get(crate::server::core::protocol::FIELD_THINKING_BYPASS).is_some();
         if model_rules::reasoning_is_off(level) {
             logging::verbose(
                 "[CustomProvider]",
@@ -852,16 +869,33 @@ fn rewrite_body(body: &Value, provider_id: &str, requested: &str) -> (Value, Opt
                 ),
             );
         } else if let Some(object) = outbound.as_object_mut() {
+            // 注入键按上游协议分派（#526）：anthropic 上游认
+            // output_config.effort（原生词汇表），出站侧读取后按档位折算；
+            // 其余协议维持 reasoning_effort（OpenAI 词汇表）。
+            let (_field, label) = if anthropic_protocol {
+                ("output_config", "output_config.effort")
+            } else {
+                ("reasoning_effort", "reasoning_effort")
+            };
             logging::verbose(
                 "[CustomProvider]",
                 &format!(
-                    "provider={provider_id} 映射 {requested} 注入思考等级 reasoning_effort={level}"
+                    "provider={provider_id} 映射 {requested} 注入思考等级 {label}={level}"
                 ),
             );
-            object.insert(
-                "reasoning_effort".to_string(),
-                Value::String(level.to_string()),
-            );
+            if anthropic_protocol {
+                let entry = object
+                    .entry("output_config")
+                    .or_insert_with(|| json!({}));
+                if let Some(config) = entry.as_object_mut() {
+                    config.insert("effort".to_string(), Value::String(level.to_string()));
+                }
+            } else {
+                object.insert(
+                    "reasoning_effort".to_string(),
+                    Value::String(level.to_string()),
+                );
+            }
         }
     }
     (

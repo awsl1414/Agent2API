@@ -329,6 +329,15 @@ pub const FIELD_CACHE_CONTROL: &str = "_wb_cache_control";
 pub const FIELD_IS_ERROR: &str = "_wb_is_error";
 /// reasoning encrypted_content 的暂存字段（assistant 消息上，值 = 原样的加密串）
 pub const FIELD_ENCRYPTED_CONTENT: &str = "_wb_encrypted_content";
+/// Anthropic 原生思考参数的顶层暂存字段（值 = `{thinking, output_config}`，
+/// 仅存请求里非空的那几个）。#526：Anthropic 的 `adaptive` / `output_config`
+/// 在 Chat 中间形态没有承载字段，折算会把它们抹掉 —— 存原对象、由
+/// `anthropic_request_from_chat` 原样回填，原生→原生不再经过有损双跳。
+pub const FIELD_THINKING_BYPASS: &str = "_wb_thinking";
+/// assistant 消息上 thinking 块的逐块暂存字段（值 = 原样块数组，含
+/// `signature` 与 `redacted_thinking`）。出站优先回填它；没有它时按老口径
+/// 从 `reasoning_content` 折回一块不带签名的 thinking。
+pub const FIELD_THINKING_BLOCKS: &str = "_wb_thinking_blocks";
 
 /// 内部暂存字段的前缀：剥离按**前缀**而不是逐个常量 —— 将来加新字段时
 /// 剥离层自动覆盖，不会因为忘了同步清单而把内部字段漏给上游。

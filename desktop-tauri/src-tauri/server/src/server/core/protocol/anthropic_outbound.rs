@@ -33,6 +33,7 @@ use serde_json::{json, Map, Value};
 use super::{
     chat_frame, content_parts, content_text, is_truthy, json_text, native_tool, random_id,
     string_field, string_value, SseLineBuffer, FIELD_CACHE_CONTROL, FIELD_IS_ERROR,
+    FIELD_THINKING_BYPASS, FIELD_THINKING_BLOCKS,
 };
 use super::anthropic::{parse_json_object, tool_result_parts, DEFAULT_MAX_TOKENS, ToolResultParts};
 use super::responses::ConvertError;
@@ -127,12 +128,42 @@ pub fn anthropic_request_from_chat(chat: &Value, model: &str) -> Result<Value, C
 
     // thinking 先判定：它决定 max_tokens 的下限，也决定 temperature/top_p
     // 能不能带（见模块头第二条规则）
-    let thinking = chat
-        .get("reasoning_effort")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-        .and_then(thinking_budget);
+    //
+    // 优先级（#526）：顶层暂存的**原版 thinking/output_config** 最优先 ——
+    // 客户端原话（含 adaptive / output_config / 自定义字段）不打折；没有暂存
+    // 才走老折算（reasoning_effort / 注入的 output_config.effort → 四档
+    // budget），OpenAI 方言与旧版兼容端点的形状不变。暂存里的 output_config
+    // 是否安全随 thinking 一起回填：原请求能通过入口校验，说明客户端本来就是
+    // 按这家的要求写的。
+    let mut thinking: Option<i64> = None;
+    if let Some(stored) = chat.get(FIELD_THINKING_BYPASS).filter(|value| value.is_object()) {
+        if let Some(original) = stored.get("thinking").filter(|value| value.is_object()) {
+            // enabled 且带 budget 时仍要守 budget < max_tokens；adaptive 没有
+            // budget，不强抬。
+            let budget = original.get("budget_tokens").and_then(Value::as_i64);
+            if original.get("type").and_then(Value::as_str) == Some("enabled") {
+                thinking = budget;
+            }
+        }
+    } else {
+        thinking = chat
+            .get("reasoning_effort")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .and_then(thinking_budget)
+            .or_else(|| {
+                // 注入落点（custom/forward 对 anthropic 协议的思考等级绑定写
+                // output_config.effort）：与 reasoning_effort 同一档位词汇表，
+                // 同一四档折算；纯 chat 客户端不会带这个键，不影响原路径。
+                chat.get("output_config")
+                    .and_then(|value| value.get("effort"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
+                    .and_then(thinking_budget)
+            });
+    }
     let mut max_tokens = ["max_tokens", "max_completion_tokens"]
         .iter()
         .find_map(|key| chat.get(*key).and_then(Value::as_i64).filter(|value| *value > 0))
@@ -144,7 +175,23 @@ pub fn anthropic_request_from_chat(chat: &Value, model: &str) -> Result<Value, C
         }
     }
     out.insert("max_tokens".to_string(), Value::from(max_tokens));
-    if thinking.is_some() {
+    if let Some(stored) = chat.get(FIELD_THINKING_BYPASS).filter(|value| value.is_object()) {
+        // 原样回填：thinking 与 output_config 都回（只回暂存里非空的那几个）；
+        // temperature/top_p 的省略规则按回填后的 thinking.type 判定。
+        let restored_type = stored.pointer("/thinking/type").and_then(Value::as_str);
+        for key in ["thinking", "output_config"] {
+            if let Some(value) = stored.get(key).filter(|value| value.is_object()) {
+                out.insert(key.to_string(), value.clone());
+            }
+        }
+        if restored_type != Some("enabled") {
+            for key in ["temperature", "top_p"] {
+                if let Some(value) = chat.get(key).filter(|value| !value.is_null()) {
+                    out.insert(key.to_string(), value.clone());
+                }
+            }
+        }
+    } else if thinking.is_some() {
         if let Some(budget) = thinking {
             out.insert(
                 "thinking".to_string(),
@@ -256,18 +303,24 @@ fn anthropic_blocks_of(message: &Value, role: &str) -> Vec<Value> {
     }
     let mut blocks: Vec<Value> = Vec::new();
     if role == "assistant" {
-        // 思考 → thinking 块（不带 signature：Chat 侧没有签名概念，
-        // 见 `anthropic.rs` 模块头的方向约定）
-        let reasoning = {
-            let from_field = string_field(message, "reasoning_content");
-            if from_field.is_empty() {
-                string_field(message, "reasoning")
-            } else {
-                from_field
+        // 暂存的原版 thinking 块优先（#526）：含 signature 与 redacted_thinking
+        // 的原块逐块回填，块边界不丢 —— 严格上游对开启思考的多轮请求要求
+        // signature（旧假设「上游都不校验」已被证伪）。没有暂存才按老口径
+        // 从 reasoning_content 折一块不带签名的（OpenAI 形态客户端 / 旧请求）。
+        if let Some(stored) = message.get(FIELD_THINKING_BLOCKS).and_then(Value::as_array) {
+            blocks.extend(stored.iter().cloned());
+        } else {
+            let reasoning = {
+                let from_field = string_field(message, "reasoning_content");
+                if from_field.is_empty() {
+                    string_field(message, "reasoning")
+                } else {
+                    from_field
+                }
+            };
+            if !reasoning.is_empty() {
+                blocks.push(json!({ "type": "thinking", "thinking": reasoning }));
             }
-        };
-        if !reasoning.is_empty() {
-            blocks.push(json!({ "type": "thinking", "thinking": reasoning }));
         }
     }
     // 正文：字符串 / 块数组（图片 → image 块，见 [`image_to_anthropic`]）
@@ -579,11 +632,9 @@ impl ChatFromAnthropicStream {
             return Vec::new();
         }
         let mut out = Vec::new();
-        for payload in self.buffer.finish() {
-            if let Some(data) = payload {
-                if let Ok(value) = serde_json::from_str::<Value>(&data) {
-                    out.extend(self.consume(&value));
-                }
+        for data in self.buffer.finish().into_iter().flatten() {
+            if let Ok(value) = serde_json::from_str::<Value>(&data) {
+                out.extend(self.consume(&value));
             }
         }
         out.extend(self.complete());

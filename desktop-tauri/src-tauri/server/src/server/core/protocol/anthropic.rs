@@ -13,11 +13,19 @@
 //!
 //! ── 思考（thinking）怎么映射 ────────────────────────────────
 //! Anthropic 侧是 `thinking` 内容块 + `signature`（签名，用于多轮校验）；
-//! Chat 侧是 `reasoning_content` 字符串。Chat 没有签名这个概念，所以：
-//!   - 回程（Anthropic → Chat）：thinking 块折进 `reasoning_content`，
-//!     signature **丢弃**（Chat 侧无处安放，且下游上游都不校验它）；
-//!   - 去程（Chat → Anthropic）：`reasoning_content` 折成 thinking 块，
-//!     不带 signature（Anthropic 的签名只在它自己的多轮里需要）。
+//! Chat 侧是 `reasoning_content` 字符串。签名与块边界 Chat 都没有对应字段，
+//! 所以走 `_wb_` 暂存（`FIELD_THINKING_BLOCKS` / `FIELD_THINKING_BYPASS`，#526）：
+//!   - 回程（Anthropic → Chat）：thinking 块折进 `reasoning_content` 供下游
+//!     消费，**原块（含 signature / redacted_thinking）逐块暂存**在 assistant
+//!     消息上；顶层 `thinking` / `output_config` 对象同样暂存。
+//!   - 去程（Chat → Anthropic，`anthropic_request_from_chat`）：暂存存在时
+//!     **原样回填**（原生→原生不再经过有损双跳）；不存在时按老口径从
+//!     `reasoning_effort` / `reasoning_content` 折算 —— OpenAI 方言上游与
+//!     旧版兼容端点的行为不变。
+//!   - 曾经「回程丢 signature、去程不带 signature」是一个有记录的设计假设
+//!     （「下游上游都不校验它」），已被严格校验的新端点证伪：开启思考的
+//!     多轮请求缺签名会被拒。上游→客户端方向的签名保留（`signature_delta`
+//!     回填）是另一步改造，见登记。
 //!
 //! `thinking.type:"enabled"` 时 Anthropic 要求 `budget_tokens < max_tokens`，
 //! 所以去程会把 max_tokens 抬高到 budget 之上（参考实现同款处理）。
@@ -30,7 +38,7 @@ use serde_json::{json, Map, Value};
 use super::{
     content_parts, content_text, event_frame, is_truthy, json_text, native_tool, random_id,
     string_field, string_value, tool_plan, SseLineBuffer, TOOL_IMAGE_PLACEHOLDER,
-    FIELD_CACHE_CONTROL, FIELD_IS_ERROR,
+    FIELD_CACHE_CONTROL, FIELD_IS_ERROR, FIELD_THINKING_BYPASS, FIELD_THINKING_BLOCKS,
 };
 use super::responses::ConvertError;
 use crate::server::logging;
@@ -147,6 +155,24 @@ pub fn chat_from_anthropic(body: &Value) -> Result<Value, ConvertError> {
     if let Some(effort) = anthropic_effort(body) {
         out.insert("reasoning_effort".to_string(), Value::String(effort));
     }
+    // 原生思考参数暂存（#526）：`adaptive` / `output_config` 在 Chat 中间形态
+    // 没有承载字段，折算成 reasoning_effort 后就没了 —— 存下原对象，出站侧
+    // （anthropic_request_from_chat）原样回填，原生→原生不再有损。只存非空
+    // 的那几个键；纯 OpenAI 形态的客户端不受影响（无 thinking/output_config
+    // 时不产生暂存）。出站优先级高于 reasoning_effort —— 客户端原话优先于
+    // 折算结果。 reasoning_effort 照常保留：请求日志与展示层读它。
+    let bypass = {
+        let mut stored = Map::new();
+        for key in ["thinking", "output_config"] {
+            if let Some(value) = body.get(key).filter(|value| value.is_object()) {
+                stored.insert(key.to_string(), value.clone());
+            }
+        }
+        if stored.is_empty() { None } else { Some(Value::Object(stored)) }
+    };
+    if let Some(bypass) = bypass {
+        out.insert(FIELD_THINKING_BYPASS.to_string(), bypass);
+    }
     Ok(Value::Object(out))
 }
 
@@ -204,6 +230,11 @@ fn convert_message(messages: &mut Vec<Value>, message: &Value) -> Result<(), Con
     let mut tool_results: Vec<Value> = Vec::new();
     let mut tool_calls: Vec<Value> = Vec::new();
     let mut reasoning = String::new();
+    // thinking 原块的逐块暂存（#526）：Chat 中间形态只容得下一串
+    // reasoning_content 文本，块边界与 signature 都会丢 —— 存原块，出站侧
+    // （anthropic_request_from_chat）原样回填。含 redacted_thinking（没有
+    // thinking 字段，只有 data，老折算本来就接不住）。
+    let mut thinking_blocks: Vec<Value> = Vec::new();
     let mut normal: Vec<Value> = Vec::new();
     // 块级 cache_control → 消息级暂存（粒度取舍见 mod.rs「内部暂存字段」的说明）。
     // 思考块按 Anthropic 的规则**不可**挂 cache_control，这里也不收。
@@ -241,6 +272,7 @@ fn convert_message(messages: &mut Vec<Value>, message: &Value) -> Result<(), Con
                 }
             }
             "thinking" | "redacted_thinking" => {
+                thinking_blocks.push(part.clone());
                 let text = string_field(part, "thinking");
                 if !text.is_empty() {
                     if !reasoning.is_empty() {
@@ -334,6 +366,9 @@ fn convert_message(messages: &mut Vec<Value>, message: &Value) -> Result<(), Con
             entry.insert("reasoning_content".to_string(), Value::String(reasoning.clone()));
         }
         entry.insert("tool_calls".to_string(), Value::Array(tool_calls));
+        if !thinking_blocks.is_empty() {
+            entry.insert(FIELD_THINKING_BLOCKS.to_string(), Value::Array(thinking_blocks));
+        }
         // 缓存断点优先取 tool_use 块上的（Claude Code 的惯例断点），否则用
         // 同一条消息里正文块的断点 —— 本来就是同一条 Anthropic 消息拆开的
         if let Some(cache) = tool_use_cache.or(normal_cache) {
@@ -350,6 +385,9 @@ fn convert_message(messages: &mut Vec<Value>, message: &Value) -> Result<(), Con
         // reasoning_content 只在 assistant 上有意义
         if chat_role == "assistant" && !reasoning.is_empty() {
             entry.insert("reasoning_content".to_string(), Value::String(reasoning));
+        }
+        if chat_role == "assistant" && !thinking_blocks.is_empty() {
+            entry.insert(FIELD_THINKING_BLOCKS.to_string(), Value::Array(thinking_blocks));
         }
         if let Some(cache) = normal_cache {
             entry.insert(FIELD_CACHE_CONTROL.to_string(), cache);
@@ -400,7 +438,7 @@ pub(super) fn tool_result_parts(
             let images: Vec<Value> = parts
                 .iter()
                 .filter(|part| is_image_block(part))
-                .filter_map(|part| convert(part))
+                .filter_map(convert)
                 .collect();
             let text = content_text(content);
             if text.is_empty() && images.is_empty() {
@@ -800,11 +838,9 @@ impl AnthropicStream {
             return Vec::new();
         }
         let mut out = Vec::new();
-        for payload in self.buffer.finish() {
-            if let Some(data) = payload {
-                if let Ok(value) = serde_json::from_str::<Value>(&data) {
-                    out.extend(self.consume(&value));
-                }
+        for data in self.buffer.finish().into_iter().flatten() {
+            if let Ok(value) = serde_json::from_str::<Value>(&data) {
+                out.extend(self.consume(&value));
             }
         }
         if self.finished {
@@ -1100,21 +1136,17 @@ impl AnthropicCollector {
     }
 
     pub fn push(&mut self, chunk: &[u8]) {
-        for payload in self.buffer.push(chunk) {
-            if let Some(data) = payload {
-                if let Ok(value) = serde_json::from_str::<Value>(&data) {
-                    self.consume(&value);
-                }
+        for data in self.buffer.push(chunk).into_iter().flatten() {
+            if let Ok(value) = serde_json::from_str::<Value>(&data) {
+                self.consume(&value);
             }
         }
     }
 
     pub fn finish(&mut self) {
-        for payload in self.buffer.finish() {
-            if let Some(data) = payload {
-                if let Ok(value) = serde_json::from_str::<Value>(&data) {
-                    self.consume(&value);
-                }
+        for data in self.buffer.finish().into_iter().flatten() {
+            if let Ok(value) = serde_json::from_str::<Value>(&data) {
+                self.consume(&value);
             }
         }
     }
@@ -1237,5 +1269,112 @@ pub fn responses_error_code(status: u16) -> &'static str {
         429 => "rate_limit_error",
         500..=599 => "server_error",
         _ => "api_error",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! #526 回归：原生思考参数（adaptive / output_config / signature /
+    //! redacted_thinking）在入口暂存、出站原样回填；无暂存的老路径形状不变。
+    use super::*;
+    use super::super::anthropic_outbound::anthropic_request_from_chat;
+
+    #[test]
+    fn adaptive_thinking_round_trips_verbatim() {
+        let body = json!({
+            "model": "opus-5.5",
+            "max_tokens": 8192,
+            "messages": [{ "role": "user", "content": "hi" }],
+            "thinking": { "type": "adaptive" },
+            "output_config": { "effort": "max" },
+        });
+        let chat = chat_from_anthropic(&body).expect("入口翻译成功");
+        // 暂存原对象；reasoning_effort 照常折算（展示层读它）
+        assert_eq!(chat.get(FIELD_THINKING_BYPASS), Some(&json!({
+            "thinking": { "type": "adaptive" },
+            "output_config": { "effort": "max" },
+        })));
+
+        let outbound = anthropic_request_from_chat(&chat, "opus-5.5").expect("出站翻译成功");
+        assert_eq!(
+            outbound.get("thinking"),
+            Some(&json!({ "type": "adaptive" })),
+            "adaptive 不能被折成 enabled+budget"
+        );
+        assert_eq!(outbound.get("output_config"), Some(&json!({ "effort": "max" })));
+        assert!(outbound.get("thinking").and_then(|value| value.get("budget_tokens")).is_none());
+    }
+
+    #[test]
+    fn thinking_signatures_round_trip_per_block() {
+        let body = json!({
+            "model": "opus-5.5",
+            "max_tokens": 8192,
+            "messages": [
+                { "role": "user", "content": "hi" },
+                { "role": "assistant", "content": [
+                    { "type": "thinking", "thinking": "第一段", "signature": "sig-1" },
+                    { "type": "redacted_thinking", "data": "encrypted-blob" },
+                    { "type": "text", "text": "答案" },
+                ]},
+            ],
+        });
+        let chat = chat_from_anthropic(&body).expect("入口翻译成功");
+        let assistant = chat
+            .get("messages")
+            .and_then(Value::as_array)
+            .and_then(|messages| messages.iter().find(|message| message.get("role").and_then(Value::as_str) == Some("assistant")))
+            .expect("assistant 在");
+        let stored = assistant
+            .get(FIELD_THINKING_BLOCKS)
+            .and_then(Value::as_array)
+            .expect("thinking 块已逐块暂存");
+        assert_eq!(stored.len(), 2);
+        assert_eq!(stored[0].get("signature"), Some(&json!("sig-1")));
+        assert_eq!(stored[1].get("type"), Some(&json!("redacted_thinking")));
+
+        let outbound = anthropic_request_from_chat(&chat, "opus-5.5").expect("出站翻译成功");
+        let blocks = outbound
+            .pointer("/messages/1/content")
+            .and_then(Value::as_array)
+            .expect("assistant 内容块");
+        let first = blocks.iter().find(|block| block.get("type").and_then(Value::as_str) == Some("thinking")).expect("thinking 块回填");
+        assert_eq!(first.get("signature"), Some(&json!("sig-1")));
+        assert!(blocks.iter().any(|block| block.get("type").and_then(Value::as_str) == Some("redacted_thinking")));
+    }
+
+    #[test]
+    fn openai_shaped_requests_keep_the_legacy_form() {
+        // 没有原生 thinking/output_config 的请求（Chat 客户端直连 / 旧折算）：
+        // 出站仍是老四档 enabled+budget 形态，output_config 不出现
+        let chat = json!({
+            "model": "opus-5.5",
+            "max_tokens": 4096,
+            "messages": [{ "role": "user", "content": "hi" }],
+            "reasoning_effort": "high",
+        });
+        let outbound = anthropic_request_from_chat(&chat, "opus-5.5").expect("出站翻译成功");
+        assert_eq!(
+            outbound.get("thinking"),
+            Some(&json!({ "type": "enabled", "budget_tokens": 10240 })),
+        );
+        assert!(outbound.get("output_config").is_none());
+    }
+
+    #[test]
+    fn anthropic_binding_injection_lands_on_output_config() {
+        // custom/forward 对 anthropic 协议的注入写 output_config.effort：
+        // 出站读取它并折成老四档 budget（注入场景没有原生对象可保真）
+        let chat = json!({
+            "model": "opus-5.5",
+            "max_tokens": 4096,
+            "messages": [{ "role": "user", "content": "hi" }],
+            "output_config": { "effort": "medium" },
+        });
+        let outbound = anthropic_request_from_chat(&chat, "opus-5.5").expect("出站翻译成功");
+        assert_eq!(
+            outbound.get("thinking"),
+            Some(&json!({ "type": "enabled", "budget_tokens": 4096 })),
+        );
     }
 }
