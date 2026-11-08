@@ -43,6 +43,10 @@ use crate::server::errors::GatewayError;
 use super::Host;
 use super::errors::strict;
 
+#[cfg(test)]
+#[path = "rpc_tests.rs"]
+mod tests;
+
 /// 一次 RPC 调用的超时。
 ///
 /// ── 为什么不用一个统一值 ────────────────────────────────────
@@ -646,7 +650,10 @@ impl ProviderAdapter for RpcAdapter {
     fn classify_conversation_error(&self, error: &GatewayError) -> UpstreamErrorClass {
         // 新增 scoped runtime 已在异步错误边界完成正式分类；不能重新按 HTTP 429 猜配额。
         if strict::applies(self.id) { return strict::cached_class(self.id, error); }
-        // 此钩子同步，不能再发分类 RPC；旧提供商保留既有 429/6004 的记账语义。
+        if let Some(class) = &error.conversation_class {
+            return class.clone();
+        }
+        // 此钩子同步，不能再发分类 RPC；未携带分类的旧错误保留 429/6004 的记账语义。
         if error.is_quota_limit() {
             let reset_at = crate::server::errors::parse_quota_reset_at(&error.message);
             UpstreamErrorClass::QuotaLimited {
@@ -1898,18 +1905,23 @@ async fn collect(
 /// 见 `upstream::provider_loop` 的 `OutboundFailure` 构造：状态码取分类里
 /// 那个（分类器可能把它改小，例如 402 → 429），文案原样用，上游码带上。
 fn conversation_error(status: u16, class: UpstreamErrorClass, body: &Value) -> GatewayError {
-    match class {
+    let mut error = match &class {
         UpstreamErrorClass::QuotaLimited { status, message, upstream_code, .. }
         | UpstreamErrorClass::ContentBlocked { status, message, upstream_code }
         | UpstreamErrorClass::Fatal { status, message, upstream_code } => {
-            let text = if message.is_empty() { describe_body(body) } else { message };
-            GatewayError::with_status(status as i32, text).with_optional_code(upstream_code)
+            let text = if message.is_empty() { describe_body(body) } else { message.clone() };
+            GatewayError::with_status(i32::from(*status), text).with_optional_code(*upstream_code)
         }
         UpstreamErrorClass::TokenExpired { message } => {
-            let text = if message.is_empty() { describe_body(body) } else { message };
-            GatewayError::with_status(status as i32, text)
+            let text = if message.is_empty() { describe_body(body) } else { message.clone() };
+            GatewayError::with_status(i32::from(status), text)
         }
-    }
+    };
+    // 分类结果随错误走完剩余链路（`GatewayError.conversation_class`），
+    // 后面的同步分类钩子才能原样取回；不然 `reset_at` 这类只在分类阶段
+    // 算得出的字段会在边界上被丢掉，记账退回按文案猜。
+    error.conversation_class = Some(class);
+    error
 }
 
 /// 错误体没有可读文案时的兜底（与内置家的 `上游返回 {status}: …` 同形态）。

@@ -38,7 +38,9 @@ fn plugin_exe() -> Option<std::path::PathBuf> {
 }
 
 /// 一个最小回调实现：只为验证「插件 → 网关」这条路通。
-struct TestCallbacks;
+/// `pub(super)`：rpc_tests（rpc.rs 的内嵌测试模块）也借它造一个不真拉起
+/// 进程的适配器，好测 conversation_class 的边界行为。
+pub(super) struct TestCallbacks;
 
 impl GatewayCallbacks for TestCallbacks {
     fn store_get(
