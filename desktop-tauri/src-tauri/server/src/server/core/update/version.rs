@@ -16,21 +16,24 @@ use serde_json::Value;
 
 use crate::server::config::UpdateChannels;
 
-/// 默认仓库：安装包实际发布的地方（独立构建账号下的仓库）。
+/// 默认仓库：本 fork 桌面安装包发布的地方（`awsl1414/Agent2API` 的 Releases）。
 ///
-/// ── 为什么不是主仓库 ────────────────────────────────────────
-/// 构建已搬到专用账号（见 `Agent2Builder/agent2api-releases` 的
-/// `release.yml`）：七个平台 job 跑一次是重负载，留在主仓库做 tag 触发容易
-/// 被判定为 Actions 滥用。因此**主仓库不再发带安装包的 Release** —— 这个
-/// 常量若仍指向主仓库，更新检查会永远「已是最新」（不报错，只是静默失效）。
+/// ── 为什么指回本仓库 ────────────────────────────────────────
+/// fork 的桌面包已改由本仓库 `.github/workflows/build.yml` 直构直发
+/// （tag 一推，三个平台 job 出包挂 Release，不再经过独立构建账号的构建
+/// 仓），更新检查的兜底数据源也跟着走本仓库。若仍指上游构建仓
+/// （`Agent2Builder/agent2api-releases`），索引读不到时兜底查到的是上游
+/// 版本清单，fork 的预发布永远「已是最新」（不报错，只是静默失效）。
 ///
-/// ── 这个值是可以被远程改掉的 ────────────────────────────────
-/// 它只是**兜底**。正常情况下实际用的是索引里的 `app.repo`
-/// （见 `core::update::index`）：构建仓库换了，改索引文件即可，不必发版。
-/// 这里保留一个可用值，是为了「索引读不到也还能更新」。
+/// ── 它只是兜底，索引可达时索引优先 ──────────────────────────
+/// 仓库解析顺序（见 `core::update` 的 `resolve_repository`）：
+/// `WORKBUDDY_UPDATE_REPO` 环境变量 > 索引 `app.repo`（上游
+/// `Agent2plugin/Agent2plugin` 的 app.json，fork 不改上游）> 本常量。
+/// 也就是说索引可达时本值不生效，更新检查仍落在上游构建仓；要把 fork
+/// 安装包的更新通道完整切过来，还得备一份 fork 自有的索引（另立事项）。
 ///
 /// `WORKBUDDY_UPDATE_REPO` 环境变量仍可覆盖（最高优先级，且不读索引）。
-pub const DEFAULT_REPO: &str = "Agent2Builder/agent2api-releases";
+pub const DEFAULT_REPO: &str = "awsl1414/Agent2API";
 
 /// 项目源码仓库（`owner/repo`）。
 ///
