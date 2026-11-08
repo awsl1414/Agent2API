@@ -156,8 +156,14 @@ pub async fn preview_profile(State(state): State<ServerState>, body: Bytes) -> R
             return agents::apply::restore_preview(def, &path, action == "disconnect");
         }
         let operation = if action == "quick-connect" {
-            if def.default_model { "default".into() } else { "apply".into() }
-        } else { operation(def, &payload)? };
+            if def.default_model {
+                "default".into()
+            } else {
+                "apply".into()
+            }
+        } else {
+            operation(def, &payload)?
+        };
         let profile = selected_profile(def, &payload, true)?;
         agents::preview::create(def, &path, &profile, &operation, state.port)
     })())
@@ -174,9 +180,22 @@ pub async fn apply_profile(State(state): State<ServerState>, body: Bytes) -> Res
         } else {
             let profile = selected_profile(def, &payload, action == "quick-connect")?;
             let operation = if action == "quick-connect" {
-                if def.default_model { "default".into() } else { "apply".into() }
-            } else { operation(def, &payload)? };
-            agents::apply::apply(def, &path, &profile, &operation, text(&payload, "token"), state.port)?
+                if def.default_model {
+                    "default".into()
+                } else {
+                    "apply".into()
+                }
+            } else {
+                operation(def, &payload)?
+            };
+            agents::apply::apply(
+                def,
+                &path,
+                &profile,
+                &operation,
+                text(&payload, "token"),
+                state.port,
+            )?
         };
         let mut snapshot = agents::snapshot(state.port);
         if let Some(object) = snapshot.as_object_mut() {

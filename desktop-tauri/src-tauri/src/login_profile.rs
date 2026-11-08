@@ -21,12 +21,10 @@ pub struct LoginProfile {
 impl LoginProfile {
     pub fn new() -> Result<Self, String> {
         let mut random = [0u8; 8];
-        getrandom::getrandom(&mut random)
-            .map_err(|_| "生成独立登录环境标识失败".to_string())?;
+        getrandom::getrandom(&mut random).map_err(|_| "生成独立登录环境标识失败".to_string())?;
         let suffix: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
         let path = std::env::temp_dir().join(format!("agent2api-login-{suffix}"));
-        std::fs::create_dir_all(&path)
-            .map_err(|error| format!("创建独立登录环境失败: {error}"))?;
+        std::fs::create_dir_all(&path).map_err(|error| format!("创建独立登录环境失败: {error}"))?;
         Ok(Self { path })
     }
 

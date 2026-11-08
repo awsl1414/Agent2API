@@ -354,9 +354,16 @@ pub(crate) mod test_temp {
         pub fn open(label: &str) -> (Db, TempDb) {
             let safe: String = label
                 .chars()
-                .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c.to_ascii_lowercase() } else { '-' })
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '-' {
+                        c.to_ascii_lowercase()
+                    } else {
+                        '-'
+                    }
+                })
                 .collect();
-            let path = std::env::temp_dir().join(format!("agent2api-test-{safe}-{}.db", std::process::id()));
+            let path = std::env::temp_dir()
+                .join(format!("agent2api-test-{safe}-{}.db", std::process::id()));
             let _ = std::fs::remove_file(&path);
             let db = Db::open(&path)
                 .unwrap_or_else(|error| panic!("临时库打不开（{}）：{error}", path.display()));

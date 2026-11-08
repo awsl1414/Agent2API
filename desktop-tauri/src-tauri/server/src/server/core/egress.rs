@@ -125,9 +125,20 @@ fn cache_key(proxy: Option<&ResolvedProxy>, timeouts: &TimeoutSettings) -> Strin
             fingerprint.update((proxy.username.len() as u64).to_be_bytes());
             fingerprint.update(proxy.username.as_bytes());
             fingerprint.update(proxy.password.as_bytes());
-            let fingerprint: String = fingerprint.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
-            format!("{}://{}:{}|a{fingerprint}", proxy.protocol, proxy.host,
-                proxy.port.map(|port| port.to_string()).unwrap_or_else(|| "?".to_string()))
+            let fingerprint: String = fingerprint
+                .finalize()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
+            format!(
+                "{}://{}:{}|a{fingerprint}",
+                proxy.protocol,
+                proxy.host,
+                proxy
+                    .port
+                    .map(|port| port.to_string())
+                    .unwrap_or_else(|| "?".to_string())
+            )
         }
     };
     // 两项传输层超时进键：见上面的说明
@@ -156,7 +167,11 @@ fn build_proxy_url(proxy: &ResolvedProxy) -> String {
     } else if proxy.password.is_empty() {
         format!("{}@", urlencoding(&proxy.username))
     } else {
-        format!("{}:{}@", urlencoding(&proxy.username), urlencoding(&proxy.password))
+        format!(
+            "{}:{}@",
+            urlencoding(&proxy.username),
+            urlencoding(&proxy.password)
+        )
     };
     let needs_brackets = proxy.host.contains(':') && !proxy.host.starts_with('[');
     let host = if needs_brackets {
@@ -164,7 +179,11 @@ fn build_proxy_url(proxy: &ResolvedProxy) -> String {
     } else {
         proxy.host.clone()
     };
-    let scheme = if proxy.protocol == "socks5" { "socks5h" } else { &proxy.protocol };
+    let scheme = if proxy.protocol == "socks5" {
+        "socks5h"
+    } else {
+        &proxy.protocol
+    };
     format!("{}://{}{}:{}", scheme, auth, host, proxy.port.unwrap_or(0))
 }
 
@@ -177,7 +196,8 @@ fn urlencoding(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for byte in value.as_bytes() {
         let ch = *byte as char;
-        if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '!' | '~' | '*' | '\'' | '(' | ')')
+        if ch.is_ascii_alphanumeric()
+            || matches!(ch, '-' | '_' | '.' | '!' | '~' | '*' | '\'' | '(' | ')')
         {
             out.push(ch);
         } else {
@@ -222,7 +242,10 @@ fn base_builder(timeouts: &TimeoutSettings) -> reqwest::ClientBuilder {
 /// 反过来，构造**直连** Client 时必须显式 `.no_proxy()`：reqwest 默认会去读
 /// 环境变量里的代理设置，不关掉的话用户机器上设了 `HTTPS_PROXY` 就会
 /// 「配置为直连却走了代理」。
-fn build_client(proxy: Option<&ResolvedProxy>, timeouts: &TimeoutSettings) -> Result<reqwest::Client, String> {
+fn build_client(
+    proxy: Option<&ResolvedProxy>,
+    timeouts: &TimeoutSettings,
+) -> Result<reqwest::Client, String> {
     build_client_with(proxy, timeouts, false)
 }
 
@@ -252,7 +275,10 @@ fn build_client_with(
             let port = proxy
                 .port
                 .ok_or_else(|| format!("代理端口非法（{}）", describe_proxy(proxy)))?;
-            let url = build_proxy_url(&ResolvedProxy { port: Some(port), ..proxy.clone() });
+            let url = build_proxy_url(&ResolvedProxy {
+                port: Some(port),
+                ..proxy.clone()
+            });
             // Proxy::all 返回 Result：release 是 panic=abort，绝不能用 unwrap
             let parsed = reqwest::Proxy::all(&url)
                 .map_err(|error| format!("代理地址无效（{}）: {error}", describe_proxy(proxy)))?;
@@ -330,15 +356,16 @@ pub fn resolved_client(
     addresses: &[std::net::SocketAddr],
 ) -> Result<reqwest::Client, String> {
     let timeouts = crate::server::config::timeout_settings();
-    let mut builder = base_builder(&timeouts)
-        .redirect(reqwest::redirect::Policy::none());
+    let mut builder = base_builder(&timeouts).redirect(reqwest::redirect::Policy::none());
     if !addresses.is_empty() {
         builder = builder.resolve_to_addrs(host, addresses);
     }
     if let Some(proxy) = proxy {
-        if proxy.port.is_none_or(|port| port == 0) { return Err("代理端口无效".to_string()); }
-        let parsed = reqwest::Proxy::all(build_proxy_url(proxy))
-            .map_err(|_| "代理地址无效".to_string())?;
+        if proxy.port.is_none_or(|port| port == 0) {
+            return Err("代理端口无效".to_string());
+        }
+        let parsed =
+            reqwest::Proxy::all(build_proxy_url(proxy)).map_err(|_| "代理地址无效".to_string())?;
         builder = builder.no_proxy().proxy(parsed);
     } else if !system_proxy_when_unset {
         builder = builder.no_proxy();
@@ -400,14 +427,19 @@ pub fn client_for_system_proxy() -> Arc<reqwest::Client> {
     CLIENT
         .get_or_init(|| {
             let timeouts = crate::server::config::timeout_settings();
-            Arc::new(build_system_proxy_client(&timeouts).unwrap_or_else(|error| {
-                // 这条与 client_for 的兜底同一取舍：构造失败只可能发生在
-                // TLS 后端初始化（几乎不可能），记一次日志即可。这里的兜底
-                // **保持「跟随系统代理」语义**（Client::new() 的 auto_sys_proxy
-                // 同样默认开启），只是少了自定义超时。
-                logging::log("[Upstream]", &format!("⚠️ {error}，系统代理出口回退默认客户端"));
-                reqwest::Client::new()
-            }))
+            Arc::new(
+                build_system_proxy_client(&timeouts).unwrap_or_else(|error| {
+                    // 这条与 client_for 的兜底同一取舍：构造失败只可能发生在
+                    // TLS 后端初始化（几乎不可能），记一次日志即可。这里的兜底
+                    // **保持「跟随系统代理」语义**（Client::new() 的 auto_sys_proxy
+                    // 同样默认开启），只是少了自定义超时。
+                    logging::log(
+                        "[Upstream]",
+                        &format!("⚠️ {error}，系统代理出口回退默认客户端"),
+                    );
+                    reqwest::Client::new()
+                }),
+            )
         })
         .clone()
 }
@@ -478,7 +510,13 @@ pub fn client_for(proxy: Option<&ResolvedProxy>) -> Arc<reqwest::Client> {
                 };
                 cache.entries.remove(&oldest);
             }
-            cache.entries.insert(key, CacheEntry { used_at: now, client: client.clone() });
+            cache.entries.insert(
+                key,
+                CacheEntry {
+                    used_at: now,
+                    client: client.clone(),
+                },
+            );
             client
         }
     };
@@ -529,7 +567,11 @@ impl ConnectivityResult {
 ///
 /// 单独打 ipify 而不是从上游响应里读 —— 上游不回显客户端 IP；
 /// 查不到不代表出口不可用，所以这里的错误一律吞掉。
-async fn read_exit_ip(client: &reqwest::Client, proxy: Option<&ResolvedProxy>, timeout_ms: u64) -> String {
+async fn read_exit_ip(
+    client: &reqwest::Client,
+    proxy: Option<&ResolvedProxy>,
+    timeout_ms: u64,
+) -> String {
     let _ = proxy; // 出口已由 client 决定；保留参数是为了调用处可读
     let request = client
         .get(IP_ECHO_URL)
@@ -598,7 +640,10 @@ pub async fn test_connectivity(
             duration_ms: logging::now_ms() - started,
             error: Some(if error.is_timeout() {
                 // 照抄 Node 的文案（秒数四舍五入到整秒）
-                format!("连接超时（{} 秒）", (timeout_ms as f64 / 1000.0).round() as i64)
+                format!(
+                    "连接超时（{} 秒）",
+                    (timeout_ms as f64 / 1000.0).round() as i64
+                )
             } else {
                 describe_error_detail(&error)
             }),

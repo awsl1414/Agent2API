@@ -43,7 +43,12 @@ pub fn render(original: &str, desired: &Value) -> Result<String, String> {
 }
 
 /// 只收集真正变化的叶子：映射逐层比较，非映射值整体替换。
-fn diff(path: &[String], before: &Value, after: &Value, edits: &mut Vec<(Vec<String>, Option<Value>)>) {
+fn diff(
+    path: &[String],
+    before: &Value,
+    after: &Value,
+    edits: &mut Vec<(Vec<String>, Option<Value>)>,
+) {
     if let (Some(old), Some(new)) = (before.as_object(), after.as_object()) {
         for key in old.keys().filter(|key| !new.contains_key(*key)) {
             edits.push((child(path, key), None));
@@ -137,7 +142,11 @@ fn root(lines: &[String]) -> Result<Region, String> {
     }
     let Some((start, indent)) = start else {
         // 空文档：插到最前面，末尾的空行由 join 原样保留。
-        return Ok(Region { start: 0, end: 0, indent: 0 });
+        return Ok(Region {
+            start: 0,
+            end: 0,
+            indent: 0,
+        });
     };
     let mut end = lines.len();
     while end > start && is_ignorable(&lines[end - 1]) {
@@ -156,7 +165,13 @@ fn find(lines: &[String], region: &Region, key: &str) -> Option<Entry> {
             continue;
         };
         let (value, comment) = split_value(suffix);
-        return Some(Entry { line: index, indent: region.indent, key: key.to_string(), value, comment });
+        return Some(Entry {
+            line: index,
+            indent: region.indent,
+            key: key.to_string(),
+            value,
+            comment,
+        });
     }
     None
 }
@@ -166,18 +181,29 @@ fn descend(lines: &mut Vec<String>, entry: &Entry, parent: &Region) -> Result<Re
         if matches!(entry.value.as_str(), "null" | "~" | "{}") {
             lines[entry.line] = format!("{}{}:{}", pad(entry.indent), entry.key, entry.comment);
         } else if entry.value.starts_with(['|', '>', '&', '*']) {
-            return Err(format!("配置字段 {} 是块标量或锚点，本页拒绝改写", entry.key));
+            return Err(format!(
+                "配置字段 {} 是块标量或锚点，本页拒绝改写",
+                entry.key
+            ));
         } else {
             return Err(format!("配置字段 {} 用了流式写法，本页拒绝改写", entry.key));
         }
-        return Ok(Region { start: entry.line + 1, end: entry.line + 1, indent: entry.indent + 2 });
+        return Ok(Region {
+            start: entry.line + 1,
+            end: entry.line + 1,
+            indent: entry.indent + 2,
+        });
     }
     let end = block_end(lines, entry, parent.end);
     let indent = (entry.line + 1..end)
         .find(|index| !is_ignorable(&lines[*index]))
         .map(|index| leading_indent(&lines[index]))
         .unwrap_or(entry.indent + 2);
-    Ok(Region { start: entry.line + 1, end, indent })
+    Ok(Region {
+        start: entry.line + 1,
+        end,
+        indent,
+    })
 }
 
 /// 块状值的结束行：下一个同级或更外层内容之前，并去掉块尾空行与注释。
@@ -200,9 +226,17 @@ fn block_end(lines: &[String], entry: &Entry, parent_end: usize) -> usize {
     trimmed
 }
 
-fn replace(lines: &mut Vec<String>, entry: &Entry, parent: &Region, value: &Value) -> Result<(), String> {
+fn replace(
+    lines: &mut Vec<String>,
+    entry: &Entry,
+    parent: &Region,
+    value: &Value,
+) -> Result<(), String> {
     if entry.value.starts_with(['|', '>', '&', '*']) {
-        return Err(format!("配置字段 {} 是块标量或锚点，本页拒绝改写", entry.key));
+        return Err(format!(
+            "配置字段 {} 是块标量或锚点，本页拒绝改写",
+            entry.key
+        ));
     }
     let end = block_end(lines, entry, parent.end);
     let mut rendered = render_entry(&entry.key, value, entry.indent)?;
@@ -217,7 +251,12 @@ fn replace(lines: &mut Vec<String>, entry: &Entry, parent: &Region, value: &Valu
     Ok(())
 }
 
-fn insert(lines: &mut Vec<String>, region: &Region, key: &str, value: &Value) -> Result<(), String> {
+fn insert(
+    lines: &mut Vec<String>,
+    region: &Region,
+    key: &str,
+    value: &Value,
+) -> Result<(), String> {
     let rendered = render_entry(key, value, region.indent)?;
     for (offset, line) in rendered.into_iter().enumerate() {
         lines.insert(region.end + offset, line);
@@ -233,7 +272,10 @@ fn prune(lines: &mut Vec<String>, parents: &[String]) {
     let Ok(region) = locate(lines, parents) else {
         return;
     };
-    if lines[region.start..region.end].iter().any(|line| !is_ignorable(line)) {
+    if lines[region.start..region.end]
+        .iter()
+        .any(|line| !is_ignorable(line))
+    {
         return;
     }
     let parent = &parents[..parents.len() - 1];
@@ -300,7 +342,8 @@ fn render_sequence(items: &[Value], indent: usize) -> Result<Vec<String>, String
 
 /// 标量交给 serde_yaml 渲染，引号与转义由它按 YAML 规则决定。
 fn render_scalar(value: &Value) -> Result<String, String> {
-    let text = serde_yaml::to_string(value).map_err(|error| format!("配置值无法生成 YAML: {error}"))?;
+    let text =
+        serde_yaml::to_string(value).map_err(|error| format!("配置值无法生成 YAML: {error}"))?;
     let text = text.trim_end_matches('\n');
     if text.contains('\n') {
         return Err("配置值不能包含换行".into());
@@ -334,8 +377,11 @@ fn is_key_line(text: &str) -> bool {
 
 /// `text`（已去行首缩进）若以 `key:` 开头，返回冒号后的原始后缀。
 fn key_suffix<'a>(text: &'a str, key: &str) -> Option<&'a str> {
-    for prefix in [format!("{key}"), format!("'{key}'"), format!("\"{key}\"")] {
-        if let Some(rest) = text.strip_prefix(prefix.as_str()).and_then(|rest| rest.strip_prefix(':')) {
+    for prefix in [key.to_string(), format!("'{key}'"), format!("\"{key}\"")] {
+        if let Some(rest) = text
+            .strip_prefix(prefix.as_str())
+            .and_then(|rest| rest.strip_prefix(':'))
+        {
             if rest.chars().next().is_none_or(char::is_whitespace) {
                 return Some(rest);
             }

@@ -103,7 +103,11 @@ fn end_run() {
 /// 供弹窗列出「将要导入哪些数据」。`pending` 为 false 时 `items` 恒为空。
 pub async fn get_upgrade(State(state): State<ServerState>) -> Response {
     let pending = state.upgrade_pending();
-    let items = if pending { state.upgrade_items() } else { Vec::new() };
+    let items = if pending {
+        state.upgrade_items()
+    } else {
+        Vec::new()
+    };
     ok_json(json!({ "pending": pending, "items": items }))
 }
 
@@ -189,7 +193,10 @@ pub async fn run_upgrade(State(state): State<ServerState>) -> Response {
         for item in &outcomes {
             logging::log(
                 "[Storage]",
-                &format!("✅ {} 旧数据已导入数据库（{} 条）", item.label, item.imported),
+                &format!(
+                    "✅ {} 旧数据已导入数据库（{} 条）",
+                    item.label, item.imported
+                ),
             );
         }
     }

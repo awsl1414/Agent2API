@@ -23,10 +23,10 @@ use axum::response::Response;
 use serde_json::{json, Value};
 
 use crate::server::config::{
-    self, CaptchaPoolPatch, CaptchaPoolSettings, KEY_CAPTCHA_POOL_MAX_PER_ROUND,
-    KEY_CAPTCHA_POOL_POLL_MS, KEY_CAPTCHA_POOL_TARGET, CAPTCHA_POOL_MAX_MAX_PER_ROUND,
+    self, CaptchaPoolPatch, CaptchaPoolSettings, CAPTCHA_POOL_MAX_MAX_PER_ROUND,
     CAPTCHA_POOL_MAX_POLL_MS, CAPTCHA_POOL_MAX_TARGET, CAPTCHA_POOL_MIN_MAX_PER_ROUND,
-    CAPTCHA_POOL_MIN_POLL_MS, CAPTCHA_POOL_MIN_TARGET,
+    CAPTCHA_POOL_MIN_POLL_MS, CAPTCHA_POOL_MIN_TARGET, KEY_CAPTCHA_POOL_MAX_PER_ROUND,
+    KEY_CAPTCHA_POOL_POLL_MS, KEY_CAPTCHA_POOL_TARGET,
 };
 use crate::server::errors;
 use crate::server::http::{ok_json, parse_body};

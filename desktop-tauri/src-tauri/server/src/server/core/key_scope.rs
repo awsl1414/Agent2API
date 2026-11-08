@@ -103,7 +103,8 @@ impl KeyScope {
 
     /// 允许路由到 `provider`（provider id）？
     pub fn allows_provider(&self, provider: &str) -> bool {
-        self.allowed_providers.is_empty() || self.allowed_providers.contains(&normalize_one(provider))
+        self.allowed_providers.is_empty()
+            || self.allowed_providers.contains(&normalize_one(provider))
     }
 
     /// 白名单里的 provider id（小写、排序；未限制 = 空表）。
@@ -164,10 +165,10 @@ pub fn attach(request: &mut Request, scope: KeyScope) {
 
 /// 白名单判定；`None` = 不限制。调用方必须独立完成鉴权。
 pub fn allows_model(scope: Option<&KeyScope>, model: &str) -> bool {
-    scope.map_or(true, |scope| scope.allows_model(model))
+    scope.is_none_or(|scope| scope.allows_model(model))
 }
 
 /// 同上，提供商维度
 pub fn allows_provider(scope: Option<&KeyScope>, provider: &str) -> bool {
-    scope.map_or(true, |scope| scope.allows_provider(provider))
+    scope.is_none_or(|scope| scope.allows_provider(provider))
 }

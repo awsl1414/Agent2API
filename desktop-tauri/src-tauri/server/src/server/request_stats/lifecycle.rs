@@ -5,7 +5,9 @@ use super::record::{DailyEntry, RequestEntry};
 use super::{daily, fold_into_daily, sql, RequestStats, RunningProgress};
 
 pub(super) fn add_to_daily(conn: &Connection, entry: &RequestEntry) -> rusqlite::Result<()> {
-    if entry.is_test || entry.status == 0 { return Ok(()); }
+    if entry.is_test || entry.status == 0 {
+        return Ok(());
+    }
     let date = date_key(day_of(entry.ts));
     let mut day = daily::select_daily_row(conn, &date)?.unwrap_or_else(|| DailyEntry::new(date));
     fold_into_daily(&mut day, entry);
@@ -15,15 +17,22 @@ pub(super) fn add_to_daily(conn: &Connection, entry: &RequestEntry) -> rusqlite:
 /// 收尾与日报在同一个事务里完成；重复收尾不能把同一请求再累计一次。
 pub(super) fn finish_stale(conn: &Connection, cutoff: i64, now: i64) -> rusqlite::Result<()> {
     let exists: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM requests WHERE status = 0 AND ts < ?1)", params![cutoff], |row| row.get(0),
+        "SELECT EXISTS(SELECT 1 FROM requests WHERE status = 0 AND ts < ?1)",
+        params![cutoff],
+        |row| row.get(0),
     )?;
-    if !exists { return Ok(()); }
+    if !exists {
+        return Ok(());
+    }
     super::source_backfill::backfill_sources(conn)?;
     let mut entries = {
         let mut stmt = conn.prepare(&format!(
-            "SELECT {} FROM requests WHERE status = 0 AND ts < ?1", sql::REQUEST_COLUMNS,
+            "SELECT {} FROM requests WHERE status = 0 AND ts < ?1",
+            sql::REQUEST_COLUMNS,
         ))?;
-        let rows = stmt.query_map(params![cutoff], sql::decode_request)?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let rows = stmt
+            .query_map(params![cutoff], sql::decode_request)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
         rows
     };
     sql::finish_stale_running(conn, cutoff, now)?;
@@ -41,9 +50,17 @@ pub(super) fn finish_stale(conn: &Connection, cutoff: i64, now: i64) -> rusqlite
 }
 
 impl RequestStats {
-    pub fn finalize_interrupted(&self, id: &str, error: &str, progress: &RunningProgress, finished_at: i64) {
+    pub fn finalize_interrupted(
+        &self,
+        id: &str,
+        error: &str,
+        progress: &RunningProgress,
+        finished_at: i64,
+    ) {
         let id = id.trim();
-        if id.is_empty() { return; }
+        if id.is_empty() {
+            return;
+        }
         let bounds = self.retention_bounds();
         let guard = self.guard();
         let _ = self.with_conn_mut(&guard, |conn| {
@@ -51,9 +68,12 @@ impl RequestStats {
             sql::update_running_progress(&tx, id, progress)?;
             let mut entries = {
                 let mut stmt = tx.prepare(&format!(
-                    "SELECT {} FROM requests WHERE id = ?1 AND status = 0", sql::REQUEST_COLUMNS,
+                    "SELECT {} FROM requests WHERE id = ?1 AND status = 0",
+                    sql::REQUEST_COLUMNS,
                 ))?;
-                let rows = stmt.query_map(params![id], sql::decode_request)?.collect::<rusqlite::Result<Vec<_>>>()?;
+                let rows = stmt
+                    .query_map(params![id], sql::decode_request)?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
                 rows
             };
             sql::finish_running_request(&tx, id, error, finished_at)?;

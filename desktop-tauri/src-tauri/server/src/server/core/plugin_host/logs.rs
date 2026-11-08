@@ -58,7 +58,8 @@ pub(super) fn receive(store: &AccountStore, level: &str, message: &str, context:
     }
     if let Some(account) = data.get("account").and_then(Value::as_str) {
         if let Some(item) = store.route_account(account).filter(|item| {
-            item.get("provider").and_then(Value::as_str) == data.get("provider").and_then(Value::as_str)
+            item.get("provider").and_then(Value::as_str)
+                == data.get("provider").and_then(Value::as_str)
                 && item.get("enabled").and_then(Value::as_bool) != Some(false)
                 && item.get("hasCredentials").and_then(Value::as_bool) == Some(true)
         }) {

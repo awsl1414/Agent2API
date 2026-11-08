@@ -64,7 +64,7 @@ pub fn proxy_port() -> u16 {
 fn resolve_port() -> u16 {
     let port = env_port("AGENT2API_PROXY_PORT")
         .or_else(|| env_port("WORKBUDDY_PROXY_PORT")) // 旧名兼容读（1.x 起沿用）
-        .or_else(|| configured_port())
+        .or_else(configured_port)
         .unwrap_or(default_port());
     ACTIVE_PORT.store(port, Ordering::Relaxed);
     port
@@ -230,24 +230,40 @@ pub async fn call(method: &str, path: &str, body: Option<&Value>) -> Result<Valu
     call_with_timeout(method, path, body, REQUEST_TIMEOUT_MS).await
 }
 
-pub async fn call_with_api_key(method: &str, path: &str, body: Option<&Value>, api_key: &str) -> Result<Value, String> {
+pub async fn call_with_api_key(
+    method: &str,
+    path: &str,
+    body: Option<&Value>,
+    api_key: &str,
+) -> Result<Value, String> {
     if path != "/api/models/test" {
         return Err("显式 API Key 仅用于模型测试".to_string());
     }
     crate::startup::wait().await?;
     let send = || async {
-        let mut request = request_builder_with_timeout(method, path, body, REQUEST_TIMEOUT_MS)?.build()
+        let mut request = request_builder_with_timeout(method, path, body, REQUEST_TIMEOUT_MS)?
+            .build()
             .map_err(|error| format!("构造模型测试请求失败: {error}"))?;
         let key = reqwest::header::HeaderValue::from_str(api_key)
             .map_err(|_| "API Key 包含无效的请求头字符".to_string())?;
         request.headers_mut().insert("x-api-key", key);
         let credentials = request.headers().clone();
-        let response = local_client(Duration::from_millis(REQUEST_TIMEOUT_MS))?.execute(request).await
+        let response = local_client(Duration::from_millis(REQUEST_TIMEOUT_MS))?
+            .execute(request)
+            .await
             .map_err(|error| describe_transport_error(&error))?;
         let status = response.status().as_u16();
-        let text = response.text().await.map_err(|error| format!("读取响应失败: {error}"))?;
+        let text = response
+            .text()
+            .await
+            .map_err(|error| format!("读取响应失败: {error}"))?;
         let payload = serde_json::from_str::<Value>(&text).unwrap_or(Value::Null);
-        Ok::<_, String>(RawResponse { status, text, payload, credentials })
+        Ok::<_, String>(RawResponse {
+            status,
+            text,
+            payload,
+            credentials,
+        })
     };
     let first = send().await?;
     if recover_management_session(&first, path)? {
@@ -289,7 +305,10 @@ fn recover_management_session(response: &RawResponse, path: &str) -> Result<bool
     if response.status != 401 || !path.starts_with("/api/") {
         return Ok(false);
     }
-    let kind = response.payload.pointer("/error/type").and_then(Value::as_str);
+    let kind = response
+        .payload
+        .pointer("/error/type")
+        .and_then(Value::as_str);
     let management_failure = kind == Some("panel_login_required")
         || (kind == Some("invalid_api_key") && !response.credentials.contains_key("x-api-key"));
     if !management_failure {
@@ -304,7 +323,8 @@ async fn send_once(
     body: Option<&Value>,
     timeout_ms: u64,
 ) -> Result<RawResponse, String> {
-    let request = request_builder_with_timeout(method, path, body, timeout_ms)?.build()
+    let request = request_builder_with_timeout(method, path, body, timeout_ms)?
+        .build()
         .map_err(|error| format!("构造管理请求失败: {error}"))?;
     let credentials = request.headers().clone();
     let response = local_client(Duration::from_millis(timeout_ms))?

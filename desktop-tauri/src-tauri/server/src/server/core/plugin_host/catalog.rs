@@ -64,7 +64,8 @@ fn snapshot_for(channels: crate::server::config::UpdateChannels) -> Value {
         .value
         .clone()
         .unwrap_or_else(|| json!({ "plugins": [] }));
-    let invalidated = result["invalidated"] == true || result.get("channels") != Some(&json!(channels));
+    let invalidated =
+        result["invalidated"] == true || result.get("channels") != Some(&json!(channels));
     if invalidated {
         result["plugins"] = json!([]);
     }
@@ -84,9 +85,10 @@ fn snapshot_for(channels: crate::server::config::UpdateChannels) -> Value {
     result["checking"] = json!(state.running());
     result["stale"] = json!(stale);
     result["current"] = json!(super::host_target());
-    result["reason"] = json!(state.last_error.as_deref().map(|error| {
-        update::describe_error(error, state.retry_at)
-    }));
+    result["reason"] = json!(state
+        .last_error
+        .as_deref()
+        .map(|error| { update::describe_error(error, state.retry_at) }));
     result["error"] = json!(state.last_error.is_some());
     result["available"] = json!(result["plugins"]
         .as_array()
@@ -170,7 +172,7 @@ async fn fetch_catalog(channels: crate::server::config::UpdateChannels) -> Resul
             .and_then(|item| item.get("icon"))
             .filter(|value| !value.is_null())
             .cloned()
-            .unwrap_or_else(|| Value::Null);
+            .unwrap_or(Value::Null);
         let icon = if icon.is_null() {
             json!(update::read_store_icon(&entry.icon).await)
         } else {

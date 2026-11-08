@@ -114,7 +114,10 @@ pub async fn put_retry(State(_state): State<ServerState>, body: Bytes) -> Respon
     if updated && !config::set_retry(patch) {
         // 写盘失败：内存快照已更新（本次运行仍生效），但重启后会回到旧值 ——
         // 必须让用户知道，否则「改了设置重启又变回去」会被当成玄学问题
-        logging::log("[Config]", "⚠️  请求重试设置写入 config.json 失败，本次运行内仍生效");
+        logging::log(
+            "[Config]",
+            "⚠️  请求重试设置写入 config.json 失败，本次运行内仍生效",
+        );
     }
 
     let settings = config::retry_settings();
@@ -153,7 +156,9 @@ fn retry_json(settings: RetrySettings) -> Value {
 /// 有一项非法就整单 400（不悄悄剔除），写盘前排序去重，落库形态规整。
 fn parse_no_retry_codes(value: &Value) -> Result<Vec<u16>, String> {
     let Some(items) = value.as_array() else {
-        return Err(format!("{KEY_RETRY_NO_RETRY_CODES} 必须是状态码数组（收到: {value}）"));
+        return Err(format!(
+            "{KEY_RETRY_NO_RETRY_CODES} 必须是状态码数组（收到: {value}）"
+        ));
     };
     if items.len() > RETRY_MAX_NO_RETRY_CODES {
         return Err(format!(
@@ -170,7 +175,9 @@ fn parse_no_retry_codes(value: &Value) -> Result<Vec<u16>, String> {
                 .map(|raw| raw as i64)
         });
         let Some(number) = number else {
-            return Err(format!("{KEY_RETRY_NO_RETRY_CODES} 里必须是整数（收到: {item}）"));
+            return Err(format!(
+                "{KEY_RETRY_NO_RETRY_CODES} 里必须是整数（收到: {item}）"
+            ));
         };
         if !(i64::from(RETRY_CODE_MIN)..=i64::from(RETRY_CODE_MAX)).contains(&number) {
             return Err(format!(

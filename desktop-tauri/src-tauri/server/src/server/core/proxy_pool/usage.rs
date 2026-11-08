@@ -21,12 +21,12 @@ pub fn pool_reference_id(proxy: &Value) -> Option<&str> {
 
 pub fn service_references() -> Vec<(&'static str, String)> {
     [("update", config::update_proxy())]
-    .into_iter()
-    .filter_map(|(service, proxy)| {
-        let proxy = proxy?;
-        Some((service, pool_reference_id(&proxy)?.to_string()))
-    })
-    .collect()
+        .into_iter()
+        .filter_map(|(service, proxy)| {
+            let proxy = proxy?;
+            Some((service, pool_reference_id(&proxy)?.to_string()))
+        })
+        .collect()
 }
 
 pub fn referenced_pool_ids(store: Option<&AccountStore>) -> HashSet<String> {

@@ -42,11 +42,11 @@ use axum::extract::State;
 use axum::response::Response;
 use serde_json::{json, Map, Value};
 
-use crate::server::config::{
-    self, AutoContinuePatch, KEY_AUTO_CONTINUE, KEY_AUTO_CONTINUE_MAX_ROUNDS,
-    AUTO_CONTINUE_MAX_ROUNDS, AUTO_CONTINUE_MIN_ROUNDS,
-};
 use crate::server::config::parse::int_in_range;
+use crate::server::config::{
+    self, AutoContinuePatch, AUTO_CONTINUE_MAX_ROUNDS, AUTO_CONTINUE_MIN_ROUNDS, KEY_AUTO_CONTINUE,
+    KEY_AUTO_CONTINUE_MAX_ROUNDS,
+};
 use crate::server::errors;
 use crate::server::http::{ok_json, parse_body};
 use crate::server::logging;
@@ -112,11 +112,8 @@ fn patch_from(object: &Map<String, Value>) -> Result<AutoContinuePatch, String> 
     if let Some(value) = object.get(KEY_AUTO_CONTINUE_MAX_ROUNDS) {
         // 判据与读侧共用 `int_in_range`（含「接受 3.0 这种整值浮点」这一条）：
         // 范围与「什么算一个整数」两侧各写一份，迟早出现接口拒绝而手改库接受
-        let Some(rounds) = int_in_range(
-            value,
-            AUTO_CONTINUE_MIN_ROUNDS,
-            AUTO_CONTINUE_MAX_ROUNDS,
-        ) else {
+        let Some(rounds) = int_in_range(value, AUTO_CONTINUE_MIN_ROUNDS, AUTO_CONTINUE_MAX_ROUNDS)
+        else {
             return Err(format!(
                 "{KEY_AUTO_CONTINUE_MAX_ROUNDS} 必须是 {AUTO_CONTINUE_MIN_ROUNDS}~{AUTO_CONTINUE_MAX_ROUNDS} 的整数"
             ));
@@ -173,7 +170,10 @@ mod tests {
 
     /// 一份只含给定几项的请求体。
     fn body(pairs: &[(&str, Value)]) -> Map<String, Value> {
-        pairs.iter().map(|(key, value)| (key.to_string(), value.clone())).collect()
+        pairs
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.clone()))
+            .collect()
     }
 
     /// 布尔项只认字面 `true` / `false`；`null` 也算类型不符。
@@ -183,8 +183,8 @@ mod tests {
     /// 于是调用方收到 200 而开关一动没动。
     #[test]
     fn the_switch_accepts_only_a_literal_boolean() {
-        let only_false = patch_from(&body(&[(KEY_AUTO_CONTINUE, json!(false))]))
-            .expect("字面 false 是合法值");
+        let only_false =
+            patch_from(&body(&[(KEY_AUTO_CONTINUE, json!(false))])).expect("字面 false 是合法值");
         assert_eq!(only_false.enabled, Some(false), "关掉必须能被表达出来");
 
         for bad in [json!("true"), json!(1), json!(null), json!({})] {
@@ -218,11 +218,16 @@ mod tests {
                 "整值浮点要按它表示的那个整数落盘，不是回落默认值"
             );
         }
-        for rejected in [json!(0), json!(9), json!(-1), json!("3"), json!(null), json!(2.5)] {
-            let error = match patch_from(&body(&[(
-                KEY_AUTO_CONTINUE_MAX_ROUNDS,
-                rejected.clone(),
-            )])) {
+        for rejected in [
+            json!(0),
+            json!(9),
+            json!(-1),
+            json!("3"),
+            json!(null),
+            json!(2.5),
+        ] {
+            let error = match patch_from(&body(&[(KEY_AUTO_CONTINUE_MAX_ROUNDS, rejected.clone())]))
+            {
                 Ok(patch) => panic!("{rejected} 越界或类型不符，不该被接受，却拿到了 {patch:?}"),
                 Err(error) => error,
             };
@@ -244,11 +249,17 @@ mod tests {
     #[test]
     fn an_absent_key_stays_absent_rather_than_becoming_the_default() {
         let only_switch = patch_from(&body(&[(KEY_AUTO_CONTINUE, json!(true))])).expect("合法");
-        assert_eq!((only_switch.enabled, only_switch.max_rounds), (Some(true), None));
+        assert_eq!(
+            (only_switch.enabled, only_switch.max_rounds),
+            (Some(true), None)
+        );
 
         let only_rounds =
             patch_from(&body(&[(KEY_AUTO_CONTINUE_MAX_ROUNDS, json!(1))])).expect("合法");
-        assert_eq!((only_rounds.enabled, only_rounds.max_rounds), (None, Some(1)));
+        assert_eq!(
+            (only_rounds.enabled, only_rounds.max_rounds),
+            (None, Some(1))
+        );
 
         let both = patch_from(&body(&[
             (KEY_AUTO_CONTINUE, json!(true)),

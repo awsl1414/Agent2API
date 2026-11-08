@@ -19,9 +19,9 @@
 
 use serde_json::{Map, Value};
 
+use crate::server::core::account_store::is_cline_family;
 use crate::server::core::account_store::state::StoredAccount;
 use crate::server::core::account_store::store::AccountStore;
-use crate::server::core::account_store::is_cline_family;
 
 impl AccountStore {
     /// 这条记录属于哪个池（不是 Cline 的记录返回 None）。
@@ -70,85 +70,85 @@ impl AccountStore {
 /// 公开形态的纯函数本体（不依赖存储句柄 —— 它只读记录本身）。
 fn cline_public_account(record: &StoredAccount) -> Value {
     let value = record.to_value();
-        let mut out = Map::new();
-        out.insert("id".to_string(), Value::String(record.id().to_string()));
-        // provider 取**记录自己的**（不是某个写死的值）：两个池共用这一份
-        // 公开形态，回错池会让账号显示在另一个分组里
-        out.insert("provider".to_string(), Value::String(record.provider()));
-        for key in ["account", "displayName", "tokenTail"] {
-            if let Some(field) = value.get(key).filter(|field| !field.is_null()) {
-                out.insert(key.to_string(), field.clone());
-            }
+    let mut out = Map::new();
+    out.insert("id".to_string(), Value::String(record.id().to_string()));
+    // provider 取**记录自己的**（不是某个写死的值）：两个池共用这一份
+    // 公开形态，回错池会让账号显示在另一个分组里
+    out.insert("provider".to_string(), Value::String(record.provider()));
+    for key in ["account", "displayName", "tokenTail"] {
+        if let Some(field) = value.get(key).filter(|field| !field.is_null()) {
+            out.insert(key.to_string(), field.clone());
         }
-        // 账号名：自动生成的（为空 / 与 account 同字 / 与落盘时的展示名同字）
-        // 换成展示名；用户改过备注名就尊重它。展示口径与内置实现逐字一致 ——
-        // 升级前后界面上不能因为这次迁移换一套命名。
-        let account = value
-            .get("account")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        let stored_display = value
-            .get("displayName")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        let stored_name = record.name();
-        let stored_name_trimmed = stored_name.trim();
-        let auto_name = stored_name_trimmed.is_empty()
-            || stored_name_trimmed == account
-            || (!stored_display.is_empty() && stored_name_trimmed == stored_display.as_str());
-        let name = if auto_name && !stored_display.is_empty() {
-            stored_display
-        } else {
-            stored_name
-        };
-        out.insert("name".to_string(), Value::String(name));
-        out.insert(
-            "hasRefreshToken".to_string(),
-            Value::Bool(
-                value
-                    .get("refreshToken")
-                    .and_then(Value::as_str)
-                    .map(|text| !text.trim().is_empty())
-                    .unwrap_or_else(|| {
-                        // 桌面端账号不落 refreshToken（凭证在客户端文件里），
-                        // 用导入时记下的标记兜底
-                        value
-                            .get("hasRefreshToken")
-                            .and_then(Value::as_bool)
-                            .unwrap_or(false)
-                    }),
-            ),
-        );
-        out.insert("priority".to_string(), Value::from(record.priority()));
-        out.insert("enabled".to_string(), Value::Bool(record.enabled()));
-        out.insert("desktop".to_string(), Value::Bool(record.is_desktop()));
-        out.insert("source".to_string(), Value::String(record.source()));
-        out.insert("addedAt".to_string(), Value::from(record.added_at()));
-        out.insert("updatedAt".to_string(), Value::from(record.updated_at()));
-        out.insert(
-            "rateLimits".to_string(),
+    }
+    // 账号名：自动生成的（为空 / 与 account 同字 / 与落盘时的展示名同字）
+    // 换成展示名；用户改过备注名就尊重它。展示口径与内置实现逐字一致 ——
+    // 升级前后界面上不能因为这次迁移换一套命名。
+    let account = value
+        .get("account")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let stored_display = value
+        .get("displayName")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let stored_name = record.name();
+    let stored_name_trimmed = stored_name.trim();
+    let auto_name = stored_name_trimmed.is_empty()
+        || stored_name_trimmed == account
+        || (!stored_display.is_empty() && stored_name_trimmed == stored_display.as_str());
+    let name = if auto_name && !stored_display.is_empty() {
+        stored_display
+    } else {
+        stored_name
+    };
+    out.insert("name".to_string(), Value::String(name));
+    out.insert(
+        "hasRefreshToken".to_string(),
+        Value::Bool(
             value
-                .get("rateLimits")
-                .cloned()
-                .unwrap_or_else(|| Value::Object(Map::new())),
-        );
-        out.insert(
-            "available".to_string(),
-            // 用 `has_credentials()` 而不是 `has_token()`：桌面端账号按设计不落
-            // token（凭证实时读客户端文件），只认 has_token 会把它标成不可用
-            Value::Bool(record.enabled() && record.has_credentials()),
-        );
-        if let Some(expires) = value.get("expiresAt").filter(|value| !value.is_null()) {
-            out.insert("expiresAt".to_string(), expires.clone());
-        }
-        out.insert(
-            "proxy".to_string(),
-            crate::server::core::proxies::describe_account_proxy(Some(&record.proxy())),
-        );
+                .get("refreshToken")
+                .and_then(Value::as_str)
+                .map(|text| !text.trim().is_empty())
+                .unwrap_or_else(|| {
+                    // 桌面端账号不落 refreshToken（凭证在客户端文件里），
+                    // 用导入时记下的标记兜底
+                    value
+                        .get("hasRefreshToken")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                }),
+        ),
+    );
+    out.insert("priority".to_string(), Value::from(record.priority()));
+    out.insert("enabled".to_string(), Value::Bool(record.enabled()));
+    out.insert("desktop".to_string(), Value::Bool(record.is_desktop()));
+    out.insert("source".to_string(), Value::String(record.source()));
+    out.insert("addedAt".to_string(), Value::from(record.added_at()));
+    out.insert("updatedAt".to_string(), Value::from(record.updated_at()));
+    out.insert(
+        "rateLimits".to_string(),
+        value
+            .get("rateLimits")
+            .cloned()
+            .unwrap_or_else(|| Value::Object(Map::new())),
+    );
+    out.insert(
+        "available".to_string(),
+        // 用 `has_credentials()` 而不是 `has_token()`：桌面端账号按设计不落
+        // token（凭证实时读客户端文件），只认 has_token 会把它标成不可用
+        Value::Bool(record.enabled() && record.has_credentials()),
+    );
+    if let Some(expires) = value.get("expiresAt").filter(|value| !value.is_null()) {
+        out.insert("expiresAt".to_string(), expires.clone());
+    }
+    out.insert(
+        "proxy".to_string(),
+        crate::server::core::proxies::describe_account_proxy(Some(&record.proxy())),
+    );
     Value::Object(out)
 }
 
@@ -178,7 +178,10 @@ mod tests {
             "cline-pass",
             public.get("provider").and_then(Value::as_str).unwrap_or("")
         );
-        assert!(public.get("pool").is_none(), "池由 provider 表达，不重复下发");
+        assert!(
+            public.get("pool").is_none(),
+            "池由 provider 表达，不重复下发"
+        );
     }
 
     /// 自动生成的账号名跟随展示名；用户改过的备注名必须尊重。
@@ -221,13 +224,17 @@ mod tests {
             "desktop": true,
             "hasRefreshToken": true,
         })));
-        assert!(public.get("desktop").and_then(Value::as_bool).unwrap_or(false));
-        assert!(
-            public
-                .get("hasRefreshToken")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-        );
-        assert!(public.get("available").and_then(Value::as_bool).unwrap_or(false));
+        assert!(public
+            .get("desktop")
+            .and_then(Value::as_bool)
+            .unwrap_or(false));
+        assert!(public
+            .get("hasRefreshToken")
+            .and_then(Value::as_bool)
+            .unwrap_or(false));
+        assert!(public
+            .get("available")
+            .and_then(Value::as_bool)
+            .unwrap_or(false));
     }
 }

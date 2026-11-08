@@ -329,9 +329,9 @@ pub fn write(
         .models
         .iter()
         .map(|model| {
-            let existing = previous.iter().find(|item| {
-                item.get("id").and_then(Value::as_str) == Some(model.id.trim())
-            });
+            let existing = previous
+                .iter()
+                .find(|item| item.get("id").and_then(Value::as_str) == Some(model.id.trim()));
             model_entry(model, existing)
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -368,7 +368,11 @@ pub fn write(
         == Some(route.as_str());
     if (operation == "default" || selected) && !profile.model.trim().is_empty() {
         set(value, &[DEFAULT_MODEL, "provider"], json!(route))?;
-        set(value, &[DEFAULT_MODEL, "model"], json!(profile.model.trim()))?;
+        set(
+            value,
+            &[DEFAULT_MODEL, "model"],
+            json!(profile.model.trim()),
+        )?;
         // 网关目录把「关闭思考」写作 off / none 两档，DSH 只有 off。
         let effort = match profile.effort.trim() {
             "" | "default" => None,

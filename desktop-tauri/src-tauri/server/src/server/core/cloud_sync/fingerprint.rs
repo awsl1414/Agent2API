@@ -60,23 +60,35 @@ fn hash_row(
     row: &Map<String, Value>,
     key: Option<&[u8; 32]>,
 ) -> Result<(), String> {
-    let mut fields: Vec<_> = row.iter().filter(|(name, _)| {
-        table != "account_usage_records"
-            || !matches!(name.as_str(), "last_attempt_at" | "last_success_at" | "updated_at")
-    }).collect();
+    let mut fields: Vec<_> = row
+        .iter()
+        .filter(|(name, _)| {
+            table != "account_usage_records"
+                || !matches!(
+                    name.as_str(),
+                    "last_attempt_at" | "last_success_at" | "updated_at"
+                )
+        })
+        .collect();
     fields.sort_unstable_by(|a, b| a.0.cmp(b.0));
     digest.update((fields.len() as u64).to_be_bytes());
     for (name, value) in fields {
         text(digest, name);
         if table == "accounts" && name == "data" {
-            let raw = value.as_str().ok_or_else(|| "账号数据不是有效文本，无法比较同步内容".to_string())?;
-            let decoded = if crypto::is_envelope(raw) {
-                let key = key.ok_or_else(|| "缺少账号密钥，无法比较同步内容；请恢复 account.key".to_string())?;
-                Zeroizing::new(crypto::open_with_key(raw, key)
-                    .map_err(|_| "账号数据无法解密，已停止同步；请核对 account.key".to_string())?)
-            } else {
-                Zeroizing::new(raw.as_bytes().to_vec())
-            };
+            let raw = value
+                .as_str()
+                .ok_or_else(|| "账号数据不是有效文本，无法比较同步内容".to_string())?;
+            let decoded =
+                if crypto::is_envelope(raw) {
+                    let key = key.ok_or_else(|| {
+                        "缺少账号密钥，无法比较同步内容；请恢复 account.key".to_string()
+                    })?;
+                    Zeroizing::new(crypto::open_with_key(raw, key).map_err(|_| {
+                        "账号数据无法解密，已停止同步；请核对 account.key".to_string()
+                    })?)
+                } else {
+                    Zeroizing::new(raw.as_bytes().to_vec())
+                };
             let mut account: Value = serde_json::from_slice(&decoded)
                 .map_err(|_| "账号数据不是有效 JSON，无法比较同步内容".to_string())?;
             if let Some(object) = account.as_object_mut() {
@@ -85,7 +97,10 @@ fn hash_row(
             }
             hash_value(digest, &account, key, 0)?;
         } else if table == "account_usage_records" && name == "usage" {
-            if let Some(usage) = value.as_str().and_then(|raw| serde_json::from_str::<Value>(raw).ok()) {
+            if let Some(usage) = value
+                .as_str()
+                .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+            {
                 hash_value(digest, &usage, key, 0)?;
             } else {
                 hash_value(digest, value, key, 0)?;
@@ -117,10 +132,14 @@ fn hash_value(
             digest.update(b"s");
             // 相同凭据重新加密会更换随机 nonce；只在内存里比较解密后的字节。
             // 不属于账号密钥域的信封保留原文，不能丢弃未知配置。
-            let decoded = key.filter(|_| crypto::is_envelope(value))
+            let decoded = key
+                .filter(|_| crypto::is_envelope(value))
                 .and_then(|key| crypto::open_with_key(value, key).ok())
                 .map(Zeroizing::new);
-            let bytes = decoded.as_deref().map(Vec::as_slice).unwrap_or_else(|| value.as_bytes());
+            let bytes = decoded
+                .as_deref()
+                .map(Vec::as_slice)
+                .unwrap_or_else(|| value.as_bytes());
             digest.update((bytes.len() as u64).to_be_bytes());
             digest.update(bytes);
         }
@@ -243,7 +262,8 @@ mod tests {
         // 同一份账号数据，两次加密的信封字节不同（随机 nonce）；
         // 指纹解开后比较，不该把加密差异当成业务差异。
         let key = [7u8; 32];
-        let plaintext = String::from_utf8_lossy(b"{\"name\":\"account-one\",\"priority\":1}").into_owned();
+        let plaintext =
+            String::from_utf8_lossy(b"{\"name\":\"account-one\",\"priority\":1}").into_owned();
         let envelope_a = crate::server::core::crypto::seal_with_key(plaintext.as_bytes(), &key)
             .expect("加密成功");
         let envelope_b = crate::server::core::crypto::seal_with_key(plaintext.as_bytes(), &key)
@@ -256,6 +276,9 @@ mod tests {
         row_b.insert("data".to_string(), Value::String(envelope_b));
         let a = snapshot_with_rows(vec![row_a], 0);
         let b = snapshot_with_rows(vec![row_b], 0);
-        assert_eq!(content_hash(&a, Some(&key)).expect("指纹可算"), content_hash(&b, Some(&key)).expect("指纹可算"));
+        assert_eq!(
+            content_hash(&a, Some(&key)).expect("指纹可算"),
+            content_hash(&b, Some(&key)).expect("指纹可算")
+        );
     }
 }

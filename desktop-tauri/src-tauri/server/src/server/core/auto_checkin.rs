@@ -655,7 +655,7 @@ impl AutoCheckin {
             );
             // 不带 enabled：条目自己的开关保持原样（这里只改时刻/范围）
             checkin_schedules::upsert(&Value::Object(entry))
-                .map_err(|error| AutoCheckinConfigError::new(error))?;
+                .map_err(AutoCheckinConfigError::new)?;
         }
         // 保证调度循环运行，并检查已到时的未执行账号；未来安排仍等待各自时刻。
         if master_enabled() {

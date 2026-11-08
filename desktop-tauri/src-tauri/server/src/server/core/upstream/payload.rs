@@ -198,32 +198,40 @@ pub(super) async fn send_body<'a>(
     if ctx.images.is_some() {
         let requested = ctx.body.get("model").and_then(Value::as_str).unwrap_or("");
         let wire = crate::server::core::providers::catalog::wire_target_for_provider(
-            requested, provider_id, account,
+            requested,
+            provider_id,
+            account,
         );
         let mut body = Cow::Borrowed(ctx.body);
         rewrite_model(&mut body, requested, &wire.model, provider_id);
         ctx.telemetry.note_upstream_model(&wire.model);
         ctx.telemetry.note_upstream_reasoning(None);
-        return SendBody { body, wire_model: wire.model, wire_reasoning: None };
+        return SendBody {
+            body,
+            wire_model: wire.model,
+            wire_reasoning: None,
+        };
     }
     // ── ⓪ 角色归一层（开发者角色兼容开关）───────────────────────────
     // 在所有改写**之前**：先把 developer 角色归一成 system，后面各层（提示词、
     // 脱敏、各适配器）看到的就是统一形态 —— 适配器自己的 developer→system 映射
     // 对归一后的体是幂等的，不会二次改写。开关关着或没有 developer 消息时
     // 原体直接往下走（零拷贝），只有真要改才付出一次克隆。
-    let role_base: Cow<'a, Value> =
-        match normalize_developer_role(ctx.body, ctx.developer_role_compat) {
-            Some((next, changed)) => {
-                logging::verbose(
+    let role_base: Cow<'a, Value> = match normalize_developer_role(
+        ctx.body,
+        ctx.developer_role_compat,
+    ) {
+        Some((next, changed)) => {
+            logging::verbose(
                     "[Upstream]",
                     &format!(
                         "角色归一层：developer → system × {changed} 条 provider={provider_id}（开发者角色兼容）"
                     ),
                 );
-                Cow::Owned(next)
-            }
-            None => Cow::Borrowed(ctx.body),
-        };
+            Cow::Owned(next)
+        }
+        None => Cow::Borrowed(ctx.body),
+    };
     // ── ① 系统提示词层（网关自有提示词：透传 / 替换 / 追加）──────────────
     // 在脱敏**之前**：与参考项目同序（提示词改写 → 脱敏），于是网关提示词
     // 自己万一命中指纹也会被后一层清掉；反过来的话，「刚换上去的那段提示词」
@@ -237,7 +245,11 @@ pub(super) async fn send_body<'a>(
     // 内容拦截后由转发层置位）：降级期用最小中性提示词（`custom` 模式除外，
     // 见 `PromptChoice::text_for`）。
     let prompt = ctx.prompt.for_provider(provider_id);
-    let processed = if ctx.preserve_system_prompt { None } else { prompt.apply(role_base.as_ref(), degraded) };
+    let processed = if ctx.preserve_system_prompt {
+        None
+    } else {
+        prompt.apply(role_base.as_ref(), degraded)
+    };
     let after_prompt = match processed {
         Some(next) => {
             logging::verbose(
@@ -261,7 +273,10 @@ pub(super) async fn send_body<'a>(
     };
     // ── ② 指纹脱敏层（核心规则见 `core::sanitize`）─────────────────────
     let body = if ctx.sanitize.applies_to(provider_id) {
-        match crate::server::core::sanitize::sanitize_body(after_prompt.as_ref(), &ctx.sanitize.rules) {
+        match crate::server::core::sanitize::sanitize_body(
+            after_prompt.as_ref(),
+            &ctx.sanitize.rules,
+        ) {
             Some((scrubbed, hits)) => {
                 if !hits.is_empty() {
                     ctx.telemetry.note_sensitive_hits(&hits);
@@ -347,17 +362,37 @@ pub(super) async fn send_body<'a>(
     if requested.is_empty() {
         // 没有 model 字段：不改写，也没有可用的冷却键（空串，与改造前一致）
         ctx.telemetry.note_upstream_reasoning(None);
-        return SendBody { body, wire_model: requested, wire_reasoning: None };
+        return SendBody {
+            body,
+            wire_model: requested,
+            wire_reasoning: None,
+        };
     }
     // 一次解析出两个属性：该家要收的名字 + 跟着那条映射走的思考等级
     // （同源，见模块头「思考等级绑定为什么也在这一步」）
     let direct = account.and_then(crate::server::core::routing_groups::candidate_model);
-    let wire = direct.map(|model| crate::server::core::providers::catalog::WireTarget { model: model.to_string(), reasoning: None })
-        .unwrap_or_else(|| crate::server::core::providers::catalog::wire_target_for_provider(&requested, provider_id, account));
+    let wire = direct
+        .map(
+            |model| crate::server::core::providers::catalog::WireTarget {
+                model: model.to_string(),
+                reasoning: None,
+            },
+        )
+        .unwrap_or_else(|| {
+            crate::server::core::providers::catalog::wire_target_for_provider(
+                &requested,
+                provider_id,
+                account,
+            )
+        });
     ctx.telemetry.note_upstream_model(&wire.model);
     rewrite_model(&mut body, &requested, &wire.model, provider_id);
     if ctx.compact_routed {
-        crate::server::core::compact_routing::parameters::cap_output(&mut body, provider_id, &wire.model);
+        crate::server::core::compact_routing::parameters::cap_output(
+            &mut body,
+            provider_id,
+            &wire.model,
+        );
     }
     let injected = apply_reasoning(
         &mut body,
@@ -374,8 +409,13 @@ pub(super) async fn send_body<'a>(
     // 记 None（空串），显示层不给「没发的等级」预支一个值。
     // 注入路径已经问过一次适配器，这里再查一次注册表是两次哈希查找，可忽略。
     let upstream_reasoning = injected.or_else(|| outbound_reasoning_of(provider_id, &body));
-    ctx.telemetry.note_upstream_reasoning(upstream_reasoning.clone());
-    SendBody { body, wire_model: wire.model, wire_reasoning: upstream_reasoning }
+    ctx.telemetry
+        .note_upstream_reasoning(upstream_reasoning.clone());
+    SendBody {
+        body,
+        wire_model: wire.model,
+        wire_reasoning: upstream_reasoning,
+    }
 }
 
 /// 承载家的 [`ProviderAdapter::outbound_reasoning`]（读发送体里随行的等级）。
@@ -392,7 +432,9 @@ pub(super) fn outbound_reasoning_of(provider_id: &str, body: &Value) -> Option<S
     // 内置家走静态注册表（零分配）；插件家在同步上下文里无法 await，
     // 走 `adapter_by_id` 也只是拿到本地缓存（`outbound_reasoning` 是纯读）。
     match crate::server::core::providers::kind_from_id(provider_id) {
-        Some(kind) => crate::server::core::providers::adapter::adapter_for(kind).outbound_reasoning(body),
+        Some(kind) => {
+            crate::server::core::providers::adapter::adapter_for(kind).outbound_reasoning(body)
+        }
         None => crate::server::core::providers::adapter::adapter_by_id(provider_id)?
             .outbound_reasoning(body),
     }
@@ -553,7 +595,10 @@ async fn apply_reasoning(
         return None;
     };
     // 走异步伴生方法：内置家直接转调同步实现（零成本），插件家走 RPC。
-    match adapter.reasoning_patch_async(level, wire_model, body.as_ref()).await {
+    match adapter
+        .reasoning_patch_async(level, wire_model, body.as_ref())
+        .await
+    {
         crate::server::core::providers::adapter::ReasoningPatch::Set { field, value } => {
             // 先取可变对象再打日志：请求体不是 JSON 对象时写不进去（正常路径不会
             // 发生 —— chat 入口已校验过是对象），此时**不能**打「已注入」——

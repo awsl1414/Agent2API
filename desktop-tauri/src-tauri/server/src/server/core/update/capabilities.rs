@@ -38,6 +38,10 @@ pub fn current() -> UpdateCapability {
         mode: if unsupported_arch { "manual" } else { mode },
         package_kind: if server { "server" } else { "desktop" },
         install_supported: !unsupported_arch && mode != "manual",
-        reason: if unsupported_arch { Some("unsupported_arch") } else { reason },
+        reason: if unsupported_arch {
+            Some("unsupported_arch")
+        } else {
+            reason
+        },
     }
 }

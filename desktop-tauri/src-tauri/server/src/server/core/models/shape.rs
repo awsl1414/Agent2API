@@ -77,7 +77,10 @@ pub fn list_item(model: &Value, provider_id: &str) -> Value {
             _ => Value::String(String::new()),
         },
     );
-    if let Some(value) = model.get("maxOutputTokens").filter(|value| !value.is_null()) {
+    if let Some(value) = model
+        .get("maxOutputTokens")
+        .filter(|value| !value.is_null())
+    {
         item.insert("max_output_tokens".to_string(), value.clone());
     }
     if let Some(value) = model.get("maxInputTokens").filter(|value| !value.is_null()) {
@@ -86,17 +89,30 @@ pub fn list_item(model: &Value, provider_id: &str) -> Value {
     // 两个模态位先取成局部量：下面的 `input_modalities` 必须与它们**同源**
     // —— 同一批生效值（含用户覆盖）、同一套真值判定，两处声明才不会漂移
     let images = model.get("supportsImages").map(js_truthy).unwrap_or(false)
-        || crate::server::core::providers::images::provider_model_supports_editing(provider_id, model);
+        || crate::server::core::providers::images::provider_model_supports_editing(
+            provider_id,
+            model,
+        );
     let video = model.get("supportsVideo").map(js_truthy).unwrap_or(false);
     item.insert(
         "supports_tool_call".to_string(),
-        Value::Bool(model.get("supportsToolCall").map(js_truthy).unwrap_or(false)),
+        Value::Bool(
+            model
+                .get("supportsToolCall")
+                .map(js_truthy)
+                .unwrap_or(false),
+        ),
     );
     item.insert("supports_images".to_string(), Value::Bool(images));
     item.insert("supports_video".to_string(), Value::Bool(video));
     item.insert(
         "supports_reasoning".to_string(),
-        Value::Bool(model.get("supportsReasoning").map(js_truthy).unwrap_or(false)),
+        Value::Bool(
+            model
+                .get("supportsReasoning")
+                .map(js_truthy)
+                .unwrap_or(false),
+        ),
     );
     // `input_modalities`：OpenAI 兼容生态里模型条目上的**通用**输入模态声明
     // （ZenMux / OpenRouter / AIHubMix 这类网关都在 `/v1/models` 的条目里给
@@ -117,16 +133,34 @@ pub fn list_item(model: &Value, provider_id: &str) -> Value {
     }
     item.insert("input_modalities".to_string(), Value::Array(modalities));
     let image_generation = crate::server::core::providers::images::model_is_image(model);
-    item.insert("supports_image_generation".to_string(), Value::Bool(
-        crate::server::core::providers::images::provider_model_supports_generation(provider_id, model),
-    ));
-    item.insert("supports_image_editing".to_string(), Value::Bool(
-        crate::server::core::providers::images::provider_model_supports_editing(provider_id, model),
-    ));
-    if let Some(output) = model.get("output_modalities").filter(|value| value.is_array()) {
+    item.insert(
+        "supports_image_generation".to_string(),
+        Value::Bool(
+            crate::server::core::providers::images::provider_model_supports_generation(
+                provider_id,
+                model,
+            ),
+        ),
+    );
+    item.insert(
+        "supports_image_editing".to_string(),
+        Value::Bool(
+            crate::server::core::providers::images::provider_model_supports_editing(
+                provider_id,
+                model,
+            ),
+        ),
+    );
+    if let Some(output) = model
+        .get("output_modalities")
+        .filter(|value| value.is_array())
+    {
         item.insert("output_modalities".to_string(), output.clone());
     } else if image_generation {
-        item.insert("output_modalities".to_string(), serde_json::json!(["image"]));
+        item.insert(
+            "output_modalities".to_string(),
+            serde_json::json!(["image"]),
+        );
     }
     item.insert(
         "is_default".to_string(),
@@ -151,7 +185,10 @@ pub fn list_item(model: &Value, provider_id: &str) -> Value {
             item.insert(target.to_string(), value.clone());
         }
     }
-    if let Some(status) = model.get("upstreamStatus").filter(|value| value.is_string()) {
+    if let Some(status) = model
+        .get("upstreamStatus")
+        .filter(|value| value.is_string())
+    {
         item.insert("upstream_status".to_string(), status.clone());
     }
     Value::Object(item)

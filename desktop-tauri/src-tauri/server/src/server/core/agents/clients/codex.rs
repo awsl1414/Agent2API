@@ -24,7 +24,12 @@ pub fn read(value: &Value) -> Result<Vec<Profile>, String> {
                 continue;
             }
             let name = string(entry, "name");
-            let mut profile = Profile::new(id, if name.is_empty() { id } else { &name }, "responses", &base);
+            let mut profile = Profile::new(
+                id,
+                if name.is_empty() { id } else { &name },
+                "responses",
+                &base,
+            );
             let wire = string(entry, "wire_api");
             if !wire.is_empty() && wire != "responses" {
                 profile.protocol = wire;
@@ -53,7 +58,16 @@ pub fn read(value: &Value) -> Result<Vec<Profile>, String> {
             profiles.push(profile);
         }
     }
-    if !profiles.iter().any(|p| p.enabled) && ["model_provider", "model", "model_reasoning_effort", "openai_base_url"].iter().any(|key| effective.get(*key).is_some()) {
+    if !profiles.iter().any(|p| p.enabled)
+        && [
+            "model_provider",
+            "model",
+            "model_reasoning_effort",
+            "openai_base_url",
+        ]
+        .iter()
+        .any(|key| effective.get(*key).is_some())
+    {
         let base = string(&effective, "openai_base_url");
         let mut profile = Profile::new(&active, "Codex 官方或内置配置", "responses", &base);
         profile.model = string(&effective, "model");

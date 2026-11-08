@@ -48,8 +48,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use windows_service::service::{
-    ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus,
-    ServiceType,
+    ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus, ServiceType,
 };
 use windows_service::service_control_handler::{self, ServiceControlHandlerResult};
 use windows_service::service_dispatcher;
@@ -206,9 +205,7 @@ fn run_service() -> Result<(), String> {
     agent2api_server::server::core::update::windows_service::notify_ready();
 
     // 等网关收尾（收到 STOP 后走优雅停机）
-    let outcome = worker
-        .join()
-        .map_err(|_| "网关线程异常退出".to_string())?;
+    let outcome = worker.join().map_err(|_| "网关线程异常退出".to_string())?;
 
     let _ = status_handle.set_service_status(status(ServiceState::Stopped, 0, STOP_HINT));
     outcome

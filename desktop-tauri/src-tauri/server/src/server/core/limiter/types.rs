@@ -101,7 +101,9 @@ pub struct Group {
     pub conditions: Vec<Condition>,
 }
 
-fn yes() -> bool { true }
+fn yes() -> bool {
+    true
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

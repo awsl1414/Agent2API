@@ -90,9 +90,7 @@ pub fn init_store(db: Option<Db>, verbose: bool) -> bool {
     if STORE.get().is_some() {
         return false;
     }
-    let store = LogStore::with_db(db, || {
-        crate::server::config::retention_settings().log_days
-    });
+    let store = LogStore::with_db(db, || crate::server::config::retention_settings().log_days);
     store.prune();
     let _ = STORE.set(store);
     true
@@ -105,8 +103,7 @@ fn store() -> Option<&'static LogStore> {
 
 /// 是否开启 verbose（默认关闭，与 Node 版一致）
 pub fn is_verbose() -> bool {
-    *VERBOSE.get().unwrap_or(&false)
-        || crate::server::config::debug_mode_enabled()
+    *VERBOSE.get().unwrap_or(&false) || crate::server::config::debug_mode_enabled()
 }
 
 /// 当前毫秒 Unix 时间戳（对应 Node 版 `Date.now()`）。
@@ -237,13 +234,15 @@ pub fn log(tag: &str, text: &str) {
     };
     // 与 Node 版一致：message 为「标签 + 文案」，前端列表里能直接看到来源
     let message = format!("{tag} {trimmed}");
-    crate::server::core::blocking::in_place(|| store.append(NewEntry {
-        level: infer_level(tag, trimmed),
-        category: category_of(tag),
-        message: &message,
-        data: None,
-        ts: None,
-    }));
+    crate::server::core::blocking::in_place(|| {
+        store.append(NewEntry {
+            level: infer_level(tag, trimmed),
+            category: category_of(tag),
+            message: &message,
+            data: None,
+            ts: None,
+        })
+    });
 }
 
 /// 显式指定级别的日志，其余行为与 `log()` 完全一致。
@@ -265,13 +264,15 @@ pub fn log_with_level(tag: &str, text: &str, level: &str) {
         return;
     };
     let message = format!("{tag} {trimmed}");
-    crate::server::core::blocking::in_place(|| store.append(NewEntry {
-        level,
-        category: category_of(tag),
-        message: &message,
-        data: None,
-        ts: None,
-    }));
+    crate::server::core::blocking::in_place(|| {
+        store.append(NewEntry {
+            level,
+            category: category_of(tag),
+            message: &message,
+            data: None,
+            ts: None,
+        })
+    });
 }
 
 /// 调试日志：只有开关打开时才输出并入库（对应 Node 版 verbose()）。
@@ -291,13 +292,15 @@ pub fn verbose(tag: &str, text: &str) {
         return;
     };
     let message = format!("{tag} {trimmed}");
-    crate::server::core::blocking::in_place(|| store.append(NewEntry {
-        level: "debug",
-        category: category_of(tag),
-        message: &message,
-        data: None,
-        ts: None,
-    }));
+    crate::server::core::blocking::in_place(|| {
+        store.append(NewEntry {
+            level: "debug",
+            category: category_of(tag),
+            message: &message,
+            data: None,
+            ts: None,
+        })
+    });
 }
 
 /// 结构化事件上报（对应 Node 版 logEvent）。
@@ -317,13 +320,15 @@ pub fn log_event(
         return None;
     }
     let store = store()?;
-    crate::server::core::blocking::in_place(|| store.append(NewEntry {
-        level,
-        category,
-        message,
-        data: data.as_ref(),
-        ts: None,
-    }))
+    crate::server::core::blocking::in_place(|| {
+        store.append(NewEntry {
+            level,
+            category,
+            message,
+            data: data.as_ref(),
+            ts: None,
+        })
+    })
 }
 
 /// 供路由层读取日志库（查询/统计/清空）。未初始化时返回 None，
@@ -369,11 +374,13 @@ mod tests {
     /// 正常成功文案不得被判成 error，否则等于常挂红标。
     #[test]
     fn infer_level_treats_plain_success_as_info() {
-        assert_eq!(infer_level("[Checkin]", "⏰ 定时签到开始（到点触发）"), "info");
+        assert_eq!(
+            infer_level("[Checkin]", "⏰ 定时签到开始（到点触发）"),
+            "info"
+        );
         assert_eq!(
             infer_level("[Checkin]", "定时签到完成: 2/2 个账号成功领取"),
             "info"
         );
     }
 }
-

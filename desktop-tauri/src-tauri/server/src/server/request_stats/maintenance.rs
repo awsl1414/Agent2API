@@ -147,7 +147,10 @@ impl RequestStats {
             // 状态会多卡一会儿；复位后的并发压缩请求与日志写入互不阻塞
             vacuum.mark_finished();
             if ok {
-                logging::log("[Stats]", "数据库压缩完成（checkpoint + VACUUM + checkpoint）");
+                logging::log(
+                    "[Stats]",
+                    "数据库压缩完成（checkpoint + VACUUM + checkpoint）",
+                );
             } else {
                 logging::log("[Stats]", "⚠️ 数据库压缩未完成：数据库不可用或压缩失败");
             }

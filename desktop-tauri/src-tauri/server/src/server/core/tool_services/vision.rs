@@ -131,21 +131,32 @@ fn normalize_image_ref(value: &Value) -> String {
 pub fn parse_vision_args(args: &Value) -> Result<(Vec<String>, String), String> {
     let images = args.get("images").and_then(Value::as_array);
     let Some(images) = images else {
-        return Err(format!("images must contain between 1 and {VISION_MAX_IMAGES} image references"));
+        return Err(format!(
+            "images must contain between 1 and {VISION_MAX_IMAGES} image references"
+        ));
     };
     if images.is_empty() || images.len() > VISION_MAX_IMAGES {
-        return Err(format!("images must contain between 1 and {VISION_MAX_IMAGES} image references"));
+        return Err(format!(
+            "images must contain between 1 and {VISION_MAX_IMAGES} image references"
+        ));
     }
     let normalized: Vec<String> = images.iter().map(normalize_image_ref).collect();
     if normalized.iter().any(String::is_empty) {
         return Err("each image must be an http(s) URL or an image data URI".into());
     }
-    let prompt = args.get("prompt").and_then(Value::as_str).map(str::trim).unwrap_or("").to_string();
+    let prompt = args
+        .get("prompt")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("")
+        .to_string();
     if prompt.is_empty() {
         return Err("prompt must be a non-empty string".into());
     }
     if prompt.chars().count() > VISION_MAX_PROMPT_LENGTH {
-        return Err(format!("prompt must be at most {VISION_MAX_PROMPT_LENGTH} characters"));
+        return Err(format!(
+            "prompt must be at most {VISION_MAX_PROMPT_LENGTH} characters"
+        ));
     }
     Ok((normalized, prompt))
 }
@@ -168,18 +179,31 @@ async fn fetch_image_as_data_uri(url: &str) -> Result<String, String> {
             }
         })?;
     if !response.status().is_success() {
-        return Err(format!("Image fetch failed with HTTP {}", response.status().as_u16()));
+        return Err(format!(
+            "Image fetch failed with HTTP {}",
+            response.status().as_u16()
+        ));
     }
     let mime = response
         .headers()
         .get("content-type")
         .and_then(|value| value.to_str().ok())
-        .map(|value| value.split(';').next().unwrap_or("").trim().to_ascii_lowercase())
+        .map(|value| {
+            value
+                .split(';')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase()
+        })
         .unwrap_or_default();
     if !mime.starts_with("image/") {
         return Err("The fetched URL does not return an image".into());
     }
-    let bytes = response.bytes().await.map_err(|error| format!("Image fetch failed: {error}"))?;
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| format!("Image fetch failed: {error}"))?;
     if bytes.len() > VISION_IMAGE_FETCH_LIMIT_BYTES {
         return Err("Image exceeds the 20MB limit".into());
     }
@@ -191,8 +215,14 @@ async fn fetch_image_as_data_uri(url: &str) -> Result<String, String> {
 }
 
 /// 运行一次视觉分析：组消息 → 抓 URL 图 → 调本进程网关 → 取回复文本
-pub async fn run_vision(base_url: &str, images: Vec<String>, prompt: String) -> Result<Value, String> {
-    let config = super::load().vision.ok_or("Vision model is not configured; ask the administrator to configure it")?;
+pub async fn run_vision(
+    base_url: &str,
+    images: Vec<String>,
+    prompt: String,
+) -> Result<Value, String> {
+    let config = super::load()
+        .vision
+        .ok_or("Vision model is not configured; ask the administrator to configure it")?;
     if config.downstream_model.is_empty() {
         return Err("Vision model is not configured; ask the administrator to configure it".into());
     }
@@ -226,7 +256,10 @@ pub async fn run_vision(base_url: &str, images: Vec<String>, prompt: String) -> 
     let timeout = super::timeout_seconds(super::VISION_SERVICE_ID);
     let client = crate::server::core::egress::client_for(None);
     let response = client
-        .post(format!("{}/v1/chat/completions", base_url.trim_end_matches('/')))
+        .post(format!(
+            "{}/v1/chat/completions",
+            base_url.trim_end_matches('/')
+        ))
         .timeout(Duration::from_secs(timeout))
         .header("content-type", "application/json")
         .header("authorization", format!("Bearer {}", key.key))

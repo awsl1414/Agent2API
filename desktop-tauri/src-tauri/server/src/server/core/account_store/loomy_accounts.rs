@@ -129,7 +129,10 @@ impl AccountStore {
         if session.chars().count() > MAX_SESSION_LENGTH {
             return Err(AccountStoreError::new("session 过长", 400));
         }
-        let user_id = truncate_chars(&pick(payload, &["userId", "userid", "user_id"]), MAX_IDENTITY_LENGTH);
+        let user_id = truncate_chars(
+            &pick(payload, &["userId", "userid", "user_id"]),
+            MAX_IDENTITY_LENGTH,
+        );
         let phone = truncate_chars(&pick(payload, &["phone"]), MAX_IDENTITY_LENGTH);
         if user_id.is_empty() && phone.is_empty() {
             return Err(AccountStoreError::new(
@@ -138,7 +141,11 @@ impl AccountStore {
             ));
         }
         // 身份标识：优先 userid（稳定）；没有就退回手机号
-        let identity = if user_id.is_empty() { phone.clone() } else { user_id.clone() };
+        let identity = if user_id.is_empty() {
+            phone.clone()
+        } else {
+            user_id.clone()
+        };
         let id = format!("loomy-{identity}");
 
         let guard = self.guard();
@@ -169,7 +176,10 @@ impl AccountStore {
             })
             .unwrap_or_else(|| {
                 if phone.len() >= 11 {
-                    format!("Loomy {}", crate::server::core::providers::loomy::mask_phone(&phone))
+                    format!(
+                        "Loomy {}",
+                        crate::server::core::providers::loomy::mask_phone(&phone)
+                    )
                 } else if !user_id.is_empty() {
                     format!("Loomy {user_id}")
                 } else {
@@ -180,7 +190,7 @@ impl AccountStore {
             Some(record) => record.priority(),
             None => {
                 // 优先级全局唯一（各家共用一条队列），取全库已用号段
-                let used = self.with_conn(&guard, |conn| sql::priorities_all(conn))?;
+                let used = self.with_conn(&guard, sql::priorities_all)?;
                 next_free_priority(&used)
             }
         };
@@ -188,14 +198,21 @@ impl AccountStore {
 
         let mut record = Map::new();
         record.insert("id".to_string(), Value::String(id.clone()));
-        record.insert("provider".to_string(), Value::String(LOOMY_PROVIDER_ID.to_string()));
+        record.insert(
+            "provider".to_string(),
+            Value::String(LOOMY_PROVIDER_ID.to_string()),
+        );
         record.insert("name".to_string(), Value::String(record_name.clone()));
         // 备注名标记：用户显式传了名或既有记录已打标时置位，界面据此决定
         // 「备注名赢过昵称等默认口径」还是「维持原展示行为」。与其余八家同一
         // 口径（见 `state::mark_name_custom`）—— 本家走自己的保存路径（不经过
         // `store_crud::upsert_account` 的统一打标），所以必须在这里显式调用，
         // 漏了会让添加时填的备注名在将来被昵称顶掉。
-        mark_name_custom(&mut record, name.is_some_and(|value| !value.trim().is_empty()), existing.as_ref());
+        mark_name_custom(
+            &mut record,
+            name.is_some_and(|value| !value.trim().is_empty()),
+            existing.as_ref(),
+        );
         if !user_id.is_empty() {
             record.insert("userId".to_string(), Value::String(user_id));
         }
@@ -203,7 +220,10 @@ impl AccountStore {
             record.insert("phone".to_string(), Value::String(phone));
         }
         record.insert("accessToken".to_string(), Value::String(session.clone()));
-        record.insert("tokenTail".to_string(), Value::String(session_tail(&session)));
+        record.insert(
+            "tokenTail".to_string(),
+            Value::String(session_tail(&session)),
+        );
         // 不写 `expiresAt`：上游不给到期时刻（见模块头）。重新登录时顺带清掉
         // 存量记录上的历史估算值 —— 留着它只会让旧值继续被别处当成事实读。
         record.remove("expiresAt");

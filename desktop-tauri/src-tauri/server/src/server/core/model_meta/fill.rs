@@ -59,7 +59,9 @@ const LEVEL_KEYS: [&str; 3] = ["reasoningLevels", "reasoningEfforts", "efforts"]
 /// `custom_providers::bindings::public_models`。收在两处就不可能出现「管理页
 /// 改了、下游没变」那种分叉（与能力位覆盖层同一理由）。
 pub fn apply(item: &mut Value) {
-    let Some(id) = item.get("id").and_then(Value::as_str).map(str::to_string) else { return };
+    let Some(id) = item.get("id").and_then(Value::as_str).map(str::to_string) else {
+        return;
+    };
     let record = snapshot::lookup(&id);
     let mut sources: Map<String, Value> = Map::new();
     if let Some(record) = &record {
@@ -95,7 +97,11 @@ pub fn apply(item: &mut Value) {
     } else if let Some(object) = item.as_object() {
         // 没收录也要把上游声明记下来：管理页据此说明「这个值来自上游」，
         // 而不是显示成「没数据」。
-        for key in BOOL_BRIDGE.iter().map(|(key, _)| *key).chain(TOKEN_BRIDGE.iter().map(|(key, _)| *key)) {
+        for key in BOOL_BRIDGE
+            .iter()
+            .map(|(key, _)| *key)
+            .chain(TOKEN_BRIDGE.iter().map(|(key, _)| *key))
+        {
             if object.get(key).is_some_and(|value| !value.is_null()) {
                 sources.insert(key.to_string(), json!("upstream"));
             }
@@ -111,51 +117,100 @@ pub fn apply(item: &mut Value) {
 
 /// 归一逐模型档位（原键只读，见模块头）。
 fn normalize_levels(item: &mut Value, record: Option<&Record>) {
-    let declared = item.pointer("/reasoning/supportedEfforts").and_then(levels_of)
-        .or_else(|| LEVEL_KEYS.iter().find_map(|key| item.get(*key).and_then(levels_of)));
-    let binding_supported = item.get("reasoningBindingSupported").and_then(Value::as_bool);
-    let fixed = if binding_supported == Some(false) { None } else {
-        item.get("reasoningFixedLevel").and_then(level_text).or_else(|| {
-            if declared.as_ref().is_some_and(|levels| !levels.is_empty()) { return None; }
-            item.pointer("/reasoning/effort").and_then(level_text)
-        })
+    let declared = item
+        .pointer("/reasoning/supportedEfforts")
+        .and_then(levels_of)
+        .or_else(|| {
+            LEVEL_KEYS
+                .iter()
+                .find_map(|key| item.get(*key).and_then(levels_of))
+        });
+    let binding_supported = item
+        .get("reasoningBindingSupported")
+        .and_then(Value::as_bool);
+    let fixed = if binding_supported == Some(false) {
+        None
+    } else {
+        item.get("reasoningFixedLevel")
+            .and_then(level_text)
+            .or_else(|| {
+                if declared.as_ref().is_some_and(|levels| !levels.is_empty()) {
+                    return None;
+                }
+                item.pointer("/reasoning/effort").and_then(level_text)
+            })
     };
     let explicit = declared.is_some() || fixed.is_some() || binding_supported == Some(false);
-    let levels = if binding_supported == Some(false) { Vec::new() }
-    else if let Some(fixed) = &fixed {
+    let levels = if binding_supported == Some(false) {
+        Vec::new()
+    } else if let Some(fixed) = &fixed {
         vec![fixed.clone()]
     } else if explicit {
         declared.unwrap_or_default()
     } else {
-        record.map(|record| record.levels.clone()).unwrap_or_default()
+        record
+            .map(|record| record.levels.clone())
+            .unwrap_or_default()
     };
-    let default = item.get("reasoningDefaultLevel").and_then(level_text)
-        .or_else(|| item.pointer("/reasoning/defaultEffort").and_then(level_text))
+    let default = item
+        .get("reasoningDefaultLevel")
+        .and_then(level_text)
+        .or_else(|| {
+            item.pointer("/reasoning/defaultEffort")
+                .and_then(level_text)
+        })
         .or_else(|| item.pointer("/reasoning/effort").and_then(level_text))
         .and_then(|value| {
-            if levels.is_empty() && item.get("supportsReasoning").and_then(Value::as_bool) != Some(false) { Some(value) }
-            else { levels.iter().find(|level| level.eq_ignore_ascii_case(&value)).cloned() }
-        }).or_else(|| fixed.clone());
-    let source = item.get("reasoningSource").and_then(Value::as_str)
+            if levels.is_empty()
+                && item.get("supportsReasoning").and_then(Value::as_bool) != Some(false)
+            {
+                Some(value)
+            } else {
+                levels
+                    .iter()
+                    .find(|level| level.eq_ignore_ascii_case(&value))
+                    .cloned()
+            }
+        })
+        .or_else(|| fixed.clone());
+    let source = item
+        .get("reasoningSource")
+        .and_then(Value::as_str)
         .filter(|source| matches!(*source, "upstream" | "modelsdev" | "undeclared"))
         .map(str::to_string)
         .unwrap_or_else(|| {
-            (if explicit { "upstream" } else if !levels.is_empty() { "modelsdev" } else { "undeclared" })
-                .to_string()
+            (if explicit {
+                "upstream"
+            } else if !levels.is_empty() {
+                "modelsdev"
+            } else {
+                "undeclared"
+            })
+            .to_string()
         });
-    let Some(object) = item.as_object_mut() else { return };
+    let Some(object) = item.as_object_mut() else {
+        return;
+    };
     if explicit || !levels.is_empty() {
         object.insert("reasoningLevels".into(), json!(levels));
     }
     object.remove("reasoningDefaultLevel");
     object.remove("reasoningFixedLevel");
-    if let Some(default) = default { object.insert("reasoningDefaultLevel".into(), json!(default)); }
-    if let Some(fixed) = fixed { object.insert("reasoningFixedLevel".into(), json!(fixed)); }
+    if let Some(default) = default {
+        object.insert("reasoningDefaultLevel".into(), json!(default));
+    }
+    if let Some(fixed) = fixed {
+        object.insert("reasoningFixedLevel".into(), json!(fixed));
+    }
     object.insert("reasoningSource".into(), json!(source));
 }
 
 fn level_text(value: &Value) -> Option<String> {
-    value.as_str().map(str::trim).filter(|value| !value.is_empty()).map(str::to_string)
+    value
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 /// 从清单项的一个档位键里读出档位表（非数组 / 空串 / 数字一律丢弃）。
@@ -183,7 +238,9 @@ pub fn mark_user(item: &mut Value, keys: &[String]) {
     if keys.is_empty() {
         return;
     }
-    let Some(object) = item.as_object_mut() else { return };
+    let Some(object) = item.as_object_mut() else {
+        return;
+    };
     let mut sources = object
         .get("capSources")
         .and_then(Value::as_object)

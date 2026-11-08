@@ -23,7 +23,9 @@ pub(in crate::server::core::plugin_host) async fn required_release(
         }
     }
     let Some(response) = query_releases(repo, "?per_page=100", true).await? else {
-        return Err(format!("尚未发布当前平台所需的官方插件 v{minimum} 或更高版本"));
+        return Err(format!(
+            "尚未发布当前平台所需的官方插件 v{minimum} 或更高版本"
+        ));
     };
     let mut best: Option<PackAsset> = None;
     let minimum_core = crate::server::core::update::parse_version(minimum);
@@ -36,8 +38,10 @@ pub(in crate::server::core::plugin_host) async fn required_release(
         };
         // 补齐不跨到另一轮软件的 beta，避免把未来配套包装给旧网关。
         if !matches!(compare_versions(&release.version, minimum), Some(0 | 1))
-            || (release.prerelease && (!is_prerelease_version(minimum)
-                || crate::server::core::update::parse_version(&release.version) != minimum_core))
+            || (release.prerelease
+                && (!is_prerelease_version(minimum)
+                    || crate::server::core::update::parse_version(&release.version)
+                        != minimum_core))
         {
             continue;
         }
@@ -45,9 +49,10 @@ pub(in crate::server::core::plugin_host) async fn required_release(
             continue;
         };
         asset.require_signed = true;
-        if best.as_ref().is_none_or(|previous| {
-            compare_versions(&asset.version, &previous.version) == Some(-1)
-        }) {
+        if best
+            .as_ref()
+            .is_none_or(|previous| compare_versions(&asset.version, &previous.version) == Some(-1))
+        {
             best = Some(asset);
         }
     }

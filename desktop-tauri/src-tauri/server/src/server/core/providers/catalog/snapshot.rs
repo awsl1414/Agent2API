@@ -21,8 +21,15 @@ pub(crate) fn validation_snapshot(store: &AccountStore) -> std::sync::Arc<Valida
     validation::snapshot(store, store.validation_cache())
 }
 
-pub(crate) fn config_changed(before: &config::RuntimeConfig, after: &config::RuntimeConfig) -> bool {
-    let keys = [crate::server::core::model_rules::KEY_MODEL_RULES,
-        crate::server::core::custom_providers::KEY_CUSTOM_PROVIDERS, config::KEY_ROUTING_PROFILES];
-    keys.iter().any(|key| before.raw().get(*key) != after.raw().get(*key))
+pub(crate) fn config_changed(
+    before: &config::RuntimeConfig,
+    after: &config::RuntimeConfig,
+) -> bool {
+    let keys = [
+        crate::server::core::model_rules::KEY_MODEL_RULES,
+        crate::server::core::custom_providers::KEY_CUSTOM_PROVIDERS,
+        config::KEY_ROUTING_PROFILES,
+    ];
+    keys.iter()
+        .any(|key| before.raw().get(*key) != after.raw().get(*key))
 }

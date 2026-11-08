@@ -16,7 +16,11 @@ use crate::server::{logging, ServerState};
 
 use super::images::{self, ImageExecution};
 
-pub async fn generations(State(state): State<ServerState>, headers: HeaderMap, body: Bytes) -> Response {
+pub async fn generations(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     respond(run(&state, &headers, &body, ImageOperation::Generate).await)
 }
 

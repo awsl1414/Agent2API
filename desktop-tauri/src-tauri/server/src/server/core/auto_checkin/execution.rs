@@ -156,7 +156,7 @@ impl AutoCheckin {
                             let account_id = account.get("id").and_then(Value::as_str)?;
                             selected
                                 .as_ref()
-                                .map_or(true, |selected| selected.iter().any(|id| id == account_id))
+                                .is_none_or(|selected| selected.iter().any(|id| id == account_id))
                                 .then(|| account_id.to_string())
                         })
                         .collect::<Vec<_>>()

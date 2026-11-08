@@ -64,7 +64,7 @@ use super::report::{normalize_status_filter, SummaryRow};
 mod raw;
 pub(super) use raw::{
     count_raw, count_raw_matching, count_upstream_raw, delete_raw_matching, select_raw,
-    trim_raw_rows, trim_raw_to_caps, upsert_raw,
+    trim_raw_to_caps, upsert_raw,
 };
 
 /// `requests` 的列顺序（所有 SELECT 都按这个顺序取，`decode_request` 依赖它；
@@ -75,7 +75,8 @@ pub(super) use raw::{
 /// 看不出错，只会静默取错值）。因此后加的列都在最后：
 ///   - `attempt_details` / `sensitive_hits`（schema v2 的 JSON 文本列）；
 ///   - `credit`（schema v23 的积分消耗，可空 REAL）。
-pub(super) const REQUEST_COLUMNS: &str = "id, ts, model, account_id, account_name, status, duration_ms, \
+pub(super) const REQUEST_COLUMNS: &str =
+    "id, ts, model, account_id, account_name, status, duration_ms, \
      first_response_ms, attempts, error, prompt_tokens, completion_tokens, total_tokens, \
      cache_read_tokens, provider, client_model, upstream_model, attempt_details, sensitive_hits, \
      client_reasoning, upstream_reasoning, phase, phase_started_at, is_test, route, client, \
@@ -165,8 +166,11 @@ pub(super) fn decode_request(row: &rusqlite::Row<'_>) -> rusqlite::Result<Reques
                 name: row.get(27)?,
                 source: row.get(28)?,
             },
-            evidence: serde_json::from_str::<crate::server::core::client::ClientEvidence>(&row.get::<_, String>(30)?).ok()
-                .filter(|evidence| !evidence.method.is_empty()),
+            evidence: serde_json::from_str::<crate::server::core::client::ClientEvidence>(
+                &row.get::<_, String>(30)?,
+            )
+            .ok()
+            .filter(|evidence| !evidence.method.is_empty()),
             behavior_client: String::new(),
         },
         // 末列是 schema v23 加的（积分消耗）；旧行 / 没上报的行是 NULL ——
@@ -252,7 +256,11 @@ impl FilterPlan {
             fragments.push("client = ?".to_string());
             binds.push(SqlValue::Text(want.to_string()));
         }
-        if let Some(identity) = filter.api_key.as_deref().and_then(super::ApiKeyIdentity::from_filter) {
+        if let Some(identity) = filter
+            .api_key
+            .as_deref()
+            .and_then(super::ApiKeyIdentity::from_filter)
+        {
             fragments.push("api_key_source = ? AND api_key_id = ?".to_string());
             binds.push(SqlValue::Text(identity.source));
             binds.push(SqlValue::Text(identity.id));
@@ -332,10 +340,7 @@ pub(super) fn count_all(conn: &Connection) -> rusqlite::Result<usize> {
 
 /// 命中筛选的条数（`QueryResult.matched`）—— 与 `limit` 无关，
 /// 前端据此算总页数（见 `ui/requests-panel.js` 的 `renderPager`）
-pub(super) fn count_matching(
-    conn: &Connection,
-    plan: &FilterPlan,
-) -> rusqlite::Result<usize> {
+pub(super) fn count_matching(conn: &Connection, plan: &FilterPlan) -> rusqlite::Result<usize> {
     let sql = format!("SELECT COUNT(*) FROM requests{}", plan.where_sql);
     let count: i64 = conn.query_row(&sql, params_from_iter(plan.binds.iter()), |row| row.get(0))?;
     Ok(count.max(0) as usize)
@@ -353,10 +358,7 @@ pub(super) fn counts(
     conn: &Connection,
     plan: &FilterPlan,
 ) -> rusqlite::Result<(usize, usize, usize)> {
-    let filter = plan
-        .where_sql
-        .strip_prefix(" WHERE ")
-        .unwrap_or("1");
+    let filter = plan.where_sql.strip_prefix(" WHERE ").unwrap_or("1");
     let sql = format!(
         "SELECT COUNT(*), \
          COALESCE(SUM(CASE WHEN ({filter}) THEN 1 ELSE 0 END), 0), \
@@ -366,11 +368,10 @@ pub(super) fn counts(
     let mut binds = Vec::with_capacity(plan.binds.len() * 2);
     binds.extend(plan.binds.iter().cloned());
     binds.extend(plan.binds.iter().cloned());
-    let (total, matched, running): (i64, i64, i64) = conn.query_row(
-        &sql,
-        params_from_iter(binds.iter()),
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-    )?;
+    let (total, matched, running): (i64, i64, i64) =
+        conn.query_row(&sql, params_from_iter(binds.iter()), |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
     Ok((
         total.max(0) as usize,
         matched.max(0) as usize,
@@ -461,9 +462,11 @@ pub(super) fn source_filter_options(conn: &Connection, max: usize) -> rusqlite::
          GROUP BY client ORDER BY n DESC, client LIMIT ?1) grouped \
          JOIN requests r ON r.row_id = grouped.latest ORDER BY grouped.n DESC, grouped.client",
     )?;
-    let clients = client_stmt.query_map(params![max as i64], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-    })?.collect::<rusqlite::Result<Vec<_>>>()?;
+    let clients = client_stmt
+        .query_map(params![max as i64], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut stmt = conn.prepare(
         "SELECT api_key_id, api_key_source, \
          (SELECT r.api_key_name FROM requests r WHERE r.api_key_id = requests.api_key_id \
@@ -543,7 +546,11 @@ pub(super) fn select_between(
 ) -> rusqlite::Result<Vec<RequestEntry>> {
     // 条件拼在这里而不是拆成两条 SQL：两条 SQL 迟早会漂（一处改了排序、
     // 另一处忘了），而它们的差异只有一个布尔条件
-    let filter = if exclude_tests { " AND is_test = 0" } else { "" };
+    let filter = if exclude_tests {
+        " AND is_test = 0"
+    } else {
+        ""
+    };
     let sql = format!(
         "SELECT {REQUEST_COLUMNS} FROM requests WHERE ts >= ?1 AND ts <= ?2{filter} \
          ORDER BY ts ASC, row_id ASC"
@@ -663,7 +670,10 @@ pub(super) fn sum_cache_windows(
     };
     let mut out = Vec::with_capacity(windows_ms.len());
     for index in 0..windows_ms.len() {
-        out.push((row.get::<_, i64>(index * 2)?, row.get::<_, i64>(index * 2 + 1)?));
+        out.push((
+            row.get::<_, i64>(index * 2)?,
+            row.get::<_, i64>(index * 2 + 1)?,
+        ));
     }
     Ok(out)
 }
@@ -894,7 +904,8 @@ pub(super) fn terminal_record_exists(conn: &Connection, id: &str) -> rusqlite::R
     conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM requests WHERE id = ?1 AND status <> 0) \
          AND NOT EXISTS(SELECT 1 FROM requests WHERE id = ?1 AND status = 0)",
-        params![id], |row| row.get(0),
+        params![id],
+        |row| row.get(0),
     )
 }
 
@@ -963,10 +974,7 @@ pub(super) fn insert_request(conn: &Connection, entry: &RequestEntry) -> rusqlit
 /// 删除命中筛选的明细，返回删除条数。
 ///
 /// 调用方必须先在同一事务中清理两侧报文（`delete_raw_matching`）。
-pub(super) fn delete_matching(
-    conn: &Connection,
-    plan: &FilterPlan,
-) -> rusqlite::Result<usize> {
+pub(super) fn delete_matching(conn: &Connection, plan: &FilterPlan) -> rusqlite::Result<usize> {
     let sql = format!("DELETE FROM requests{}", plan.where_sql);
     conn.execute(&sql, params_from_iter(plan.binds.iter()))
 }

@@ -48,8 +48,8 @@ pub(crate) struct S3Credentials {
 /// 出路是让客户端把 UA 伪装成那个应用（如 `rclone/v1.67.0`）。UA 不在 SigV4
 /// 的签名范围内（见模块头「签名只覆盖需要的头」），所以覆盖它不影响签名。
 fn client(credentials: &S3Credentials) -> Result<reqwest::Client, String> {
-    let mut builder = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS));
+    let mut builder =
+        reqwest::Client::builder().connect_timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS));
     // 只在用户填了才覆盖：空串会被当成「不发 UA」，反而不如 reqwest 的默认值
     let user_agent = credentials.user_agent.trim();
     if !user_agent.is_empty() {
@@ -284,7 +284,9 @@ fn status_error(op: &str, status: StatusCode, url: &str) -> String {
     } else if status == StatusCode::NOT_FOUND {
         message.push_str("。请检查存储桶名称、区域（Region）与端点（Endpoint）。");
     } else if status == StatusCode::BAD_REQUEST {
-        message.push_str("。请检查区域（Region）是否正确 —— 部分服务商（如 Cloudflare R2）要求填 auto。");
+        message.push_str(
+            "。请检查区域（Region）是否正确 —— 部分服务商（如 Cloudflare R2）要求填 auto。",
+        );
     }
     message
 }
@@ -293,7 +295,9 @@ fn status_error(op: &str, status: StatusCode, url: &str) -> String {
 pub(crate) async fn test_connection(credentials: &S3Credentials) -> Result<(), String> {
     let url = bucket_url(credentials);
     let headers = signed_headers("HEAD", &url, b"", None, credentials)?;
-    let mut builder = client(credentials)?.head(&url).timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS));
+    let mut builder = client(credentials)?
+        .head(&url)
+        .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS));
     for (name, value) in headers {
         builder = builder.header(name, value);
     }
@@ -433,7 +437,8 @@ mod tests {
 
     #[test]
     fn sign_produces_expected_authorization_shape() {
-        let url = url::Url::parse("https://examplebucket.s3.us-east-1.amazonaws.com/a.json").unwrap();
+        let url =
+            url::Url::parse("https://examplebucket.s3.us-east-1.amazonaws.com/a.json").unwrap();
         let headers = sign(
             "PUT",
             &url,
@@ -449,6 +454,7 @@ mod tests {
             .expect("authorization header");
         assert!(authorization.starts_with("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/"));
         assert!(authorization.contains("/us-east-1/s3/aws4_request"));
-        assert!(authorization.contains("SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date"));
+        assert!(authorization
+            .contains("SignedHeaders=content-type;host;x-amz-content-sha256;x-amz-date"));
     }
 }

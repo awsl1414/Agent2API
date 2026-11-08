@@ -49,21 +49,21 @@ pub mod aggregate;
 pub mod cancellation;
 pub mod connections;
 pub mod continuation;
+mod conversation_ids;
+mod http_dns;
+pub mod image_compress;
 mod image_tasks;
 mod images;
-pub mod image_compress;
 mod multipart;
 mod native_tools;
-mod http_dns;
 mod network_fallback;
-pub mod refusal;
-pub mod request;
 mod payload;
 mod provider_loop;
+pub mod refusal;
+pub mod request;
 mod rotate;
-mod route_state;
 mod route_context;
-mod conversation_ids;
+mod route_state;
 mod route_sticky;
 pub mod sse;
 pub mod stall;
@@ -119,7 +119,10 @@ struct InFlight {
 
 impl InFlight {
     fn new() -> Self {
-        Self { done: AtomicBool::new(false), signal: tokio::sync::Notify::new() }
+        Self {
+            done: AtomicBool::new(false),
+            signal: tokio::sync::Notify::new(),
+        }
     }
 
     /// 标记完成并唤醒所有等待者（调用方保证：先置位、后唤醒）
@@ -299,7 +302,10 @@ pub(super) struct RouteTarget {
 
 impl RouteTarget {
     pub(super) fn attempt_key(&self) -> Option<String> {
-        self.account.as_ref().map(crate::server::core::routing_groups::attempt_key).or_else(|| self.account_id.clone())
+        self.account
+            .as_ref()
+            .map(crate::server::core::routing_groups::attempt_key)
+            .or_else(|| self.account_id.clone())
     }
 }
 
@@ -359,21 +365,49 @@ impl UpstreamService {
         self.forward_request(request, None, false).await
     }
 
-    pub async fn forward_assistant(&self, request: ForwardRequest) -> Result<ForwardOutcome, GatewayError> {
+    pub async fn forward_assistant(
+        &self,
+        request: ForwardRequest,
+    ) -> Result<ForwardOutcome, GatewayError> {
         self.forward_request(request, None, true).await
     }
 
-    pub async fn generate_images(&self, request: ForwardRequest) -> Result<ForwardOutcome, GatewayError> {
-        self.forward_request(request, Some(crate::server::core::providers::images::ImageOperation::Generate), false).await
+    pub async fn generate_images(
+        &self,
+        request: ForwardRequest,
+    ) -> Result<ForwardOutcome, GatewayError> {
+        self.forward_request(
+            request,
+            Some(crate::server::core::providers::images::ImageOperation::Generate),
+            false,
+        )
+        .await
     }
 
-    pub async fn edit_images(&self, request: ForwardRequest) -> Result<ForwardOutcome, GatewayError> {
-        self.forward_request(request, Some(crate::server::core::providers::images::ImageOperation::Edit), false).await
+    pub async fn edit_images(
+        &self,
+        request: ForwardRequest,
+    ) -> Result<ForwardOutcome, GatewayError> {
+        self.forward_request(
+            request,
+            Some(crate::server::core::providers::images::ImageOperation::Edit),
+            false,
+        )
+        .await
     }
 
-    async fn forward_request(&self, request: ForwardRequest, images: Option<crate::server::core::providers::images::ImageOperation>, preserve_system_prompt: bool) -> Result<ForwardOutcome, GatewayError> {
+    async fn forward_request(
+        &self,
+        request: ForwardRequest,
+        images: Option<crate::server::core::providers::images::ImageOperation>,
+        preserve_system_prompt: bool,
+    ) -> Result<ForwardOutcome, GatewayError> {
         if let Some(rule) = super::update::required_update() {
-            return Err(GatewayError::with_status(426, rule["message"].as_str().unwrap_or("当前版本需要强制更新")).with_code("update_required"));
+            return Err(GatewayError::with_status(
+                426,
+                rule["message"].as_str().unwrap_or("当前版本需要强制更新"),
+            )
+            .with_code("update_required"));
         }
         // ── 调试模式：为本次请求装一个原始报文采集器 ─────────────────
         // 装在这里（转发入口）而不是各家适配器里：四条路径（流式 / 非流式 ×
@@ -396,14 +430,26 @@ impl UpstreamService {
         if cancel.as_ref().is_some_and(|token| token.is_cancelled()) {
             return Err(cancellation::cancelled_error());
         }
-        let route_model = request.body.get("model").and_then(Value::as_str).unwrap_or("").to_string();
+        let route_model = request
+            .body
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         let route_store = self.store.clone();
         let route_body = request.body.clone();
         let route_scope = request.allowed_providers.clone();
         let ignore_route = request.ignore_model_gate;
         let routing = crate::server::core::blocking::run(move || {
-            route_context::RequestRouting::capture_request(&route_model, &route_store, &route_body, route_scope.as_ref(), ignore_route)
-        }).await??;
+            route_context::RequestRouting::capture_request(
+                &route_model,
+                &route_store,
+                &route_body,
+                route_scope.as_ref(),
+                ignore_route,
+            )
+        })
+        .await??;
         let mut slot = self.begin_slot(&request.dedupe_key, cancel.as_ref()).await;
         // 账号级活跃连接计数：**本请求**的凭证，随选路改绑到实际使用的账号。
         // 建在这里（而不是选路处）是因为它必须活到响应体发完 —— 流式路径由
@@ -514,11 +560,7 @@ impl UpstreamService {
     }
 
     /// 等待同 body 的在途请求完成（最多 45 秒；被手动终止则立即返回）
-    async fn wait_for_in_flight(
-        &self,
-        key: &str,
-        cancel: Option<&Arc<cancellation::CancelToken>>,
-    ) {
+    async fn wait_for_in_flight(&self, key: &str, cancel: Option<&Arc<cancellation::CancelToken>>) {
         let signal = lock_table(&self.in_flight).get(key).cloned();
         let Some(signal) = signal else {
             return;
@@ -527,7 +569,10 @@ impl UpstreamService {
         // 不是转发结果 —— 请求日志那边没有它的落点（等待发生在选路之前，
         // 那时还没有任何尝试明细可挂），所以它既不进请求日志、也不再进运行
         // 日志页，只在终端留一行供排障时确认「这条请求为什么慢」。
-        logging::console_line("[Upstream]", "⏳ 检测到相同请求正在处理，排队等待（防重试风暴）");
+        logging::console_line(
+            "[Upstream]",
+            "⏳ 检测到相同请求正在处理，排队等待（防重试风暴）",
+        );
         // 先注册等待、再检查完成标志：notify_waiters 只唤醒「当时已登记」的
         // 等待者，这个顺序保证「置位在前」与「置位在后」两种情况都不会漏
         let mut notified = std::pin::pin!(signal.signal.notified());
@@ -677,8 +722,7 @@ impl ForwardStream {
         let inner = cancellation::cancellable(inner, telemetry.cancel_token());
         Self {
             inner,
-            coalescer: ReasoningCoalescer::with_telemetry(telemetry.clone())
-                .with_policy(policy),
+            coalescer: ReasoningCoalescer::with_telemetry(telemetry.clone()).with_policy(policy),
             upstream_done: false,
             pending: std::collections::VecDeque::new(),
             _slot: slot,
@@ -757,7 +801,8 @@ impl Stream for ForwardStream {
                             "type": "proxy_error",
                         }
                     })));
-                    self.pending.push_back(Bytes::from_static(b"data: [DONE]\n\n"));
+                    self.pending
+                        .push_back(Bytes::from_static(b"data: [DONE]\n\n"));
                 }
             }
         }
@@ -792,7 +837,12 @@ pub(super) fn account_display(account: &Value) -> String {
                 .filter(|value| !value.is_empty())
                 .map(str::to_string)
         })
-        .or_else(|| account.get("id").and_then(Value::as_str).map(str::to_string))
+        .or_else(|| {
+            account
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
         .unwrap_or_default()
 }
 

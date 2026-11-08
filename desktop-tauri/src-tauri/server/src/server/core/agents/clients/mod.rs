@@ -118,7 +118,10 @@ pub fn equivalent(def: &ClientDef, saved: &Profile, live: &Profile) -> bool {
     if def.behavior == "single" && saved.model != live.model {
         return false;
     }
-    if matches!(def.id, "zcode" | "opencode" | "kimi-code" | "zed" | "crush" | "dsh") {
+    if matches!(
+        def.id,
+        "zcode" | "opencode" | "kimi-code" | "zed" | "crush" | "dsh"
+    ) {
         let target = native_id(saved);
         if !live.native.source_id.is_empty() && live.native.source_id != target {
             return false;

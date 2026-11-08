@@ -31,7 +31,11 @@ fn base_url(headers: &HeaderMap, state: &ServerState) -> String {
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| format!("127.0.0.1:{}", state.port));
-    let host = if state.panel_port.is_some() { with_port(&host, state.port) } else { host };
+    let host = if state.panel_port.is_some() {
+        with_port(&host, state.port)
+    } else {
+        host
+    };
     let scheme = headers
         .get("x-forwarded-proto")
         .and_then(|value| value.to_str().ok())
@@ -106,7 +110,12 @@ pub async fn skill_metadata(State(state): State<ServerState>, headers: HeaderMap
     )
 }
 
-async fn skill_operation(state: &ServerState, scope: Option<&KeyScope>, body: Bytes, operation: &str) -> Response {
+async fn skill_operation(
+    state: &ServerState,
+    scope: Option<&KeyScope>,
+    body: Bytes,
+    operation: &str,
+) -> Response {
     if !tool_services::is_enabled(tool_services::WEB_SEARCH_SERVICE_ID, "skill") {
         return skill_disabled();
     }
@@ -119,7 +128,11 @@ async fn skill_operation(state: &ServerState, scope: Option<&KeyScope>, body: By
             )
         }
     };
-    let field = if operation == "search" { "queries" } else { "urls" };
+    let field = if operation == "search" {
+        "queries"
+    } else {
+        "urls"
+    };
     let items = match tool_services::batch_items(payload.get(field), field) {
         Ok(items) => items,
         Err(error) => return search_error_response(&error),
@@ -135,7 +148,11 @@ async fn skill_operation(state: &ServerState, scope: Option<&KeyScope>, body: By
     };
     match outcome {
         Ok((payload, successful)) => {
-            let status = if successful == 0 { StatusCode::BAD_GATEWAY } else { StatusCode::OK };
+            let status = if successful == 0 {
+                StatusCode::BAD_GATEWAY
+            } else {
+                StatusCode::OK
+            };
             json_response(status, payload)
         }
         Err(error) => search_error_response(&error),
@@ -143,7 +160,11 @@ async fn skill_operation(state: &ServerState, scope: Option<&KeyScope>, body: By
 }
 
 /// POST /skill/web-search/search
-pub async fn skill_search(State(state): State<ServerState>, headers: HeaderMap, body: Bytes) -> Response {
+pub async fn skill_search(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let Ok(access) = model_access::authenticate(&headers, "tool") else {
         return json_response(
             StatusCode::UNAUTHORIZED,
@@ -154,7 +175,11 @@ pub async fn skill_search(State(state): State<ServerState>, headers: HeaderMap, 
 }
 
 /// POST /skill/web-search/fetch
-pub async fn skill_fetch(State(state): State<ServerState>, headers: HeaderMap, body: Bytes) -> Response {
+pub async fn skill_fetch(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     if !authorized(&headers) {
         return json_response(
             StatusCode::UNAUTHORIZED,
@@ -186,7 +211,12 @@ pub async fn api_metadata(State(state): State<ServerState>, headers: HeaderMap) 
     )
 }
 
-async fn api_operation(state: &ServerState, scope: Option<&KeyScope>, body: Bytes, operation: &str) -> Response {
+async fn api_operation(
+    state: &ServerState,
+    scope: Option<&KeyScope>,
+    body: Bytes,
+    operation: &str,
+) -> Response {
     if !tool_services::is_enabled(tool_services::WEB_SEARCH_SERVICE_ID, "api") {
         return api_disabled();
     }
@@ -199,7 +229,11 @@ async fn api_operation(state: &ServerState, scope: Option<&KeyScope>, body: Byte
             )
         }
     };
-    let field = if operation == "search" { "queries" } else { "urls" };
+    let field = if operation == "search" {
+        "queries"
+    } else {
+        "urls"
+    };
     let items = match tool_services::batch_items(payload.get(field), field) {
         Ok(items) => items,
         Err(error) => return search_error_response(&error),
@@ -215,7 +249,11 @@ async fn api_operation(state: &ServerState, scope: Option<&KeyScope>, body: Byte
     };
     match outcome {
         Ok((payload, successful)) => {
-            let status = if successful == 0 { StatusCode::BAD_GATEWAY } else { StatusCode::OK };
+            let status = if successful == 0 {
+                StatusCode::BAD_GATEWAY
+            } else {
+                StatusCode::OK
+            };
             json_response(status, payload)
         }
         Err(error) => search_error_response(&error),
@@ -223,7 +261,11 @@ async fn api_operation(state: &ServerState, scope: Option<&KeyScope>, body: Byte
 }
 
 /// POST /api/web-search/search
-pub async fn api_search(State(state): State<ServerState>, headers: HeaderMap, body: Bytes) -> Response {
+pub async fn api_search(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let Ok(access) = model_access::authenticate(&headers, "tool") else {
         return json_response(
             StatusCode::UNAUTHORIZED,
@@ -234,7 +276,11 @@ pub async fn api_search(State(state): State<ServerState>, headers: HeaderMap, bo
 }
 
 /// POST /api/web-search/fetch
-pub async fn api_fetch(State(state): State<ServerState>, headers: HeaderMap, body: Bytes) -> Response {
+pub async fn api_fetch(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     if !authorized(&headers) {
         return json_response(
             StatusCode::UNAUTHORIZED,
@@ -246,7 +292,12 @@ pub async fn api_fetch(State(state): State<ServerState>, headers: HeaderMap, bod
 
 /* ─── MCP 端点 ─────────────────────────────────────────────── */
 
-async fn mcp_post(state: &ServerState, headers: HeaderMap, body: Bytes, kind: McpServerKind) -> Response {
+async fn mcp_post(
+    state: &ServerState,
+    headers: HeaderMap,
+    body: Bytes,
+    kind: McpServerKind,
+) -> Response {
     let Ok(access) = model_access::authenticate(&headers, "tool") else {
         return json_response(
             StatusCode::UNAUTHORIZED,
@@ -273,7 +324,11 @@ async fn mcp_post(state: &ServerState, headers: HeaderMap, body: Bytes, kind: Mc
             )
         }
     };
-    let context = McpRequestContext { base_url: base_url(&headers, &state), store: state.store().clone(), scope: access.scope };
+    let context = McpRequestContext {
+        base_url: base_url(&headers, state),
+        store: state.store().clone(),
+        scope: access.scope,
+    };
     match tool_services::mcp_dispatch(&payload, kind, &context).await {
         Some(response) => json_response(StatusCode::OK, response),
         None => StatusCode::ACCEPTED.into_response(),
@@ -281,12 +336,20 @@ async fn mcp_post(state: &ServerState, headers: HeaderMap, body: Bytes, kind: Mc
 }
 
 /// POST /mcp/web-search
-pub async fn mcp_web_search(State(state): State<ServerState>, headers: HeaderMap, body: Bytes) -> Response {
+pub async fn mcp_web_search(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     mcp_post(&state, headers, body, McpServerKind::WebSearch).await
 }
 
 /// POST /mcp/vision
-pub async fn mcp_vision(State(state): State<ServerState>, headers: HeaderMap, body: Bytes) -> Response {
+pub async fn mcp_vision(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     mcp_post(&state, headers, body, McpServerKind::Vision).await
 }
 

@@ -56,8 +56,8 @@ use crate::server::core::providers::kind_id;
 use crate::server::core::providers::ProviderKind;
 
 use identity::{
-    allocate_priority, allocate_unique_id, identity_of_item,
-    is_desktop_item, is_reserved_desktop_id, resolve_provider, CREDENTIAL_KEYS,
+    allocate_priority, allocate_unique_id, identity_of_item, is_desktop_item,
+    is_reserved_desktop_id, resolve_provider, CREDENTIAL_KEYS,
 };
 use normalize::normalize_imported;
 
@@ -122,7 +122,11 @@ fn to_export_record(record: &StoredAccount) -> Value {
 pub fn export_accounts(store: &AccountStore) -> Value {
     let accounts = store.with_lock(|guard| {
         let state = store.load_locked(guard);
-        state.accounts.iter().map(to_export_record).collect::<Vec<_>>()
+        state
+            .accounts
+            .iter()
+            .map(to_export_record)
+            .collect::<Vec<_>>()
     });
     json!({
         "version": EXPORT_VERSION,
@@ -143,7 +147,10 @@ pub fn import_accounts(store: &AccountStore, payload: &Value) -> Result<Value, A
         return Err(AccountStoreError::new("缺少 accounts 数组", 400));
     };
     if items.is_empty() {
-        return Err(AccountStoreError::new("accounts 为空，没有可导入的账号", 400));
+        return Err(AccountStoreError::new(
+            "accounts 为空，没有可导入的账号",
+            400,
+        ));
     }
 
     // 定义段的逐条警告（坏条目跳过不毁整批），最后并进 errors 给前端展示
@@ -154,10 +161,9 @@ pub fn import_accounts(store: &AccountStore, payload: &Value) -> Result<Value, A
     // 数组按整体 400（显式性：坏形状不该被静默吞掉）。
     let (providers_added, providers_updated) = match root.get("customProviders") {
         Some(Value::Array(definitions)) => {
-            let report = crate::server::core::custom_providers::transfer::merge_imported(
-                definitions,
-            )
-            .map_err(|message| AccountStoreError::new(message, 500))?;
+            let report =
+                crate::server::core::custom_providers::transfer::merge_imported(definitions)
+                    .map_err(|message| AccountStoreError::new(message, 500))?;
             definition_warnings.extend(report.warnings.into_iter().map(|warning| {
                 json!({
                     "id": warning.id,
@@ -185,12 +191,8 @@ pub fn import_accounts(store: &AccountStore, payload: &Value) -> Result<Value, A
         let mut catpaw_invalidations: Vec<String> = Vec::new();
 
         for item in items {
-            let outcome = import_one_item(
-                &mut state,
-                item,
-                &mut taken_ids,
-                &mut catpaw_invalidations,
-            );
+            let outcome =
+                import_one_item(&mut state, item, &mut taken_ids, &mut catpaw_invalidations);
             match outcome {
                 Ok(ImportOutcome::Updated(id)) => {
                     stats.updated += 1;
@@ -214,7 +216,9 @@ pub fn import_accounts(store: &AccountStore, payload: &Value) -> Result<Value, A
             }
         }
 
-        crate::server::core::account_store::codearts_accounts::migrate_limiters(&mut state.accounts);
+        crate::server::core::account_store::codearts_accounts::migrate_limiters(
+            &mut state.accounts,
+        );
         store.save_locked(&state, guard)?;
         let failed = stats.failures.len();
         // errors 顺序：失败 → 跳过 → 定义警告（跳过项带 skipped 标记、定义警告带
@@ -342,8 +346,7 @@ fn import_one_item(
     //
     // 现在按「记录里有没有**任何**一个已知凭证键」判：判据来自同一张表
     // （`CREDENTIAL_KEYS`），新增一家时只要凭证落在这几个键上就不用改这里。
-    let is_custom_provider =
-        provider.starts_with(crate::server::core::custom_providers::ID_PREFIX);
+    let is_custom_provider = provider.starts_with(crate::server::core::custom_providers::ID_PREFIX);
     let access_token = object
         .get("accessToken")
         .and_then(Value::as_str)
@@ -366,8 +369,9 @@ fn import_one_item(
         });
     // 自定义账号的 apiKey 可空（`noAuth` 形态），不强制要求凭证
     if !is_custom_provider && !has_any_credential {
-        return Err("缺少凭证（accessToken / refreshToken / apiKey / modelAppKey 等均为空）"
-            .to_string());
+        return Err(
+            "缺少凭证（accessToken / refreshToken / apiKey / modelAppKey 等均为空）".to_string(),
+        );
     }
     if access_token.chars().count() > MAX_TOKEN_LENGTH
         || refresh_token.chars().count() > MAX_TOKEN_LENGTH
@@ -394,16 +398,30 @@ fn import_one_item(
     // 同 provider 内业务身份匹配（带 provider 作用域：跨家同 uid 不会相遇）。
     // 桌面端记录不参与匹配：它与普通账号可以是同一个人的两份记录，
     // 拿它当合并目标就会把「实时登录态」改写掉。
-    let matched = state.accounts.iter().position(|record| {
-        !is_desktop_item(record.fields())
-            && record.provider() == provider
-            && crate::server::core::account_store::account_identity::same(&provider, record.fields(), object)
-    }).or_else(|| state.accounts.iter().position(|record| {
-        !is_desktop_item(record.fields())
-            && record.provider() == provider
-            && record.id() == item_id
-            && !crate::server::core::account_store::account_identity::conflicts(&provider, record.fields(), object)
-    }));
+    let matched = state
+        .accounts
+        .iter()
+        .position(|record| {
+            !is_desktop_item(record.fields())
+                && record.provider() == provider
+                && crate::server::core::account_store::account_identity::same(
+                    &provider,
+                    record.fields(),
+                    object,
+                )
+        })
+        .or_else(|| {
+            state.accounts.iter().position(|record| {
+                !is_desktop_item(record.fields())
+                    && record.provider() == provider
+                    && record.id() == item_id
+                    && !crate::server::core::account_store::account_identity::conflicts(
+                        &provider,
+                        record.fields(),
+                        object,
+                    )
+            })
+        });
     if let Some(index) = matched {
         // 同 provider 内「id ↔ 业务身份」必须一致：导入 id 若已指向本 provider 的
         // 另一条身份，说明导出文件与本地状态自相矛盾 —— 该条失败，不覆盖也不改名
@@ -411,10 +429,16 @@ fn import_one_item(
             let points_elsewhere = state.accounts.iter().any(|record| {
                 record.id() == item_id
                     && record.provider() == provider
-                    && crate::server::core::account_store::account_identity::conflicts(&provider, record.fields(), object)
+                    && crate::server::core::account_store::account_identity::conflicts(
+                        &provider,
+                        record.fields(),
+                        object,
+                    )
             });
             if points_elsewhere {
-                return Err("导入的账号 ID 在本提供商内指向另一条业务身份，未覆盖原账号".to_string());
+                return Err(
+                    "导入的账号 ID 在本提供商内指向另一条业务身份，未覆盖原账号".to_string()
+                );
             }
         }
         // 同 provider + 同业务身份 → 合并到本机记录，**保留本机 id**：
@@ -441,7 +465,9 @@ fn import_one_item(
             // 凭证被更新：该账号的 CatPaw 会话映射必须在锁外作废
             catpaw_invalidations.push(state.accounts[index].id().to_string());
         }
-        return Ok(ImportOutcome::Updated(state.accounts[index].id().to_string()));
+        return Ok(ImportOutcome::Updated(
+            state.accounts[index].id().to_string(),
+        ));
     }
 
     // ── 新增 ──

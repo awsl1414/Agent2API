@@ -22,9 +22,9 @@
 
 use std::collections::BTreeMap;
 
+use super::daily;
 use super::record::{DailyEntry, RequestEntry};
 use super::report::{push_account_accum, push_model_accum, push_provider_accum};
-use super::daily;
 use super::{backfill, sql};
 
 /// 逐行解析明细旧文件（`requests.jsonl`），坏行跳过。
@@ -76,7 +76,12 @@ pub(crate) fn parse_daily_jsonl(text: &str) -> BTreeMap<String, DailyEntry> {
                 existing.cache_hit_tokens += item.cache_hit_tokens;
                 existing.cache_input_tokens += item.cache_input_tokens;
                 for acc in item.model_tokens {
-                    push_model_accum(&mut existing.model_tokens, &acc.model, acc.tokens, acc.requests);
+                    push_model_accum(
+                        &mut existing.model_tokens,
+                        &acc.model,
+                        acc.tokens,
+                        acc.requests,
+                    );
                 }
                 // provider 维度同理逐行合并（同一天多行时两组都要合上，
                 // 否则「按 provider 之和 = requests」这条对账关系会破）

@@ -20,7 +20,6 @@
  * 前端桥接：主窗口在创建时注入 bridge.js，在页面脚本执行前把
  * window.workbuddyDesktop 装好，因此渲染层代码无需感知 Tauri。
  */
-
 mod account_export;
 mod assistant_image;
 mod backend;
@@ -191,14 +190,15 @@ fn create_main_window(app: &AppHandle, visible: bool) -> tauri::Result<tauri::We
     // 的那三项（Tauri 在 additional_browser_args 的文档警告里说明了这一点）。
     // 后面三项才是本 PR 新增的保活开关，与前缀互不冲突，可以并在一串里。
     #[cfg(target_os = "windows")]
-    let builder = WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::App("index.html".into()))
-        .decorations(false)
-        .additional_browser_args(
-            "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
+    let builder =
+        WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::App("index.html".into()))
+            .decorations(false)
+            .additional_browser_args(
+                "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
              --disable-background-timer-throttling \
              --disable-backgrounding-occluded-windows \
              --disable-renderer-backgrounding",
-        );
+            );
 
     // macOS：`decorations(true)` 不能省 —— tao 建窗时若 decorations 为 false
     // 会直接走 Borderless 分支并**忽略** title_bar_style（见 tao 的
@@ -206,23 +206,25 @@ fn create_main_window(app: &AppHandle, visible: bool) -> tauri::Result<tauri::We
     // `hidden_title` 只隐藏系统画的标题文字（不影响窗口标题本身，它仍供系统
     // 的窗口菜单 / 任务切换使用），不隐藏三键。
     #[cfg(target_os = "macos")]
-    let builder = WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::App("index.html".into()))
-        .decorations(true)
-        .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true)
-        // 圆点位置：x 是首颗圆点到窗口左边缘的距离（系统标准就是 20），
-        // y 是 wry 的 inset 语义 —— 它按 `圆点高 + y` 收窄标题栏容器、让三颗
-        // 圆点在其中垂直居中，所以 20 落在我们那条 32px 标题条里正好上下各
-        // 留 10px。不给这个值就走系统默认（按系统标题栏高度摆，Big Sur+ 是
-        // 28pt），在 32px 的条里会偏高约 2px。
-        // 注意这里定的是**逻辑点**，不随界面缩放（设置里的 80%–130%）变化 ——
-        // 缩放会改变那条 32px 标题条的逻辑高度，此时圆点不再严格居中（最多
-        // 偏 5pt 上下），可接受；系统没给运行时改这个位置的接口。
-        .traffic_light_position(tauri::LogicalPosition::new(20.0, 20.0));
+    let builder =
+        WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::App("index.html".into()))
+            .decorations(true)
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true)
+            // 圆点位置：x 是首颗圆点到窗口左边缘的距离（系统标准就是 20），
+            // y 是 wry 的 inset 语义 —— 它按 `圆点高 + y` 收窄标题栏容器、让三颗
+            // 圆点在其中垂直居中，所以 20 落在我们那条 32px 标题条里正好上下各
+            // 留 10px。不给这个值就走系统默认（按系统标题栏高度摆，Big Sur+ 是
+            // 28pt），在 32px 的条里会偏高约 2px。
+            // 注意这里定的是**逻辑点**，不随界面缩放（设置里的 80%–130%）变化 ——
+            // 缩放会改变那条 32px 标题条的逻辑高度，此时圆点不再严格居中（最多
+            // 偏 5pt 上下），可接受；系统没给运行时改这个位置的接口。
+            .traffic_light_position(tauri::LogicalPosition::new(20.0, 20.0));
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    let builder = WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::App("index.html".into()))
-        .decorations(false);
+    let builder =
+        WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::App("index.html".into()))
+            .decorations(false);
 
     builder
         .title(app_title())

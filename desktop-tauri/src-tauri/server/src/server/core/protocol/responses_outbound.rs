@@ -24,12 +24,12 @@ use std::collections::BTreeMap;
 
 use serde_json::{json, Map, Value};
 
+use super::responses::{image_url_of, tool_output_parts, ConvertError, ToolOutput};
+use super::tool_plan;
 use super::{
     chat_frame, content_parts, content_text, is_truthy, json_number_of, json_text, native_tool,
     random_id, string_field, string_value, SseLineBuffer, FIELD_ENCRYPTED_CONTENT,
 };
-use super::responses::{image_url_of, tool_output_parts, ConvertError, ToolOutput};
-use super::tool_plan;
 
 // ─── 请求：Chat → Responses ─────────────────────────────────
 
@@ -90,8 +90,10 @@ pub fn responses_request_from_chat(chat: &Value, model: &str) -> Result<Value, C
             // user 与「认不出的角色」都当 user（与 chat_from_responses 的
             // 兜底同一取向：能跑比报错好）
             _ => {
-                let content =
-                    chat_content_to_responses(message.get("content").unwrap_or(&Value::Null), "user");
+                let content = chat_content_to_responses(
+                    message.get("content").unwrap_or(&Value::Null),
+                    "user",
+                );
                 items.push(json!({ "type": "message", "role": "user", "content": content }));
             }
         }
@@ -114,11 +116,22 @@ pub fn responses_request_from_chat(chat: &Value, model: &str) -> Result<Value, C
     // 退到 max_tokens；非正数视为没给（0 / 负数发上去只会被上游拒）
     let max_output = ["max_completion_tokens", "max_tokens"]
         .iter()
-        .find_map(|key| chat.get(*key).and_then(Value::as_i64).filter(|value| *value > 0));
+        .find_map(|key| {
+            chat.get(*key)
+                .and_then(Value::as_i64)
+                .filter(|value| *value > 0)
+        });
     if let Some(value) = max_output {
         out.insert("max_output_tokens".to_string(), Value::from(value));
     }
-    for key in ["temperature", "top_p", "service_tier", "parallel_tool_calls", "user", "metadata"] {
+    for key in [
+        "temperature",
+        "top_p",
+        "service_tier",
+        "parallel_tool_calls",
+        "user",
+        "metadata",
+    ] {
         if let Some(value) = chat.get(key).filter(|value| !value.is_null()) {
             out.insert(key.to_string(), value.clone());
         }
@@ -147,15 +160,24 @@ pub fn responses_request_from_chat(chat: &Value, model: &str) -> Result<Value, C
         }
     }
     if !natives.is_empty() || choice_reason.is_some() {
-        let dropped = native_tool::Downgrade { tools: natives, choice: choice_reason };
+        let dropped = native_tool::Downgrade {
+            tools: natives,
+            choice: choice_reason,
+        };
         crate::server::logging::log(
             "[Responses]",
-            &dropped.describe(None, Some("目标上游按 responses 协议收，只认 responses 来源的原生声明")),
+            &dropped.describe(
+                None,
+                Some("目标上游按 responses 协议收，只认 responses 来源的原生声明"),
+            ),
         );
     }
     // response_format → text.format（json_schema 的嵌套 → 扁平）
     if let Some(format) = chat.get("response_format").filter(|value| is_truthy(value)) {
-        out.insert("text".to_string(), json!({ "format": format_to_responses(format) }));
+        out.insert(
+            "text".to_string(),
+            json!({ "format": format_to_responses(format) }),
+        );
     }
     // reasoning_effort → reasoning.effort（本网关各上游的「思考档位」统一
     // 从这里进；summary:"auto" 与参考实现同款 —— 让上游回思考摘要）
@@ -303,7 +325,11 @@ fn tool_output_to_responses(output: ToolOutput) -> Value {
 ///   - 其余块（音频/文件等）**丢弃** —— 它们在 chat 侧本来就没有来源，
 ///     透传一个上游不认识的类型只会让整条请求 400。
 fn chat_content_to_responses(content: &Value, role: &str) -> Value {
-    let text_kind = if role == "assistant" { "output_text" } else { "input_text" };
+    let text_kind = if role == "assistant" {
+        "output_text"
+    } else {
+        "input_text"
+    };
     if let Some(text) = content.as_str() {
         if role == "assistant" {
             return if text.is_empty() {
@@ -397,7 +423,10 @@ fn tool_choice_to_responses(choice: &Value) -> Value {
         return choice.clone();
     }
     let name = {
-        let nested = choice.pointer("/function/name").map(string_value).unwrap_or_default();
+        let nested = choice
+            .pointer("/function/name")
+            .map(string_value)
+            .unwrap_or_default();
         if nested.is_empty() {
             string_field(choice, "name")
         } else {
@@ -511,11 +540,9 @@ impl ChatFromResponsesStream {
         }
         // 先冲刷缓冲里残留的最后一帧
         let mut out = Vec::new();
-        for payload in self.buffer.finish() {
-            if let Some(data) = payload {
-                if let Ok(value) = serde_json::from_str::<Value>(&data) {
-                    out.extend(self.consume(&value));
-                }
+        for data in self.buffer.finish().into_iter().flatten() {
+            if let Ok(value) = serde_json::from_str::<Value>(&data) {
+                out.extend(self.consume(&value));
             }
         }
         out.extend(self.complete(None));
@@ -532,7 +559,11 @@ impl ChatFromResponsesStream {
         let usage = event
             .get("usage")
             .filter(|usage| usage.is_object())
-            .or_else(|| event.pointer("/response/usage").filter(|usage| usage.is_object()));
+            .or_else(|| {
+                event
+                    .pointer("/response/usage")
+                    .filter(|usage| usage.is_object())
+            });
         if let Some(usage) = usage {
             self.usage = Some(usage.clone());
         }
@@ -604,7 +635,9 @@ impl ChatFromResponsesStream {
             // 来过的 `.done` 兜底里做（wrap_freeform_input）
             "response.custom_tool_call_input.delta" => {
                 let delta = {
-                    let raw = event.get("delta").unwrap_or(event.get("input").unwrap_or(&Value::Null));
+                    let raw = event
+                        .get("delta")
+                        .unwrap_or(event.get("input").unwrap_or(&Value::Null));
                     json_text(raw)
                 };
                 if delta.is_empty() {
@@ -624,7 +657,11 @@ impl ChatFromResponsesStream {
                 }
                 let arguments = {
                     let raw = json_text(event.get("arguments").unwrap_or(&Value::Null));
-                    if raw.is_empty() { "{}".to_string() } else { raw }
+                    if raw.is_empty() {
+                        "{}".to_string()
+                    } else {
+                        raw
+                    }
                 };
                 let mut out = self.start();
                 out.extend(self.ensure_tool(&key, event));
@@ -650,11 +687,15 @@ impl ChatFromResponsesStream {
                 let arguments = match item_kind.as_str() {
                     "function_call" => {
                         let raw = json_text(item.get("arguments").unwrap_or(&Value::Null));
-                        if raw.is_empty() { "{}".to_string() } else { raw }
+                        if raw.is_empty() {
+                            "{}".to_string()
+                        } else {
+                            raw
+                        }
                     }
-                    "custom_tool_call" => {
-                        super::freeform::wrap_freeform_input(&json_text(item.get("input").unwrap_or(&Value::Null)))
-                    }
+                    "custom_tool_call" => super::freeform::wrap_freeform_input(&json_text(
+                        item.get("input").unwrap_or(&Value::Null),
+                    )),
                     _ => return Vec::new(),
                 };
                 let key = tool_key(event, item);
@@ -675,7 +716,11 @@ impl ChatFromResponsesStream {
                     .pointer("/response/incomplete_details/reason")
                     .map(string_value)
                     .unwrap_or_default();
-                let reason = if reason.is_empty() { "length".to_string() } else { reason };
+                let reason = if reason.is_empty() {
+                    "length".to_string()
+                } else {
+                    reason
+                };
                 self.complete(Some(&reason))
             }
             _ => Vec::new(),
@@ -702,12 +747,22 @@ impl ChatFromResponsesStream {
         }
         let index = self.next_tool_index;
         self.next_tool_index += 1;
-        self.tools.insert(key.to_string(), ToolSlot { index, has_arguments: false });
+        self.tools.insert(
+            key.to_string(),
+            ToolSlot {
+                index,
+                has_arguments: false,
+            },
+        );
         let call_id = {
             let raw = string_field(item, "call_id");
             if raw.is_empty() {
                 let id = string_field(item, "id");
-                if id.is_empty() { random_id("call") } else { id }
+                if id.is_empty() {
+                    random_id("call")
+                } else {
+                    id
+                }
             } else {
                 raw
             }
@@ -736,7 +791,10 @@ impl ChatFromResponsesStream {
     }
 
     fn has_arguments(&self, key: &str) -> bool {
-        self.tools.get(key).map(|slot| slot.has_arguments).unwrap_or(false)
+        self.tools
+            .get(key)
+            .map(|slot| slot.has_arguments)
+            .unwrap_or(false)
     }
 
     /// 收尾：finish_reason 帧 + usage 帧 + [DONE]（只做一次）
@@ -785,11 +843,19 @@ impl ChatFromResponsesStream {
         let error = event
             .get("error")
             .filter(|error| is_truthy(error))
-            .or_else(|| event.pointer("/response/error").filter(|error| is_truthy(error)));
+            .or_else(|| {
+                event
+                    .pointer("/response/error")
+                    .filter(|error| is_truthy(error))
+            });
         let message = match error {
             Some(error) => {
                 let text = string_field(error, "message");
-                if text.is_empty() { string_value(error) } else { text }
+                if text.is_empty() {
+                    string_value(error)
+                } else {
+                    text
+                }
             }
             None => string_value(event),
         };
@@ -843,7 +909,10 @@ fn tool_key(event: &Value, item: &Value) -> String {
             return text;
         }
     }
-    event.get("output_index").map(string_value).unwrap_or_default()
+    event
+        .get("output_index")
+        .map(string_value)
+        .unwrap_or_default()
 }
 
 /// Responses 的 usage → chat 的 usage（字段名与明细结构按 chat 口径折）。

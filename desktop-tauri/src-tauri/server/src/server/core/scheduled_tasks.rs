@@ -156,12 +156,17 @@ fn settings_of(settings: config::ScheduledSettings, id: &str) -> config::Interva
         TASK_LOGS_AUTO_REFRESH => settings.logs_auto_refresh,
         TASK_REQUESTS_AUTO_REFRESH => settings.requests_auto_refresh,
         TASK_REPORT_AUTO_REFRESH => settings.report_auto_refresh,
-        _ => config::IntervalTask { enabled: false, interval: 0 },
+        _ => config::IntervalTask {
+            enabled: false,
+            interval: 0,
+        },
     }
 }
 
 fn interval_ms(task: &TaskDef) -> i64 {
-    let interval = settings_of(config::scheduled_settings(), task.id).interval.max(1);
+    let interval = settings_of(config::scheduled_settings(), task.id)
+        .interval
+        .max(1);
     interval * if task.unit == "seconds" { 1000 } else { 60_000 }
 }
 
@@ -243,12 +248,20 @@ pub fn configure(id: &str, patch: IntervalTaskPatch) -> Result<Value, String> {
     }
     if let Some(interval) = patch.interval {
         if !(task.min..=task.max).contains(&interval) {
-            let unit = if task.unit == "seconds" { "秒" } else { "分钟" };
-            return Err(format!("「{}」的间隔必须是 {}–{} {}", task.label, task.min, task.max, unit));
+            let unit = if task.unit == "seconds" {
+                "秒"
+            } else {
+                "分钟"
+            };
+            return Err(format!(
+                "「{}」的间隔必须是 {}–{} {}",
+                task.label, task.min, task.max, unit
+            ));
         }
     }
     let before = settings_of(config::scheduled_settings(), id);
-    let plugins_before = (id == TASK_UPDATE_CHECK).then(crate::server::core::plugin_host::settings::current);
+    let plugins_before =
+        (id == TASK_UPDATE_CHECK).then(crate::server::core::plugin_host::settings::current);
     let saved = config::set_scheduled_task(id, patch, task.min, task.max);
     let after = settings_of(config::scheduled_settings(), id);
     if let Some(before) = plugins_before {
@@ -270,19 +283,37 @@ pub fn configure(id: &str, patch: IntervalTaskPatch) -> Result<Value, String> {
         }
     }
     if before != after {
-        logging::log("[Tasks]", &format!("定时任务「{}」已{}，间隔 {} {}", task.label,
-            if after.enabled { "开启" } else { "关闭" }, after.interval,
-            if task.unit == "seconds" { "秒" } else { "分钟" }));
+        logging::log(
+            "[Tasks]",
+            &format!(
+                "定时任务「{}」已{}，间隔 {} {}",
+                task.label,
+                if after.enabled { "开启" } else { "关闭" },
+                after.interval,
+                if task.unit == "seconds" {
+                    "秒"
+                } else {
+                    "分钟"
+                }
+            ),
+        );
     }
     let mut result = task_by_id(id);
     result["saved"] = json!(saved);
     Ok(result)
 }
 
-pub async fn run_now(store: &AccountStore, update: &UpdateManager, id: &str) -> Result<String, String> {
+pub async fn run_now(
+    store: &AccountStore,
+    update: &UpdateManager,
+    id: &str,
+) -> Result<String, String> {
     let task = find(id).ok_or_else(|| format!("未知的定时任务: {id}"))?;
     if task.runner != Runner::Backend {
-        return Err(format!("「{}」由界面自己刷新，无法在后端立即执行", task.label));
+        return Err(format!(
+            "「{}」由界面自己刷新，无法在后端立即执行",
+            task.label
+        ));
     }
     run_backend(store, update, task, true).await
 }
@@ -316,13 +347,24 @@ async fn run_backend(
     // 更新管理器同时承接设置页按钮，排期必须属于它而不是外围定时器。
     if task.id == TASK_UPDATE_CHECK {
         let current = crate::server::core::update::CURRENT_VERSION;
-        let info = if manual { update.check(current).await } else { update.check_scheduled(current).await }
-            .map_err(|error| error.message)?;
-        return Ok(if info.get("hasUpdate").and_then(Value::as_bool) == Some(true) {
-            let summary = format!("发现新版本 {}（当前 {current}）", info["latestVersion"].as_str().unwrap_or(""));
-            logging::log("[Update]", &summary);
-            summary
-        } else { "已完成版本检查".to_string() });
+        let info = if manual {
+            update.check(current).await
+        } else {
+            update.check_scheduled(current).await
+        }
+        .map_err(|error| error.message)?;
+        return Ok(
+            if info.get("hasUpdate").and_then(Value::as_bool) == Some(true) {
+                let summary = format!(
+                    "发现新版本 {}（当前 {current}）",
+                    info["latestVersion"].as_str().unwrap_or("")
+                );
+                logging::log("[Update]", &summary);
+                summary
+            } else {
+                "已完成版本检查".to_string()
+            },
+        );
     }
     // 手动执行越不越过失败冷却：按**冷却记的是什么**分两类（见 `ManualBackoff`）。
     //   · 记「上一轮为什么没成功」的（模型目录刷新、凭证维护）——
@@ -349,22 +391,39 @@ async fn run_backend(
     };
     let (summary, success) = match task.id {
         TASK_CREDENTIAL_MAINTENANCE => {
-            let results = crate::server::core::credential_maintenance::refresh_expiring_accounts(store).await;
-            let (refreshed, skipped, failed) = crate::server::core::credential_maintenance::summarize(&results);
+            let results =
+                crate::server::core::credential_maintenance::refresh_expiring_accounts(store).await;
+            let (refreshed, skipped, failed) =
+                crate::server::core::credential_maintenance::summarize(&results);
             let summary = format!("刷新 {refreshed} 个，跳过 {skipped} 个，失败 {failed} 个");
             if refreshed > 0 || failed > 0 {
-                logging::log_with_level("[Maintenance]", &format!("凭证自动维护：{summary}"), if failed > 0 { "error" } else { "info" });
+                logging::log_with_level(
+                    "[Maintenance]",
+                    &format!("凭证自动维护：{summary}"),
+                    if failed > 0 { "error" } else { "info" },
+                );
             }
             (summary, round_succeeded(refreshed, failed))
         }
         TASK_MODEL_REFRESH => {
             let results = if manual {
-                crate::server::core::providers::adapter::refresh_implemented_forced(store, &serde_json::Map::new(), None).await
+                crate::server::core::providers::adapter::refresh_implemented_forced(
+                    store,
+                    &serde_json::Map::new(),
+                    None,
+                )
+                .await
             } else {
                 crate::server::core::providers::adapter::refresh_implemented(store).await
             };
-            let count = |status: &str| results.iter().filter(|item| item["status"] == status).count();
-            let (refreshed, skipped, failed) = (count("refreshed"), count("skipped"), count("failed"));
+            let count = |status: &str| {
+                results
+                    .iter()
+                    .filter(|item| item["status"] == status)
+                    .count()
+            };
+            let (refreshed, skipped, failed) =
+                (count("refreshed"), count("skipped"), count("failed"));
             // 全跳过的轮次（各家的间隔没到 / 没有可用登录态）在自动路径上是常态：
             // 被动刷新与手动刷新会先把间隔推走，这时「成功 0 家」看着像失败，
             // 所以这一档单独给一句话说清「本轮无事可做」。
@@ -381,7 +440,8 @@ async fn run_backend(
             // 失败会连带触发凭证那套失败冷却，进而拖住真正重要的模型清单刷新；
             // 失败原因如实写进摘要（用户看得到），这是「不静默」与「不误伤」的
             // 折中。
-            let metadata = crate::server::core::model_meta::refresh(manual, interval_ms(task)).await;
+            let metadata =
+                crate::server::core::model_meta::refresh(manual, interval_ms(task)).await;
             let metadata_note = match metadata.get("status").and_then(Value::as_str) {
                 Some("refreshed") => format!(
                     "；models.dev 元数据已更新 {} 条",
@@ -389,7 +449,10 @@ async fn run_backend(
                 ),
                 Some("failed") => format!(
                     "；models.dev 元数据刷新失败（{}）",
-                    metadata.get("message").and_then(Value::as_str).unwrap_or("未知原因")
+                    metadata
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("未知原因")
                 ),
                 // skipped（未到间隔 / 设置里关了）不写进摘要：那是常态，写进去只是噪音
                 _ => String::new(),
@@ -403,7 +466,10 @@ async fn run_backend(
             //
             // 「一个都没成功」仍算失败：那通常意味着断网 / 出口被挡 / 上游整体
             // 故障，保留退避才不会被原间隔反复打上游。
-            (format!("{summary}{metadata_note}"), round_succeeded(refreshed, failed))
+            (
+                format!("{summary}{metadata_note}"),
+                round_succeeded(refreshed, failed),
+            )
         }
         _ => return Err("未知后端任务".to_string()),
     };
@@ -429,7 +495,10 @@ pub fn spawn(store: AccountStore, update: UpdateManager) {
         // 已经到期的自然落到过去，这一轮就补上。
         for task in TASKS.iter().filter(|task| task.runner == Runner::Backend) {
             if let Err(error) = task_state::reschedule(&state_key(task.id), interval_ms(task)) {
-                logging::log("[Tasks]", &format!("恢复「{}」排期失败：{error}", task.label));
+                logging::log(
+                    "[Tasks]",
+                    &format!("恢复「{}」排期失败：{error}", task.label),
+                );
             }
         }
         loop {
@@ -444,7 +513,8 @@ pub fn spawn(store: AccountStore, update: UpdateManager) {
                 // 状态损坏恢复后可能缺少条目，按首次运行交给 claim 重建排期。
                 let state = states.get(&state_key(task.id));
                 // 在跑（长任务）或还没到点（含失败冷却 / 占位租约）都跳过
-                if state.is_some_and(|state| state.running() || logging::now_ms() < state.due_at()) {
+                if state.is_some_and(|state| state.running() || logging::now_ms() < state.due_at())
+                {
                     continue;
                 }
                 // 到点：跑一次（`run_backend` 内部按当前间隔重新排期）。

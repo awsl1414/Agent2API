@@ -182,11 +182,7 @@ impl ChatRequestPlan {
     ///
     /// 与 [`Self::chat`] 同一动机：调用点只回答「响应是哪套协议」，
     /// 不自己拼 `ChatRequestPlan` 的字段。
-    pub fn ai_sdk_ndjson(
-        url: String,
-        headers: Vec<(String, String)>,
-        body: Value,
-    ) -> Self {
+    pub fn ai_sdk_ndjson(url: String, headers: Vec<(String, String)>, body: Value) -> Self {
         Self {
             url,
             headers,
@@ -205,11 +201,7 @@ impl ChatRequestPlan {
     /// 与另外两个构造器同一动机（调用点只回答「响应是哪套协议」），
     /// 单独一个名字是因为它要连**请求信封**一起表达 —— 那种信封只有
     /// `antigravity_outbound` 会造。
-    pub fn antigravity_gemini(
-        url: String,
-        headers: Vec<(String, String)>,
-        body: Value,
-    ) -> Self {
+    pub fn antigravity_gemini(url: String, headers: Vec<(String, String)>, body: Value) -> Self {
         Self {
             url,
             headers,
@@ -524,7 +516,10 @@ pub trait ProviderAdapter: Send + Sync {
         Box<dyn std::future::Future<Output = Result<ChatRequestPlan, GatewayError>> + Send + 'a>,
     > {
         Box::pin(async move {
-            Err(GatewayError::with_status(501, "当前提供商插件尚未接入图片生成，请更新插件"))
+            Err(GatewayError::with_status(
+                501,
+                "当前提供商插件尚未接入图片生成，请更新插件",
+            ))
         })
     }
 
@@ -639,7 +634,8 @@ pub trait ProviderAdapter: Send + Sync {
         &'a self,
         status: u16,
         headers: &'a HeaderMap,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, GatewayError>> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, GatewayError>> + Send + 'a>>
+    {
         Box::pin(async move { Ok(self.is_error_response(status, headers)) })
     }
 
@@ -666,9 +662,7 @@ pub trait ProviderAdapter: Send + Sync {
         &'a self,
         status: u16,
         error_body: &'a Value,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = UpstreamErrorClass> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = UpstreamErrorClass> + Send + 'a>> {
         Box::pin(async move { self.classify_error(status, error_body) })
     }
 
@@ -676,7 +670,8 @@ pub trait ProviderAdapter: Send + Sync {
         &'a self,
         _status: u16,
         _body: &'a Value,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = super::policy::ErrorPolicy> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = super::policy::ErrorPolicy> + Send + 'a>>
+    {
         Box::pin(async { super::policy::ErrorPolicy::default() })
     }
 
@@ -766,9 +761,7 @@ pub trait ProviderAdapter: Send + Sync {
         store: &'a AccountStore,
         account_id: &'a str,
         force: bool,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = ModelRefreshOutcome> + Send + 'a>,
-    >;
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ModelRefreshOutcome> + Send + 'a>>;
 
     /// 模型目录刷新是否走「账号」这一维（默认 true；Cline 覆写为 false）。
     ///
@@ -854,7 +847,12 @@ pub trait ProviderAdapter: Send + Sync {
     /// 「同一账号重试」那一档给出（见 `config::RetrySettings`）。
     /// 适配器据此判断该不该再退避 —— 而不是自己去读全局设置：那样写的话
     /// 「哪一档管什么」这条规则就会漏进每个适配器里各实现一遍。
-    fn retry_advice(&self, _error_body: &Value, _attempt: usize, _budget: usize) -> Option<RetryAdvice> {
+    fn retry_advice(
+        &self,
+        _error_body: &Value,
+        _attempt: usize,
+        _budget: usize,
+    ) -> Option<RetryAdvice> {
         None
     }
 
@@ -1161,9 +1159,8 @@ pub trait ProviderAdapter: Send + Sync {
     /// （内置家零改动），只有跨进程的实现覆写它。
     fn build_login_url_async<'a>(
         &'a self,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Option<(String, String)>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<(String, String)>> + Send + 'a>>
+    {
         Box::pin(async move { self.build_login_url() })
     }
 
@@ -1193,17 +1190,15 @@ pub trait ProviderAdapter: Send + Sync {
     > {
         Box::pin(async move {
             let (url, state) = self.build_login_url_async().await?;
-            Some(
-                agent2api_provider_protocol::LoginStart {
-                    flow: state,
-                    url,
-                    instructions: String::new(),
-                    // 0 = 回调型（网关等 `login.callback` 到达）
-                    poll_interval_ms: 0,
-                    external_browser: false,
-                    allowed_hosts: Vec::new(),
-                },
-            )
+            Some(agent2api_provider_protocol::LoginStart {
+                flow: state,
+                url,
+                instructions: String::new(),
+                // 0 = 回调型（网关等 `login.callback` 到达）
+                poll_interval_ms: 0,
+                external_browser: false,
+                allowed_hosts: Vec::new(),
+            })
         })
     }
 
@@ -1217,7 +1212,10 @@ pub trait ProviderAdapter: Send + Sync {
         Box<dyn std::future::Future<Output = Result<Option<Value>, GatewayError>> + Send + 'a>,
     > {
         Box::pin(async move {
-            match self.admin_action(store, "", "auth.methods", &serde_json::json!({})).await {
+            match self
+                .admin_action(store, "", "auth.methods", &serde_json::json!({}))
+                .await
+            {
                 Ok(metadata) => Ok(Some(metadata)),
                 Err(error) if matches!(error.status_code, 404 | 501) => Ok(None),
                 Err(error) => Err(error),
@@ -1233,8 +1231,10 @@ pub trait ProviderAdapter: Send + Sync {
         _options: Value,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<Output = Result<Option<agent2api_provider_protocol::LoginStart>, GatewayError>>
-                + Send + 'a,
+            dyn std::future::Future<
+                    Output = Result<Option<agent2api_provider_protocol::LoginStart>, GatewayError>,
+                > + Send
+                + 'a,
         >,
     > {
         Box::pin(async move { Ok(self.login_start_async().await) })
@@ -1326,8 +1326,10 @@ pub trait ProviderAdapter: Send + Sync {
         _callback: agent2api_provider_protocol::LoginCallback,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<Output = Result<Option<agent2api_provider_protocol::LoginPoll>, GatewayError>>
-                + Send + 'a,
+            dyn std::future::Future<
+                    Output = Result<Option<agent2api_provider_protocol::LoginPoll>, GatewayError>,
+                > + Send
+                + 'a,
         >,
     > {
         Box::pin(async { Ok(None) })
@@ -1338,9 +1340,8 @@ pub trait ProviderAdapter: Send + Sync {
     fn login_cancel_async<'a>(
         &'a self,
         _flow: &'a str,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<(), GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), GatewayError>> + Send + 'a>>
+    {
         Box::pin(async { Ok(()) })
     }
 
@@ -1405,9 +1406,8 @@ pub trait ProviderAdapter: Send + Sync {
         &'a self,
         _store: &'a AccountStore,
         _account_id: &'a str,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>>
+    {
         let kind = self.kind();
         Box::pin(async move {
             Err(GatewayError::with_status(
@@ -1469,9 +1469,8 @@ pub trait ProviderAdapter: Send + Sync {
         &'a self,
         _store: &'a AccountStore,
         _account_id: &'a str,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>>
+    {
         let label = self.label();
         Box::pin(async move {
             Err(GatewayError::with_status(
@@ -1486,18 +1485,16 @@ pub trait ProviderAdapter: Send + Sync {
         store: &'a AccountStore,
         account_id: &'a str,
         _manual: bool,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>>
+    {
         self.checkin_claim(store, account_id)
     }
 
     fn plugin_account_view<'a>(
         &'a self,
         _secret: &'a Value,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>>
+    {
         Box::pin(async { Err(GatewayError::with_status(501, "不支持插件账号视图")) })
     }
 
@@ -1511,9 +1508,8 @@ pub trait ProviderAdapter: Send + Sync {
         _store: &'a AccountStore,
         _account_id: &'a str,
         _claim: &'a str,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>>
+    {
         let label = self.label();
         Box::pin(async move {
             Err(GatewayError::with_status(
@@ -1533,12 +1529,14 @@ pub trait ProviderAdapter: Send + Sync {
         _store: &'a AccountStore,
         _account_id: &'a str,
         _refresh: bool,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>>
+    {
         let label = self.label();
         Box::pin(async move {
-            Err(GatewayError::with_status(502, format!("{label}没有新手任务")))
+            Err(GatewayError::with_status(
+                502,
+                format!("{label}没有新手任务"),
+            ))
         })
     }
 
@@ -1571,9 +1569,8 @@ pub trait ProviderAdapter: Send + Sync {
         _account_id: &'a str,
         action: &'a str,
         _payload: &'a Value,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>>
+    {
         let label = self.label();
         Box::pin(async move {
             Err(GatewayError::with_status(
@@ -1659,7 +1656,9 @@ pub fn adapter_for(kind: ProviderKind) -> &'static dyn ProviderAdapter {
 /// 所以另开 [`builtin_adapter_by_id`]：需要「一定走内置那份」的调用点
 /// （迁移期对照、插件实现出问题时的诊断入口）用它，而不是依赖这里的优先级。
 pub fn adapter_by_id(id: &str) -> Option<Arc<dyn ProviderAdapter>> {
-    if super::availability::is_suspended(id) { return None; }
+    if super::availability::is_suspended(id) {
+        return None;
+    }
     // 插件家优先（见上面第 3 条：没装/停用时自然落到内置）
     if let Some(adapter) = crate::server::core::plugin_host::lookup(id) {
         return Some(adapter);
@@ -1668,8 +1667,12 @@ pub fn adapter_by_id(id: &str) -> Option<Arc<dyn ProviderAdapter>> {
     super::kind_from_id(id).map(Into::into)
 }
 
-pub async fn adapter_by_id_ready(id: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, GatewayError> {
-    if super::availability::is_suspended(id) { return Ok(None); }
+pub async fn adapter_by_id_ready(
+    id: &str,
+) -> Result<Option<Arc<dyn ProviderAdapter>>, GatewayError> {
+    if super::availability::is_suspended(id) {
+        return Ok(None);
+    }
     if let Some(adapter) = crate::server::core::plugin_host::lookup_ready(id).await? {
         return Ok(Some(adapter));
     }
@@ -1763,7 +1766,8 @@ impl ProviderAdapter for BuiltinAdapter {
         &'a self,
         status: u16,
         headers: &'a HeaderMap,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, GatewayError>> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, GatewayError>> + Send + 'a>>
+    {
         adapter_for(self.0).is_error_response_async(status, headers)
     }
 
@@ -1848,7 +1852,12 @@ impl ProviderAdapter for BuiltinAdapter {
         adapter_for(self.0).refresh_access_token(store, account_id)
     }
 
-    fn retry_advice(&self, error_body: &Value, attempt: usize, budget: usize) -> Option<RetryAdvice> {
+    fn retry_advice(
+        &self,
+        error_body: &Value,
+        attempt: usize,
+        budget: usize,
+    ) -> Option<RetryAdvice> {
         adapter_for(self.0).retry_advice(error_body, attempt, budget)
     }
 
@@ -1961,9 +1970,8 @@ impl ProviderAdapter for BuiltinAdapter {
 
     fn build_login_url_async<'a>(
         &'a self,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Option<(String, String)>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<(String, String)>> + Send + 'a>>
+    {
         adapter_for(self.0).build_login_url_async()
     }
 
@@ -1993,8 +2001,10 @@ impl ProviderAdapter for BuiltinAdapter {
         options: Value,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<Output = Result<Option<agent2api_provider_protocol::LoginStart>, GatewayError>>
-                + Send + 'a,
+            dyn std::future::Future<
+                    Output = Result<Option<agent2api_provider_protocol::LoginStart>, GatewayError>,
+                > + Send
+                + 'a,
         >,
     > {
         adapter_for(self.0).build_login_flow_with_options(options)
@@ -2006,8 +2016,10 @@ impl ProviderAdapter for BuiltinAdapter {
         callback: agent2api_provider_protocol::LoginCallback,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<Output = Result<Option<agent2api_provider_protocol::LoginPoll>, GatewayError>>
-                + Send + 'a,
+            dyn std::future::Future<
+                    Output = Result<Option<agent2api_provider_protocol::LoginPoll>, GatewayError>,
+                > + Send
+                + 'a,
         >,
     > {
         adapter_for(self.0).login_callback_poll_async(store, callback)
@@ -2016,9 +2028,8 @@ impl ProviderAdapter for BuiltinAdapter {
     fn login_cancel_async<'a>(
         &'a self,
         flow: &'a str,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<(), GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), GatewayError>> + Send + 'a>>
+    {
         adapter_for(self.0).login_cancel_async(flow)
     }
 
@@ -2074,9 +2085,8 @@ impl ProviderAdapter for BuiltinAdapter {
         &'a self,
         store: &'a AccountStore,
         account_id: &'a str,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>>
+    {
         adapter_for(self.0).checkin_claim(store, account_id)
     }
 
@@ -2085,9 +2095,8 @@ impl ProviderAdapter for BuiltinAdapter {
         store: &'a AccountStore,
         account_id: &'a str,
         claim: &'a str,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>>
+    {
         adapter_for(self.0).claim(store, account_id, claim)
     }
 
@@ -2096,9 +2105,8 @@ impl ProviderAdapter for BuiltinAdapter {
         store: &'a AccountStore,
         account_id: &'a str,
         refresh: bool,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>>
+    {
         adapter_for(self.0).claim_status(store, account_id, refresh)
     }
 
@@ -2112,9 +2120,8 @@ impl ProviderAdapter for BuiltinAdapter {
         account_id: &'a str,
         action: &'a str,
         payload: &'a Value,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>>
+    {
         adapter_for(self.0).admin_action(store, account_id, action, payload)
     }
 
@@ -2126,9 +2133,8 @@ impl ProviderAdapter for BuiltinAdapter {
         &'a self,
         store: &'a AccountStore,
         account_id: &'a str,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>>
+    {
         adapter_for(self.0).query_usage(store, account_id)
     }
 }
@@ -2181,7 +2187,11 @@ pub struct ModelRefreshOutcome {
 impl ModelRefreshOutcome {
     /// 真刷新成功（`count` 是落地后的条目数）
     pub fn refreshed(count: usize) -> Self {
-        Self { refreshed: true, count, message: None }
+        Self {
+            refreshed: true,
+            count,
+            message: None,
+        }
     }
 
     /// 没有刷（按缓存/TTL 跳过、上游没给可用清单、没有可用的家等）——
@@ -2192,7 +2202,11 @@ impl ModelRefreshOutcome {
 
     /// 尝试刷新但失败（`reason` 是会显示给用户的原因）
     pub fn failed(reason: impl Into<String>) -> Self {
-        Self { refreshed: false, count: 0, message: Some(reason.into()) }
+        Self {
+            refreshed: false,
+            count: 0,
+            message: Some(reason.into()),
+        }
     }
 }
 
@@ -2227,10 +2241,9 @@ fn seed_current_workbuddy_defaults() {
             .iter()
             .filter_map(|item| item.get("id").and_then(Value::as_str).map(str::to_string))
             .collect();
-        if let Some(summary) = crate::server::core::model_rules::seed_workbuddy_defaults(
-            region.provider_id(),
-            &ids,
-        ) {
+        if let Some(summary) =
+            crate::server::core::model_rules::seed_workbuddy_defaults(region.provider_id(), &ids)
+        {
             crate::server::logging::log("[Models]", &summary);
         }
     }
@@ -2319,8 +2332,7 @@ fn seed_current_cline_defaults() {
         if ids.is_empty() {
             continue;
         }
-        if let Some(summary) =
-            crate::server::core::model_rules::seed_cline_defaults(provider, &ids)
+        if let Some(summary) = crate::server::core::model_rules::seed_cline_defaults(provider, &ids)
         {
             crate::server::logging::log("[Models]", &summary);
         }
@@ -2353,7 +2365,9 @@ pub(crate) fn seed_hidden_visibility_defaults() {
         super::ProviderKind::QoderIntl,
     ] {
         let provider = crate::server::core::providers::kind_id(kind);
-        let Some(adapter) = adapter_by_id(provider) else { continue };
+        let Some(adapter) = adapter_by_id(provider) else {
+            continue;
+        };
         let entries: Vec<(String, &str)> = adapter
             .list_models()
             .iter()
@@ -2406,7 +2420,8 @@ pub async fn refresh_implemented(store: &AccountStore) -> Vec<Value> {
     seed_current_qoder_defaults();
     seed_current_cline_defaults();
     seed_hidden_visibility_defaults();
-    let results = super::catalog_refresh::refresh(store, &serde_json::Map::new(), None, false).await;
+    let results =
+        super::catalog_refresh::refresh(store, &serde_json::Map::new(), None, false).await;
     // 刷新落地后补种一次：新增的带前缀 / 别名模型在这一刻才出现在清单里
     // （与开头那次同一件事 —— 那时种的是缓存恢复的清单）
     seed_current_cline_defaults();

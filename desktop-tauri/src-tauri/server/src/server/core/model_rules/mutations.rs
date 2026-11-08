@@ -129,7 +129,7 @@ pub fn add_mapping(
             .map(|mapping| mapping.target.as_str())
             .unwrap_or(target);
         let effective =
-            enabled.unwrap_or_else(|| existing.as_ref().map_or(true, |mapping| mapping.enabled));
+            enabled.unwrap_or_else(|| existing.as_ref().is_none_or(|mapping| mapping.enabled));
         let creating = !alias.eq_ignore_ascii_case(target) && existing.is_none();
         // 对外别名的名字只在**这一条别名是新建的**时候检查（`creating`）。
         //
@@ -276,11 +276,11 @@ pub fn remove_mapping(
         let removed = rules.mappings.iter().any(|mapping| {
             mapping.alias.eq_ignore_ascii_case(alias)
                 && mapping.target.eq_ignore_ascii_case(target)
-                && provider.map_or(true, |provider| {
+                && provider.is_none_or(|provider| {
                     mapping
                         .provider
                         .as_deref()
-                        .map_or(true, |owner| owner.eq_ignore_ascii_case(provider))
+                        .is_none_or(|owner| owner.eq_ignore_ascii_case(provider))
                 })
         });
         let normalizing = provider
@@ -292,11 +292,11 @@ pub fn remove_mapping(
         rules.mappings.retain(|mapping| {
             !(mapping.alias.eq_ignore_ascii_case(alias)
                 && mapping.target.eq_ignore_ascii_case(target)
-                && provider.map_or(true, |provider| {
+                && provider.is_none_or(|provider| {
                     mapping
                         .provider
                         .as_deref()
-                        .map_or(true, |owner| owner.eq_ignore_ascii_case(provider))
+                        .is_none_or(|owner| owner.eq_ignore_ascii_case(provider))
                 }))
         });
         if let (Some(provider), Some(global)) = (provider, globals.first()) {

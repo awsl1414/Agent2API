@@ -76,7 +76,11 @@ pub struct Snapshot {
 impl Snapshot {
     /// 组装一份索引（`refresh` 压缩完两份官方 JSON 后调用；`source` 传 `network`）。
     pub fn new(models: HashMap<String, Record>, generated_at: i64, source: &'static str) -> Self {
-        Self { models, generated_at, source }
+        Self {
+            models,
+            generated_at,
+            source,
+        }
     }
 
     /// 收录的模型条数（刷新结果里的 `count`）。
@@ -170,8 +174,15 @@ fn load() -> Snapshot {
     match parse(EMBEDDED, "builtin") {
         Some(snapshot) => snapshot,
         None => {
-            logging::log("[Models]", "内嵌的 models.dev 快照解析失败（模型元数据将不可用，请重新构建）");
-            Snapshot { models: HashMap::new(), generated_at: 0, source: "builtin" }
+            logging::log(
+                "[Models]",
+                "内嵌的 models.dev 快照解析失败（模型元数据将不可用，请重新构建）",
+            );
+            Snapshot {
+                models: HashMap::new(),
+                generated_at: 0,
+                source: "builtin",
+            }
         }
     }
 }
@@ -220,8 +231,14 @@ pub fn serialize(snapshot: &Snapshot) -> String {
         models.insert(key.clone(), record_value(&snapshot.models[key]));
     }
     Value::Object(serde_json::Map::from_iter([
-        ("generatedAt".to_string(), Value::from(snapshot.generated_at)),
-        ("source".to_string(), Value::String(snapshot.source.to_string())),
+        (
+            "generatedAt".to_string(),
+            Value::from(snapshot.generated_at),
+        ),
+        (
+            "source".to_string(),
+            Value::String(snapshot.source.to_string()),
+        ),
         ("models".to_string(), Value::Object(models)),
     ]))
     .to_string()
@@ -229,7 +246,10 @@ pub fn serialize(snapshot: &Snapshot) -> String {
 
 fn record_value(record: &Record) -> Value {
     let mut object = serde_json::Map::new();
-    object.insert("canonical".to_string(), Value::String(record.canonical.clone()));
+    object.insert(
+        "canonical".to_string(),
+        Value::String(record.canonical.clone()),
+    );
     for (key, value) in [
         ("reasoning", record.reasoning),
         ("toolCall", record.tool_call),
@@ -256,7 +276,11 @@ fn record_value(record: &Record) -> Value {
 
 fn parse_record(value: &Value) -> Option<Record> {
     let object = value.as_object()?;
-    let canonical = object.get("canonical").and_then(Value::as_str).unwrap_or_default().to_string();
+    let canonical = object
+        .get("canonical")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
     if canonical.is_empty() {
         return None;
     }
@@ -303,12 +327,20 @@ pub fn write_cache(text: &str) {
     let Some(db) = db() else { return };
     let written = db.with(|conn| write_text(conn, text)).unwrap_or(false);
     if !written {
-        logging::verbose("[Models]", "models.dev 缓存写入失败：下次启动将回落到内嵌快照");
+        logging::verbose(
+            "[Models]",
+            "models.dev 缓存写入失败：下次启动将回落到内嵌快照",
+        );
     }
 }
 
 fn read_text(conn: &Connection) -> Option<String> {
-    conn.query_row("SELECT value FROM kv WHERE key = ?1", params![KV_KEY], |row| row.get(0)).ok()
+    conn.query_row(
+        "SELECT value FROM kv WHERE key = ?1",
+        params![KV_KEY],
+        |row| row.get(0),
+    )
+    .ok()
 }
 
 fn write_text(conn: &Connection, text: &str) -> bool {

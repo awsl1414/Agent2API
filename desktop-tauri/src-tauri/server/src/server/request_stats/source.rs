@@ -27,9 +27,16 @@ impl ApiKeyIdentity {
         let (source, id) = match value {
             "env" | "none" => (value, ""),
             "unknown" => ("", ""),
-            _ => ("key", value.strip_prefix("key:").filter(|id| !id.is_empty())?),
+            _ => (
+                "key",
+                value.strip_prefix("key:").filter(|id| !id.is_empty())?,
+            ),
         };
-        Some(Self { id: id.to_string(), name: String::new(), source: source.to_string() })
+        Some(Self {
+            id: id.to_string(),
+            name: String::new(),
+            source: source.to_string(),
+        })
     }
 }
 
@@ -39,7 +46,11 @@ pub struct RequestSource {
     pub client: String,
     #[serde(flatten)]
     pub api_key: ApiKeyIdentity,
-    #[serde(rename = "clientEvidence", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "clientEvidence",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub evidence: Option<crate::server::core::client::ClientEvidence>,
     /// 请求行为只使用原来的严格识别，显示规则不能改变模型选择。
     #[serde(skip)]
@@ -48,15 +59,29 @@ pub struct RequestSource {
 
 impl RequestSource {
     pub fn is_internal(&self) -> bool {
-        self.evidence.is_none() && matches!(self.client.as_str(), "model_test" | "assistant" | "assistant_images" | "assistant_title" | "checkin_keepalive")
+        self.evidence.is_none()
+            && matches!(
+                self.client.as_str(),
+                "model_test"
+                    | "assistant"
+                    | "assistant_images"
+                    | "assistant_title"
+                    | "checkin_keepalive"
+            )
     }
 
     pub fn evidence_json(&self) -> String {
-        self.evidence.as_ref().map(|evidence| evidence.encoded()).unwrap_or_else(|| "{}".into())
+        self.evidence
+            .as_ref()
+            .map(|evidence| evidence.encoded())
+            .unwrap_or_else(|| "{}".into())
     }
 
     pub fn recorded_client_name(&self) -> &str {
-        self.evidence.as_ref().map(|evidence| evidence.client_name.as_str()).unwrap_or("")
+        self.evidence
+            .as_ref()
+            .map(|evidence| evidence.client_name.as_str())
+            .unwrap_or("")
     }
 
     pub(super) fn normalized(mut self) -> Self {

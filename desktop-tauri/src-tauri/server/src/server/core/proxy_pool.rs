@@ -15,7 +15,8 @@ pub mod usage;
 pub const KV_KEY: &str = "proxyPool";
 pub const RETIRED_HINT: &str = "代理订阅与内置代理内核功能已下线，请在「网络代理」页添加 HTTP / SOCKS5 地址或同步 Clash Verge，并重新选择代理";
 
-const CLASH_READONLY_HINT: &str = "该代理来自 Clash Verge 同步，请到 Clash Verge 中修改名称或端口；本页可启停和测试";
+const CLASH_READONLY_HINT: &str =
+    "该代理来自 Clash Verge 同步，请到 Clash Verge 中修改名称或端口；本页可启停和测试";
 
 const MAX_NAME_LENGTH: usize = 60;
 const MAX_HOST_LENGTH: usize = 255;
@@ -51,7 +52,10 @@ fn read_items() -> Vec<Value> {
 }
 
 fn is_manual(item: &Value) -> bool {
-    matches!(item.get("source").and_then(Value::as_str), None | Some("" | "manual" | "custom"))
+    matches!(
+        item.get("source").and_then(Value::as_str),
+        None | Some("" | "manual" | "custom")
+    )
 }
 
 fn is_clash(item: &Value) -> bool {
@@ -106,7 +110,11 @@ fn valid_port(value: Option<&Value>) -> Option<u16> {
 }
 
 fn text_of(value: &Value, key: &str) -> String {
-    value.get(key).and_then(Value::as_str).unwrap_or("").to_string()
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
 }
 
 fn normalize_item(input: &Value, existing: Option<&Value>) -> Result<Value, String> {
@@ -124,7 +132,11 @@ fn normalize_item(input: &Value, existing: Option<&Value>) -> Result<Value, Stri
         return Err("请填写代理名称".to_string());
     }
     let protocol = clean_string(object.get("protocol"), 10).to_lowercase();
-    let protocol = if protocol.is_empty() { "http".to_string() } else { protocol };
+    let protocol = if protocol.is_empty() {
+        "http".to_string()
+    } else {
+        protocol
+    };
     if protocol != "http" && protocol != "socks5" {
         return Err("代理协议只支持 http 或 socks5".to_string());
     }
@@ -198,7 +210,9 @@ pub fn resolve_item(item: &Value) -> Option<ProxyResolution> {
     })))
 }
 
-pub fn resolve_reference(proxy_id: &str) -> Result<crate::server::core::proxies::ResolvedProxy, String> {
+pub fn resolve_reference(
+    proxy_id: &str,
+) -> Result<crate::server::core::proxies::ResolvedProxy, String> {
     let item = find_raw(proxy_id)?;
     if !is_supported(&item) {
         return Err(RETIRED_HINT.to_string());
@@ -212,13 +226,19 @@ pub fn resolve_reference(proxy_id: &str) -> Result<crate::server::core::proxies:
     resolve_entry(&item, proxy_id)
 }
 
-pub fn resolve_for_test(proxy_id: &str) -> Result<crate::server::core::proxies::ResolvedProxy, String> {
+pub fn resolve_for_test(
+    proxy_id: &str,
+) -> Result<crate::server::core::proxies::ResolvedProxy, String> {
     resolve_entry(&find_raw(proxy_id)?, proxy_id)
 }
 
 fn display_name(item: &Value, fallback: &str) -> String {
     let name = text_of(item, "name");
-    if name.is_empty() { fallback.to_string() } else { name }
+    if name.is_empty() {
+        fallback.to_string()
+    } else {
+        name
+    }
 }
 
 fn resolve_entry(
@@ -271,7 +291,8 @@ pub fn list() -> Vec<Value> {
 }
 
 fn find_raw(id: &str) -> Result<Value, String> {
-    read_items().into_iter()
+    read_items()
+        .into_iter()
         .find(|item| item.get("id").and_then(Value::as_str) == Some(id))
         .ok_or_else(|| format!("代理「{id}」不存在或已被删除"))
 }
@@ -281,7 +302,10 @@ pub fn create(input: &Value) -> Result<Vec<Value>, String> {
     let mut items = read_items();
     items.insert(0, item.clone());
     write_items(&items)?;
-    logging::log("[Proxies]", &format!("✅ 新增代理「{}」", text_of(&item, "name")));
+    logging::log(
+        "[Proxies]",
+        &format!("✅ 新增代理「{}」", text_of(&item, "name")),
+    );
     Ok(list())
 }
 
@@ -295,12 +319,16 @@ pub fn update(input: &Value) -> Result<Vec<Value>, String> {
     let next = normalize_item(input, Some(&items[index]))?;
     items[index] = next.clone();
     write_items(&items)?;
-    logging::log("[Proxies]", &format!("✅ 更新代理「{}」", text_of(&next, "name")));
+    logging::log(
+        "[Proxies]",
+        &format!("✅ 更新代理「{}」", text_of(&next, "name")),
+    );
     Ok(list())
 }
 
 fn writable_index(items: &[Value], id: &str) -> Result<usize, String> {
-    let index = items.iter()
+    let index = items
+        .iter()
         .position(|item| item.get("id").and_then(Value::as_str) == Some(id))
         .ok_or_else(|| format!("代理「{id}」不存在"))?;
     if !is_supported(&items[index]) {
@@ -313,7 +341,8 @@ fn writable_index(items: &[Value], id: &str) -> Result<usize, String> {
 }
 
 fn supported_index(items: &[Value], id: &str) -> Result<usize, String> {
-    let index = items.iter()
+    let index = items
+        .iter()
         .position(|item| item.get("id").and_then(Value::as_str) == Some(id))
         .ok_or_else(|| format!("代理「{id}」不存在"))?;
     if !is_supported(&items[index]) {
@@ -349,7 +378,17 @@ pub fn set_enabled(id: &str, enabled: bool) -> Result<(Vec<Value>, EnabledChange
     }
     object.insert("updatedAt".to_string(), Value::from(logging::now_ms()));
     write_items(&items)?;
-    logging::log("[Proxies]", &format!("{}代理「{name}」", if enabled { "✅ 启用" } else { "⏸️ 禁用" }));
+    logging::log(
+        "[Proxies]",
+        &format!(
+            "{}代理「{name}」",
+            if enabled {
+                "✅ 启用"
+            } else {
+                "⏸️ 禁用"
+            }
+        ),
+    );
     Ok((list(), EnabledChange { name, enabled }))
 }
 
@@ -373,8 +412,11 @@ pub fn sync_clash(force: bool) -> ClashSyncReport {
     if !snapshot.available {
         return ClashSyncReport {
             changes: 0,
-            error: Some(snapshot.error.unwrap_or_else(||
-                crate::server::core::clash::CLASH_UNAVAILABLE.to_string())),
+            error: Some(
+                snapshot
+                    .error
+                    .unwrap_or_else(|| crate::server::core::clash::CLASH_UNAVAILABLE.to_string()),
+            ),
         };
     }
     let mut targets = Vec::new();
@@ -392,8 +434,9 @@ pub fn sync_clash(force: bool) -> ClashSyncReport {
     let mut changes = 0;
     let now = logging::now_ms();
     for (uid, name, enabled) in &targets {
-        if let Some(index) = items.iter().position(|item| is_clash(item)
-            && item.get("listenerUid").and_then(Value::as_str) == Some(uid.as_str())) {
+        if let Some(index) = items.iter().position(|item| {
+            is_clash(item) && item.get("listenerUid").and_then(Value::as_str) == Some(uid.as_str())
+        }) {
             let current_enabled = !matches!(items[index].get("enabled"), Some(Value::Bool(false)));
             if text_of(&items[index], "name") != *name || current_enabled != *enabled {
                 if let Some(object) = items[index].as_object_mut() {
@@ -404,16 +447,19 @@ pub fn sync_clash(force: bool) -> ClashSyncReport {
                 changes += 1;
             }
         } else {
-            items.insert(0, json!({
-                "id": new_id(),
-                "name": name,
-                "source": "clash",
-                "listenerUid": uid,
-                "enabled": enabled,
-                "createdAt": now,
-                "updatedAt": now,
-                "lastTest": Value::Null,
-            }));
+            items.insert(
+                0,
+                json!({
+                    "id": new_id(),
+                    "name": name,
+                    "source": "clash",
+                    "listenerUid": uid,
+                    "enabled": enabled,
+                    "createdAt": now,
+                    "updatedAt": now,
+                    "lastTest": Value::Null,
+                }),
+            );
             changes += 1;
         }
     }
@@ -421,18 +467,31 @@ pub fn sync_clash(force: bool) -> ClashSyncReport {
     let before = items.len();
     let mut seen = std::collections::HashSet::new();
     items.retain(|item| {
-        if !is_clash(item) { return true; }
-        let Some(uid) = item.get("listenerUid").and_then(Value::as_str) else { return false; };
+        if !is_clash(item) {
+            return true;
+        }
+        let Some(uid) = item.get("listenerUid").and_then(Value::as_str) else {
+            return false;
+        };
         targets.iter().any(|(target, _, _)| target == uid) && seen.insert(uid.to_string())
     });
     changes += before - items.len();
     if changes > 0 {
         if let Err(error) = write_items(&items) {
-            return ClashSyncReport { changes: 0, error: Some(error) };
+            return ClashSyncReport {
+                changes: 0,
+                error: Some(error),
+            };
         }
-        logging::log("[Proxies]", &format!("🔄 已同步 Clash Verge 出口（{changes} 项变更）"));
+        logging::log(
+            "[Proxies]",
+            &format!("🔄 已同步 Clash Verge 出口（{changes} 项变更）"),
+        );
     }
-    ClashSyncReport { changes, error: None }
+    ClashSyncReport {
+        changes,
+        error: None,
+    }
 }
 
 pub struct TestOutcome {
@@ -448,13 +507,16 @@ pub fn record_test(id: &str, result: &TestOutcome) -> Result<Vec<Value>, String>
     let Some(object) = items[index].as_object_mut() else {
         return Err("代理条目形状异常".to_string());
     };
-    object.insert("lastTest".to_string(), json!({
-        "success": result.success,
-        "ip": result.ip,
-        "durationMs": result.duration_ms,
-        "at": logging::now_ms(),
-        "error": result.error,
-    }));
+    object.insert(
+        "lastTest".to_string(),
+        json!({
+            "success": result.success,
+            "ip": result.ip,
+            "durationMs": result.duration_ms,
+            "at": logging::now_ms(),
+            "error": result.error,
+        }),
+    );
     write_items(&items)?;
     Ok(list())
 }

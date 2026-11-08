@@ -61,17 +61,11 @@ pub async fn put_captcha(State(state): State<ServerState>, body: Bytes) -> Respo
     };
     // 逐项解析：给 null 与「没给」同义（部分更新），给了非布尔值则报错 ——
     // 静默忽略会让界面以为写成功了
-    fn field(
-        object: &serde_json::Map<String, Value>,
-        key: &str,
-    ) -> Result<Option<bool>, Response> {
+    fn field(object: &serde_json::Map<String, Value>, key: &str) -> Result<Option<bool>, Response> {
         match object.get(key) {
             None | Some(Value::Null) => Ok(None),
             Some(Value::Bool(value)) => Ok(Some(*value)),
-            Some(_) => Err(errors::management_error(
-                400,
-                format!("{key} 必须是布尔值"),
-            )),
+            Some(_) => Err(errors::management_error(400, format!("{key} 必须是布尔值"))),
         }
     }
     let desktop = match field(object, config::KEY_CAPTCHA_DESKTOP) {

@@ -12,7 +12,12 @@ pub(super) struct ChangeScope {
 }
 
 impl ChangeScope {
-    pub fn between(before: &PackRegistry, after: &PackRegistry, target: &str, prepared: Option<&InstalledPack>) -> Self {
+    pub fn between(
+        before: &PackRegistry,
+        after: &PackRegistry,
+        target: &str,
+        prepared: Option<&InstalledPack>,
+    ) -> Self {
         let old = ownership::owners(before);
         let new = ownership::owners_with(after, prepared);
         let mut packs = BTreeSet::from([target.to_string()]);
@@ -22,9 +27,16 @@ impl ChangeScope {
                 packs.extend(new.get(provider).cloned());
             }
         }
-        let providers: HashSet<String> = old.iter().chain(new.iter())
-            .filter(|(_, pack)| packs.contains(*pack)).map(|(provider, _)| provider.clone()).collect();
-        Self { packs: packs.into_iter().collect(), providers }
+        let providers: HashSet<String> = old
+            .iter()
+            .chain(new.iter())
+            .filter(|(_, pack)| packs.contains(*pack))
+            .map(|(provider, _)| provider.clone())
+            .collect();
+        Self {
+            packs: packs.into_iter().collect(),
+            providers,
+        }
     }
 
     pub fn begin(&self) -> Option<SwitchGuard> {
@@ -44,16 +56,26 @@ impl ChangeScope {
         let registry = PackRegistry::load();
         let owners = ownership::owners(&registry);
         let mut failures = Vec::new();
-        for pack in registry.packs.iter().filter(|pack| pack.enabled && self.packs.contains(&pack.id)) {
-            if runtime::host_for_pack(&pack.id).is_some_and(|host| host.ready()) { continue; }
+        for pack in registry
+            .packs
+            .iter()
+            .filter(|pack| pack.enabled && self.packs.contains(&pack.id))
+        {
+            if runtime::host_for_pack(&pack.id).is_some_and(|host| host.ready()) {
+                continue;
+            }
             if runtime::host_for_pack(&pack.id).is_some_and(|host| host.current_run().is_some()) {
                 failures.push(format!("{} 的旧进程尚未确认退出", pack.id));
                 continue;
             }
-            let started = tokio::time::timeout(Duration::from_secs(60),
-                bootstrap::start_pack(store.clone(), pack, &owners)).await;
+            let started = tokio::time::timeout(
+                Duration::from_secs(60),
+                bootstrap::start_pack(store.clone(), pack, &owners),
+            )
+            .await;
             if !matches!(started, Ok(Some(ref host)) if host.ready()) {
-                let reason = runtime::host_for_pack(&pack.id).and_then(|host| host.status().last_error)
+                let reason = runtime::host_for_pack(&pack.id)
+                    .and_then(|host| host.status().last_error)
                     .unwrap_or_else(|| "启动失败或加载超时，请检查插件日志".to_string());
                 failures.push(format!("{}：{reason}", pack.id));
                 if let Err(error) = runtime::shutdown_packs(std::slice::from_ref(&pack.id)).await {
@@ -61,13 +83,20 @@ impl ChangeScope {
                 }
             }
         }
-        if failures.is_empty() { Ok(()) } else { Err(failures.join("；")) }
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(failures.join("；"))
+        }
     }
 
     pub fn refresh_catalogs(&self) {
         crate::server::core::providers::adapter::restore_cached_catalogs();
         if crate::server::core::checkin_schedules::extend_plugin_providers_once() {
-            crate::server::logging::log("[Checkin]", "新安装插件的每日签到提供商已补入已有签到范围");
+            crate::server::logging::log(
+                "[Checkin]",
+                "新安装插件的每日签到提供商已补入已有签到范围",
+            );
         }
         super::schedules::wake();
     }

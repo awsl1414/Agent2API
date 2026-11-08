@@ -129,11 +129,7 @@ pub(crate) fn snapshot_id_of(artifacts: &BTreeMap<String, ArtifactMeta>) -> Stri
 ///
 /// 先比长度再算哈希：长度不符时能立刻给出结论（截断 / 多读），不必白算一遍
 /// 几十 MB 的 sha256。
-pub(crate) fn verify_artifact(
-    bytes: &[u8],
-    name: &str,
-    meta: &ArtifactMeta,
-) -> Result<(), String> {
+pub(crate) fn verify_artifact(bytes: &[u8], name: &str, meta: &ArtifactMeta) -> Result<(), String> {
     if bytes.len() as u64 != meta.size {
         return Err(format!(
             "远端 {name} 大小不符（应为 {} 字节，实际 {} 字节），文件可能被截断，请重新上传。",
@@ -253,12 +249,18 @@ mod tests {
         let mut a = BTreeMap::new();
         a.insert(
             "snapshot.json".to_string(),
-            ArtifactMeta { sha256: "aa".to_string(), size: 1 },
+            ArtifactMeta {
+                sha256: "aa".to_string(),
+                size: 1,
+            },
         );
         let mut b = BTreeMap::new();
         b.insert(
             "snapshot.json".to_string(),
-            ArtifactMeta { sha256: "aa".to_string(), size: 1 },
+            ArtifactMeta {
+                sha256: "aa".to_string(),
+                size: 1,
+            },
         );
         assert_eq!(snapshot_id_of(&a), snapshot_id_of(&b));
     }

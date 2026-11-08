@@ -194,7 +194,12 @@ pub(super) fn range_totals(
             totals.active_days += 1;
         }
         for acc in &day.model_tokens {
-            push_model_accum(&mut totals.model_totals, &acc.model, acc.tokens, acc.requests);
+            push_model_accum(
+                &mut totals.model_totals,
+                &acc.model,
+                acc.tokens,
+                acc.requests,
+            );
         }
         for acc in &day.provider_stats {
             push_provider_accum(
@@ -225,8 +230,16 @@ pub(super) fn range_totals(
     //   ② 旧数据落进「未知」组而不是被静默丢掉 —— 契约要求不得给旧数据
     //      **猜**值（不许补 workbuddy），但「未知」正是它的真实归属，不是猜。
     // 先求和再借用 `&mut`：闭包持着不可变借用时不能同时改这张表。
-    let covered_requests: i64 = totals.provider_totals.iter().map(|item| item.requests).sum();
-    let covered_successful: i64 = totals.provider_totals.iter().map(|item| item.successful).sum();
+    let covered_requests: i64 = totals
+        .provider_totals
+        .iter()
+        .map(|item| item.requests)
+        .sum();
+    let covered_successful: i64 = totals
+        .provider_totals
+        .iter()
+        .map(|item| item.successful)
+        .sum();
     let covered_tokens: i64 = totals.provider_totals.iter().map(|item| item.tokens).sum();
     // `max(0)` 兜住手改文件造成的「拆分比总量还多」；余量全零时这里仍会建出
     // 一个空组，但 `build_providers` 会把全零的组滤掉（见那边的 `requests > 0
@@ -245,7 +258,11 @@ pub(super) fn range_totals(
     // 请求都会落进「未知账号」组。这是如实反映「那些行没记账号身份」，
     // 而不是我们丢数据 —— 明细里其实有，但聚合要跨过年份，只能按聚合算。
     let covered_requests: i64 = totals.account_totals.iter().map(|item| item.requests).sum();
-    let covered_successful: i64 = totals.account_totals.iter().map(|item| item.successful).sum();
+    let covered_successful: i64 = totals
+        .account_totals
+        .iter()
+        .map(|item| item.successful)
+        .sum();
     let covered_tokens: i64 = totals.account_totals.iter().map(|item| item.tokens).sum();
     push_account_accum(
         &mut totals.account_totals,
@@ -260,7 +277,12 @@ pub(super) fn range_totals(
 
 /// 把一次请求（或一天的累计）并进按模型的累计表。
 /// 线性查找即可：模型数量是个位到十位级，建 HashMap 反而更慢。
-pub(super) fn push_model_accum(list: &mut Vec<ModelAccum>, model: &str, tokens: i64, requests: i64) {
+pub(super) fn push_model_accum(
+    list: &mut Vec<ModelAccum>,
+    model: &str,
+    tokens: i64,
+    requests: i64,
+) {
     match list.iter_mut().find(|item| item.model == model) {
         Some(item) => {
             item.tokens += tokens;
@@ -602,9 +624,13 @@ pub(super) fn entry_json(entry: &RequestEntry) -> Value {
         return Value::Object(serde_json::Map::new());
     };
     if let Some(object) = value.as_object_mut() {
-        object.insert("clientLabel".into(), json!(crate::server::core::client::display_name(
-            &entry.source.client, entry.source.recorded_client_name(),
-        )));
+        object.insert(
+            "clientLabel".into(),
+            json!(crate::server::core::client::display_name(
+                &entry.source.client,
+                entry.source.recorded_client_name(),
+            )),
+        );
         object.insert(
             "providerLabel".to_string(),
             Value::String(provider_label(&entry.provider)),
@@ -663,7 +689,11 @@ pub(super) fn build_top_model(totals: &[ModelAccum], range_tokens: i64) -> Value
 /// 柱状图的悬停读数要给出「这一天总用量是多少、分别花在哪些模型上」，
 /// 而按模型的分解只存在于聚合行（`model_tokens` 列）—— 明细只在报表读明细的
 /// 24 小时窗口里才被读，这里拿不到也不会回算（见 [`model_breakdown_json`]）。
-pub(super) fn daily_trend(daily: &BTreeMap<String, DailyEntry>, start: &str, end: &str) -> Vec<Value> {
+pub(super) fn daily_trend(
+    daily: &BTreeMap<String, DailyEntry>,
+    start: &str,
+    end: &str,
+) -> Vec<Value> {
     let (Some(start_date), Some(end_date)) = (parse_key(start), parse_key(end)) else {
         return Vec::new();
     };
@@ -673,9 +703,15 @@ pub(super) fn daily_trend(daily: &BTreeMap<String, DailyEntry>, start: &str, end
     while cursor <= end_date && out.len() < MAX_TREND_DAYS as usize {
         let key = date_key(cursor);
         let day = daily.get(&key);
-        let (tokens, requests) = day.map(|item| (item.tokens, item.requests)).unwrap_or((0, 0));
-        let models = day.map(|item| super::source_report::all_model_rows(&item.model_tokens)).unwrap_or_default();
-        let (clients, api_keys) = day.map(super::source_report::source_breakdown).unwrap_or_default();
+        let (tokens, requests) = day
+            .map(|item| (item.tokens, item.requests))
+            .unwrap_or((0, 0));
+        let models = day
+            .map(|item| super::source_report::all_model_rows(&item.model_tokens))
+            .unwrap_or_default();
+        let (clients, api_keys) = day
+            .map(super::source_report::source_breakdown)
+            .unwrap_or_default();
         out.push(json!({
             "date": key,
             "tokens": tokens,

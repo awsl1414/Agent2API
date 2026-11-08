@@ -16,7 +16,7 @@
 use serde_json::Value;
 
 use crate::server::core::account_store::state::StoredAccount;
-use crate::server::core::account_store::{ATOMCODE_PROVIDER_ID, AccountStore};
+use crate::server::core::account_store::{AccountStore, ATOMCODE_PROVIDER_ID};
 
 impl AccountStore {
     /// 取一条 AtomCode 账号记录（公开形态的原始 JSON）。
@@ -52,7 +52,9 @@ impl AccountStore {
             object.insert("available".to_string(), Value::Bool(record.enabled()));
             object.insert(
                 "hasSession".to_string(),
-                Value::Bool(record.get("accessToken").is_some() || record.get("tokenTail").is_some()),
+                Value::Bool(
+                    record.get("accessToken").is_some() || record.get("tokenTail").is_some(),
+                ),
             );
         }
         value
@@ -70,7 +72,10 @@ mod tests {
         let record = StoredAccount::from_map({
             let mut map = Map::new();
             map.insert("id".into(), Value::String("atomcode-42".into()));
-            map.insert("provider".into(), Value::String(ATOMCODE_PROVIDER_ID.into()));
+            map.insert(
+                "provider".into(),
+                Value::String(ATOMCODE_PROVIDER_ID.into()),
+            );
             map.insert("accessToken".into(), Value::String("at-secret".into()));
             map.insert("refreshToken".into(), Value::String("rt-secret".into()));
             map.insert("tokenTail".into(), Value::String("cret".into()));
@@ -84,7 +89,10 @@ mod tests {
         }
         assert!(public.get("accessToken").is_none());
         assert!(public.get("refreshToken").is_none());
-        assert_eq!(public.get("tokenTail").and_then(Value::as_str), Some("cret"));
+        assert_eq!(
+            public.get("tokenTail").and_then(Value::as_str),
+            Some("cret")
+        );
     }
 
     /// 记录里的 `json!` 形态与 `StoredAccount` 之间往返不掉字段。
@@ -98,6 +106,9 @@ mod tests {
         });
         let record = StoredAccount::from_map(map.as_object().cloned().unwrap_or_default());
         assert_eq!(record.get("userId"), Some(&Value::String("42".into())));
-        assert_eq!(record.get("username"), Some(&Value::String("someone".into())));
+        assert_eq!(
+            record.get("username"),
+            Some(&Value::String("someone".into()))
+        );
     }
 }

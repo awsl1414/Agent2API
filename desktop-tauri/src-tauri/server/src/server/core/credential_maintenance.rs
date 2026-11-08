@@ -136,8 +136,12 @@ pub async fn refresh_expiring_accounts(store: &AccountStore) -> Vec<Value> {
     let mut slots: Vec<Option<Value>> = vec![None; accounts.len()];
     // 待刷新项带着适配器本身（而不是 `ProviderKind`）：插件家没有枚举值，
     // 而这里已经查过一次表，再查一次是白费
-    let mut pending: Vec<(usize, String, String, std::sync::Arc<dyn crate::server::core::providers::adapter::ProviderAdapter>)> =
-        Vec::new();
+    let mut pending: Vec<(
+        usize,
+        String,
+        String,
+        std::sync::Arc<dyn crate::server::core::providers::adapter::ProviderAdapter>,
+    )> = Vec::new();
     for (index, account) in accounts.iter().enumerate() {
         let id = account
             .get("id")
@@ -200,7 +204,11 @@ pub async fn refresh_expiring_accounts(store: &AccountStore) -> Vec<Value> {
     );
     for (index, id, provider, adapter) in pending {
         if store.needs_relogin(&id) {
-            slots[index] = Some(skipped(&id, &provider, "登录授权已失效，需要重新登录该账号"));
+            slots[index] = Some(skipped(
+                &id,
+                &provider,
+                "登录授权已失效，需要重新登录该账号",
+            ));
             continue;
         }
         // 走适配器而不是别处：这条已经是四家统一的刷新入口

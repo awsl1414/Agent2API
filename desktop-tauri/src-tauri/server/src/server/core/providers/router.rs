@@ -7,9 +7,13 @@ use crate::server::core::providers::DEFAULT_PROVIDER_ID;
 pub fn route_for_forward(model: &str) -> Vec<String> {
     // 只有完全未指定模型时保留旧版的默认上游行为。
     if model.trim().is_empty() {
-        return crate::server::core::routing_scope::providers_for(model, &[DEFAULT_PROVIDER_ID.to_string()]);
+        return crate::server::core::routing_scope::providers_for(
+            model,
+            &[DEFAULT_PROVIDER_ID.to_string()],
+        );
     }
-    let providers: Vec<_> = forwarding_providers(model).into_iter()
+    let providers: Vec<_> = forwarding_providers(model)
+        .into_iter()
         .filter(|provider| !super::images::provider_model_is_image(provider, model))
         .collect();
     if !providers.is_empty() {

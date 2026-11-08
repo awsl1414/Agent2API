@@ -25,33 +25,45 @@ struct Damage {
 
 fn read_states(conn: &Connection) -> Result<StoredStates, String> {
     let text: Option<String> = conn
-        .query_row("SELECT value FROM kv WHERE key = ?1", [KV_KEY], |row| row.get(0))
+        .query_row("SELECT value FROM kv WHERE key = ?1", [KV_KEY], |row| {
+            row.get(0)
+        })
         .optional()
         .map_err(|error| format!("读取任务状态失败: {error}"))?;
-    let Some(text) = text else { return Ok(StoredStates::default()) };
+    let Some(text) = text else {
+        return Ok(StoredStates::default());
+    };
     match serde_json::from_str::<States>(&text) {
-        Ok(states) => Ok(StoredStates { states, damaged: None }),
+        Ok(states) => Ok(StoredStates {
+            states,
+            damaged: None,
+        }),
         Err(error) => {
             let states = match serde_json::from_str::<serde_json::Map<String, Value>>(&text) {
                 Ok(entries) => entries
                     .into_iter()
                     .filter_map(|(key, value)| {
-                        serde_json::from_value::<TaskState>(value).ok().map(|state| (key, state))
+                        serde_json::from_value::<TaskState>(value)
+                            .ok()
+                            .map(|state| (key, state))
                     })
                     .collect(),
                 Err(_) => States::new(),
             };
             Ok(StoredStates {
                 states,
-                damaged: Some(Damage { raw: text, error: error.to_string() }),
+                damaged: Some(Damage {
+                    raw: text,
+                    error: error.to_string(),
+                }),
             })
         }
     }
 }
 
 fn write_states(conn: &Connection, states: &States) -> Result<(), String> {
-    let text = serde_json::to_string(states)
-        .map_err(|error| format!("编码任务状态失败: {error}"))?;
+    let text =
+        serde_json::to_string(states).map_err(|error| format!("编码任务状态失败: {error}"))?;
     conn.execute(
         "INSERT INTO kv (key, value) VALUES (?1, ?2)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -62,7 +74,9 @@ fn write_states(conn: &Connection, states: &States) -> Result<(), String> {
 }
 
 fn preserve_damage(tx: &Transaction<'_>, stored: &StoredStates) -> Result<Option<String>, String> {
-    let Some(damage) = &stored.damaged else { return Ok(None) };
+    let Some(damage) = &stored.damaged else {
+        return Ok(None);
+    };
     let snapshot = serde_json::to_string(&json!({
         "recoveredAt": logging::now_ms(),
         "error": damage.error,
@@ -107,7 +121,8 @@ pub(super) fn read_all() -> Result<States, String> {
             if recovered.is_some() {
                 write_states(&tx, &stored.states)?;
             }
-            tx.commit().map_err(|error| format!("提交任务状态失败: {error}"))?;
+            tx.commit()
+                .map_err(|error| format!("提交任务状态失败: {error}"))?;
             Ok::<_, String>((stored.states, recovered))
         })
         .ok_or_else(|| "任务状态数据库不可用".to_string())??;
@@ -115,10 +130,7 @@ pub(super) fn read_all() -> Result<States, String> {
     Ok(states)
 }
 
-pub(super) fn change(
-    key: &str,
-    mutate: impl FnOnce(&mut TaskState),
-) -> Result<TaskState, String> {
+pub(super) fn change(key: &str, mutate: impl FnOnce(&mut TaskState)) -> Result<TaskState, String> {
     let (result, recovered) = database()?
         .with_mut(|conn| {
             let tx = conn
@@ -130,7 +142,8 @@ pub(super) fn change(
             mutate(state);
             let result = state.clone();
             write_states(&tx, &stored.states)?;
-            tx.commit().map_err(|error| format!("提交任务状态失败: {error}"))?;
+            tx.commit()
+                .map_err(|error| format!("提交任务状态失败: {error}"))?;
             Ok::<_, String>((result, recovered))
         })
         .ok_or_else(|| "任务状态数据库不可用".to_string())??;

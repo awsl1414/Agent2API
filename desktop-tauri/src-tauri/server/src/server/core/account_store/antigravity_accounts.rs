@@ -54,7 +54,16 @@ impl AccountStore {
     pub fn to_antigravity_public_account(&self, record: &StoredAccount) -> Value {
         let refresh_token = record.refresh_token();
         let mut public = Map::new();
-        for key in ["id", "provider", "name", "userId", "email", "projectId", "source", "tokenTail"] {
+        for key in [
+            "id",
+            "provider",
+            "name",
+            "userId",
+            "email",
+            "projectId",
+            "source",
+            "tokenTail",
+        ] {
             public.insert(
                 key.to_string(),
                 record.get(key).cloned().unwrap_or(Value::Null),
@@ -89,7 +98,10 @@ impl AccountStore {
         );
         public.insert(
             "rateLimits".to_string(),
-            record.get("rateLimits").cloned().unwrap_or_else(|| json!({})),
+            record
+                .get("rateLimits")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
         );
         // 可用 = 有主凭证（refresh token 是这家唯一的续期手段）
         public.insert(

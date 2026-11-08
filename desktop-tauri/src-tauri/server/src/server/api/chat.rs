@@ -101,13 +101,23 @@ pub async fn chat_completions(
         let error = GatewayError::bad_request("缺少 messages 数组");
         let model = model_field_text(&payload);
         let reasoning = pipeline::client_reasoning_of(&payload);
-        record_early_failure(&state, started_at, &model, &reasoning, &request_source, &error);
+        record_early_failure(
+            &state,
+            started_at,
+            &model,
+            &reasoning,
+            &request_source,
+            &error,
+        );
         return error.payload_response();
     }
 
     let method = "POST";
     let path = "/v1/chat/completions";
-    let stream = payload.get("stream").map(|value| value == &Value::Bool(true)).unwrap_or(false);
+    let stream = payload
+        .get("stream")
+        .map(|value| value == &Value::Bool(true))
+        .unwrap_or(false);
     let message_count = payload
         .get("messages")
         .and_then(Value::as_array)
@@ -130,8 +140,19 @@ pub async fn chat_completions(
     // 下游等级与下游模型名同一时机采集（payload 被就地改写前；改写只动 model，
     // 两边前后一致，见 client_reasoning_of 的说明）
     let client_reasoning = pipeline::client_reasoning_of(&payload);
-    let compact_client = compact_routing::client_for_request(&request_source.behavior_client, &payload, RequestFormat::Chat);
-    let requested_model = match super::request_prepare::resolve_client_model(&state, &mut payload, scope.as_ref(), compact_client).await {
+    let compact_client = compact_routing::client_for_request(
+        &request_source.behavior_client,
+        &payload,
+        RequestFormat::Chat,
+    );
+    let requested_model = match super::request_prepare::resolve_client_model(
+        &state,
+        &mut payload,
+        scope.as_ref(),
+        compact_client,
+    )
+    .await
+    {
         Ok(model) => model,
         Err(error) => {
             record_early_failure(
@@ -163,15 +184,16 @@ pub async fn chat_completions(
     // —— 它与调试报文、收尾记账用的是同一个。
     let telemetry_id = telemetry.snapshot().id;
     super::request_prepare::record_started(
-            state.request_stats(),
-            &telemetry_id,
-            started_at,
-            &requested_model,
-            &client_model,
-            &client_reasoning,
-            &request_source,
-            false,
-        ).await;
+        state.request_stats(),
+        &telemetry_id,
+        started_at,
+        &requested_model,
+        &client_model,
+        &client_reasoning,
+        &request_source,
+        false,
+    )
+    .await;
     // ── 手动终止的取消令牌（本次新增）────────────────────────────
     // 登记在进程级注册表里（键 = 上面这个 id），详情页的「终止请求」按它
     // 找到这条在途请求；转发链的每个等待点 select 它。注销见
@@ -227,7 +249,10 @@ pub async fn chat_completions(
     let stats = state.request_stats();
 
     match outcome {
-        Ok(ForwardOutcome::Stream { status, stream: source }) => {
+        Ok(ForwardOutcome::Stream {
+            status,
+            stream: source,
+        }) => {
             // 流式：记账**不能**在这里做 —— 这里只是「响应头已就绪」，
             // 内容还在下发。包装一层，由流自己在跑完/被丢弃时记账
             //
@@ -353,13 +378,18 @@ pub async fn chat_completions(
 /// `/v1/models` 不消耗模型额度，未携带 Key 时可读取公开清单。
 /// 携带 Key 时必须有效，列表按同一份鉴权结果的白名单过滤。
 pub async fn list_models(State(state): State<ServerState>, headers: HeaderMap) -> Response {
-    let scope = if headers.contains_key("x-api-key") || headers.contains_key(axum::http::header::AUTHORIZATION) {
+    let scope = if headers.contains_key("x-api-key")
+        || headers.contains_key(axum::http::header::AUTHORIZATION)
+    {
         match super::model_access::authenticate(&headers, "") {
             Ok(access) => access.scope,
             Err(error) => return error.payload_response(),
         }
-    } else { None };
-    let body = crate::server::core::providers::catalog::models_response(state.store(), scope.as_ref());
+    } else {
+        None
+    };
+    let body =
+        crate::server::core::providers::catalog::models_response(state.store(), scope.as_ref());
     // 异步刷新模型目录，不阻塞响应（对照 Node 的 `void refreshModelCatalog()`）
     spawn_catalog_refresh(&state);
     // Anthropic 客户端（Claude Code / Claude Desktop）走同一路径，但它们
@@ -400,7 +430,11 @@ fn anthropic_models_view(body: &Value) -> Value {
         let id = item.get("id").map(text_of).unwrap_or_default();
         let display = {
             let name = item.get("name").map(text_of).unwrap_or_default();
-            if name.is_empty() { id.clone() } else { name }
+            if name.is_empty() {
+                id.clone()
+            } else {
+                name
+            }
         };
         let mut entry = match item.as_object() {
             Some(map) => map.clone(),
@@ -411,7 +445,10 @@ fn anthropic_models_view(body: &Value) -> Value {
         entry.insert("display_name".to_string(), Value::String(display));
         // created_at：Anthropic 用 ISO-8601 字符串；本地目录没有创建时间，
         // 用「目录最近刷新时刻」代替（比编一个假日期诚实），拿不到就省略
-        if let Some(refreshed) = body.pointer("/meta/lastRefreshedAt").and_then(Value::as_i64) {
+        if let Some(refreshed) = body
+            .pointer("/meta/lastRefreshedAt")
+            .and_then(Value::as_i64)
+        {
             if refreshed > 0 {
                 if let Some(utc) = chrono::DateTime::from_timestamp_millis(refreshed) {
                     entry.insert(
@@ -423,8 +460,16 @@ fn anthropic_models_view(body: &Value) -> Value {
         }
         data.push(Value::Object(entry));
     }
-    let first = data.first().and_then(|item| item.get("id")).cloned().unwrap_or(Value::Null);
-    let last = data.last().and_then(|item| item.get("id")).cloned().unwrap_or(Value::Null);
+    let first = data
+        .first()
+        .and_then(|item| item.get("id"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let last = data
+        .last()
+        .and_then(|item| item.get("id"))
+        .cloned()
+        .unwrap_or(Value::Null);
     json!({
         "data": data,
         "has_more": false,

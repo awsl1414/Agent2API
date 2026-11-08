@@ -78,16 +78,16 @@ mod record;
 // 于是「新增了一个算好却没人用的函数」会直接报 warning —— 那正是我们想知道的。
 // 模块内部各函数仍应是 `pub(super)`：只有 `request_stats.rs` 能调到它们，
 // 对外暴露面收敛在这一层。
+mod flow;
 mod report;
 mod routing;
 mod trace;
-mod flow;
 pub use flow::FlowQuery;
 mod lifecycle;
 mod retention;
 mod source;
-mod source_report;
 mod source_backfill;
+mod source_report;
 // 终态记账抽到 writer：请求终态与限额事件同事务、请求 ID 幂等、
 // 统计失败保留独立台账降级（b1dbef8f 的 #496 真赢件）
 mod writer;
@@ -97,7 +97,10 @@ mod sql;
 pub use source::{ApiKeyIdentity, RequestSource};
 pub fn request_date_bounds(start: NaiveDate, end: NaiveDate) -> Option<(i64, i64)> {
     let next = end.succ_opt()?;
-    Some((clock::local_midnight_ms(start), clock::local_midnight_ms(next)))
+    Some((
+        clock::local_midnight_ms(start),
+        clock::local_midnight_ms(next),
+    ))
 }
 
 use std::path::PathBuf;
@@ -123,8 +126,8 @@ use report::{entry_json, provider_label, CACHE_WINDOWS};
 pub use maintenance::CompactStart;
 use maintenance::VacuumStatus;
 pub use record::{
-    AttemptDetail, NewRequestEntry, RequestEntry, RequestQuery, RetryEvent,
-    RunningProgress, SensitiveHit, DEFAULT_LIMIT, MAX_LIMIT, MAX_RAW_ROWS,
+    AttemptDetail, NewRequestEntry, RequestEntry, RequestQuery, RetryEvent, RunningProgress,
+    SensitiveHit, DEFAULT_LIMIT, MAX_LIMIT, MAX_RAW_ROWS,
 };
 
 /// 报表的**明细窗口**：从明细读行时按它下界，不必把整张明细表读回内存。
@@ -164,7 +167,10 @@ const MAINTENANCE_WRITE_INTERVAL: u64 = 128;
 /// 进程重启后遗留的进行中行按 `ts` 判定：早于本次启动时刻的全是孤儿。
 /// 以进程启动时间做阈值而不是固定时长，能覆盖长请求在重启时仍在途的场景。
 fn stale_cutoff() -> i64 {
-    std::cmp::max(now_ms() - RUNNING_STALE_MS, crate::server::logging::process_started_at())
+    std::cmp::max(
+        now_ms() - RUNNING_STALE_MS,
+        crate::server::logging::process_started_at(),
+    )
 }
 
 /// 请求统计存储本体。所有公开方法取 `&self`，内部一把 `Mutex` 串行化调用序列。
@@ -374,7 +380,10 @@ impl RequestStats {
     fn should_maintain(&self) -> bool {
         let now = logging::now_ms();
         let last = self.last_maintenance_ms.load(Ordering::Relaxed);
-        let writes = self.writes_since_maintenance.fetch_add(1, Ordering::Relaxed) + 1;
+        let writes = self
+            .writes_since_maintenance
+            .fetch_add(1, Ordering::Relaxed)
+            + 1;
         if last != 0
             && now.saturating_sub(last) < MAINTENANCE_INTERVAL_MS
             && writes < MAINTENANCE_WRITE_INTERVAL
@@ -394,7 +403,13 @@ impl RequestStats {
 
     /// 仅调试模式开启时保存完整下游正文，读写与明细查询分离。
     /// 按留存条数与正文合计字节淘汰旧正文，保存失败不影响请求记账。
-    pub fn store_raw(&self, id: &str, ts: i64, request_body: Option<&str>, response_body: Option<&str>) {
+    pub fn store_raw(
+        &self,
+        id: &str,
+        ts: i64,
+        request_body: Option<&str>,
+        response_body: Option<&str>,
+    ) {
         let id = id.trim();
         if id.is_empty() {
             return;
@@ -490,10 +505,20 @@ impl RequestStats {
         let keys = crate::server::core::api_keys::list();
         if let Some(rows) = sources["apiKeys"].as_array_mut() {
             for row in rows {
-                if row["source"] != "key" { continue; }
-                let entry = keys.iter().find(|key| Some(key.id.as_str()) == row["id"].as_str());
-                row["state"] = json!(match entry { Some(key) if key.enabled => "enabled", Some(_) => "disabled", None => "deleted" });
-                if let Some(key) = entry { row["label"] = json!(key.name); }
+                if row["source"] != "key" {
+                    continue;
+                }
+                let entry = keys
+                    .iter()
+                    .find(|key| Some(key.id.as_str()) == row["id"].as_str());
+                row["state"] = json!(match entry {
+                    Some(key) if key.enabled => "enabled",
+                    Some(_) => "disabled",
+                    None => "deleted",
+                });
+                if let Some(key) = entry {
+                    row["label"] = json!(key.name);
+                }
             }
         }
         if let (Some(target), Some(sources)) = (summary.as_object_mut(), sources.as_object()) {
@@ -578,11 +603,13 @@ impl RequestStats {
                 Ok((models, providers, sources))
             })
         };
-        let (models, providers, mut sources) = loaded.unwrap_or((Vec::new(), Vec::new(), json!({})));
+        let (models, providers, mut sources) =
+            loaded.unwrap_or((Vec::new(), Vec::new(), json!({})));
         if let Some(clients) = sources["clients"].as_array_mut() {
             for client in clients {
                 client["label"] = json!(crate::server::core::client::display_name(
-                    client["value"].as_str().unwrap_or(""), client["label"].as_str().unwrap_or(""),
+                    client["value"].as_str().unwrap_or(""),
+                    client["label"].as_str().unwrap_or(""),
                 ));
             }
         }

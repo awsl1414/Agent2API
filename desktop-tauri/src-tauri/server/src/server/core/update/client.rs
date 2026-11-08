@@ -65,35 +65,42 @@ pub(super) fn resolve_egress_candidates() -> Result<Vec<(String, Option<Resolved
         "source": "clash",
         "listenerUid": CLASH_MIXED_UID,
     })));
-    match resolution {
-        Some(resolution) => {
-            if let Some(proxy) = resolution.resolved() {
-                if proxy.port.is_some() {
-                    let label = if proxy.label.is_empty() {
-                        "Clash 混合端口".to_string()
-                    } else {
-                        proxy.label.clone()
-                    };
-                    candidates.push((label, Some(proxy.clone())));
-                }
-            } else if let Some(error) = resolution.error() {
-                // Node 在这条分支上静默（try/catch 吞掉），这里留 verbose 便于排障
-                logging::verbose(
-                    "[Update]",
-                    &format!("Clash 出口不可用（{error}），仅用直连"),
-                );
+    if let Some(resolution) = resolution {
+        if let Some(proxy) = resolution.resolved() {
+            if proxy.port.is_some() {
+                let label = if proxy.label.is_empty() {
+                    "Clash 混合端口".to_string()
+                } else {
+                    proxy.label.clone()
+                };
+                candidates.push((label, Some(proxy.clone())));
             }
+        } else if let Some(error) = resolution.error() {
+            // Node 在这条分支上静默（try/catch 吞掉），这里留 verbose 便于排障
+            logging::verbose(
+                "[Update]",
+                &format!("Clash 出口不可用（{error}），仅用直连"),
+            );
         }
-        None => {}
     }
     Ok(candidates)
 }
 
 pub(super) fn egress_identity() -> Value {
     match resolve_egress_candidates() {
-        Ok(candidates) => json!(candidates.into_iter().map(|(_, proxy)| proxy.map(|proxy| {
-            json!([proxy.source, proxy.protocol, proxy.host, proxy.port, proxy.username, proxy.password])
-        })).collect::<Vec<_>>()),
+        Ok(candidates) => json!(candidates
+            .into_iter()
+            .map(|(_, proxy)| proxy.map(|proxy| {
+                json!([
+                    proxy.source,
+                    proxy.protocol,
+                    proxy.host,
+                    proxy.port,
+                    proxy.username,
+                    proxy.password
+                ])
+            }))
+            .collect::<Vec<_>>()),
         Err(message) => json!({ "error": message }),
     }
 }
@@ -133,7 +140,10 @@ async fn fetch_github(
 ) -> Result<reqwest::Response, String> {
     let mut candidates = source::candidates(url, allow_mirror);
     source::ensure_available(&candidates, headers)?;
-    if allow_mirror && candidates.len() > 1 && config::github_access().mode == config::GithubAccessMode::Auto {
+    if allow_mirror
+        && candidates.len() > 1
+        && config::github_access().mode == config::GithubAccessMode::Auto
+    {
         candidates = super::probe::rank(url, true, headers).await?;
     }
     let mut last_error = String::new();
@@ -145,7 +155,11 @@ async fn fetch_github(
         let response = match fetch_candidate(candidate, headers, timeout_ms).await {
             Ok(response) => response,
             Err(error) => {
-                candidate.observe(source::failed_state(&error), started.elapsed().as_millis() as u64, false);
+                candidate.observe(
+                    source::failed_state(&error),
+                    started.elapsed().as_millis() as u64,
+                    false,
+                );
                 last_error = error;
                 continue;
             }

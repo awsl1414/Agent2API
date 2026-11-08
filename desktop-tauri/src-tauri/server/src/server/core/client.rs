@@ -13,15 +13,30 @@ pub const CLIENT_OTHER: &str = "other";
 /// 行为判断保留原来的严格识别，不读取显示规则或调用方声明。
 pub fn classify(ua: &str) -> String {
     let ua = ua.trim();
-    if ua.is_empty() { return String::new(); }
-    if ua.starts_with("Codex Desktop/") || ua.starts_with("codex_vscode/") || ua.starts_with("codex-tui/") {
+    if ua.is_empty() {
+        return String::new();
+    }
+    if ua.starts_with("Codex Desktop/")
+        || ua.starts_with("codex_vscode/")
+        || ua.starts_with("codex-tui/")
+    {
         return "Codex".into();
     }
-    if ua.starts_with("ZCode/") { return "ZCode".into(); }
-    if ua.starts_with("claude-cli/") { return "Claude Code".into(); }
-    if ua.starts_with("deepseek-harness/") { return "deepseek-harness".into(); }
-    if ua.starts_with("GitHubCopilotChat/") { return "GitHub Copilot".into(); }
-    if ua.contains("CherryStudio/") { return "CherryStudio".into(); }
+    if ua.starts_with("ZCode/") {
+        return "ZCode".into();
+    }
+    if ua.starts_with("claude-cli/") {
+        return "Claude Code".into();
+    }
+    if ua.starts_with("deepseek-harness/") {
+        return "deepseek-harness".into();
+    }
+    if ua.starts_with("GitHubCopilotChat/") {
+        return "GitHub Copilot".into();
+    }
+    if ua.contains("CherryStudio/") {
+        return "CherryStudio".into();
+    }
     CLIENT_OTHER.into()
 }
 
@@ -37,6 +52,8 @@ pub fn display_name(value: &str, recorded: &str) -> String {
     if let Some(client) = catalog::CLIENTS.iter().find(|client| client.value == value) {
         return client.name.into();
     }
-    if !recorded.is_empty() { return recorded.into(); }
+    if !recorded.is_empty() {
+        return recorded.into();
+    }
     value.into()
 }

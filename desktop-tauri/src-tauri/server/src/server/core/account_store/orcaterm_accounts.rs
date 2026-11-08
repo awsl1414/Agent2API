@@ -38,21 +38,44 @@ impl AccountStore {
         public.insert("name".to_string(), Value::String(record.name()));
         public.insert(
             "uid".to_string(),
-            Value::String(record.get("uid").and_then(Value::as_str).unwrap_or("").to_string()),
+            Value::String(
+                record
+                    .get("uid")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            ),
         );
         public.insert(
             "loginName".to_string(),
-            Value::String(record.get("loginName").and_then(Value::as_str).unwrap_or("").to_string()),
+            Value::String(
+                record
+                    .get("loginName")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            ),
         );
         public.insert(
             "tokenTail".to_string(),
-            Value::String(record.get("tokenTail").and_then(Value::as_str).unwrap_or("").to_string()),
+            Value::String(
+                record
+                    .get("tokenTail")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            ),
         );
         // tokenExpireAt 原样透出（毫秒；0 = 未知）：前端据此显示「到期时间」，
         // 也让「续期是否在工作」可被肉眼校验
         public.insert(
             "tokenExpireAt".to_string(),
-            Value::from(record.get("tokenExpireAt").and_then(Value::as_i64).unwrap_or(0)),
+            Value::from(
+                record
+                    .get("tokenExpireAt")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(0),
+            ),
         );
         public.insert("desktop".to_string(), Value::Bool(record.is_desktop()));
         public.insert("source".to_string(), Value::String(record.source()));
@@ -63,7 +86,10 @@ impl AccountStore {
         public.insert("proxy".to_string(), proxy);
         public.insert(
             "rateLimits".to_string(),
-            record.get("rateLimits").cloned().unwrap_or_else(|| Value::Object(Map::new())),
+            record
+                .get("rateLimits")
+                .cloned()
+                .unwrap_or_else(|| Value::Object(Map::new())),
         );
         public.insert("available".to_string(), Value::Bool(true));
         Value::Object(public)

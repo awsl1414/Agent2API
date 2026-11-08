@@ -93,7 +93,10 @@ pub async fn post_config(State(_state): State<ServerState>, body: Bytes) -> Resp
                     return errors::management_error(500, format!("API Key 保存失败: {reason}"));
                 }
                 // 不打印 key 本身（日志会被导出与截图），只说明已更新
-                logging::log("[Config]", "✅ API Key 已更新，客户端需带 Authorization: Bearer <key>");
+                logging::log(
+                    "[Config]",
+                    "✅ API Key 已更新，客户端需带 Authorization: Bearer <key>",
+                );
             }
             // 非 null 且非字符串 → 同一个 400 文案（照抄 Node 版判定）
             _ => return errors::management_error(400, API_KEY_TOO_SHORT),
@@ -115,4 +118,3 @@ pub async fn post_config(State(_state): State<ServerState>, body: Bytes) -> Resp
         "defaultModel": snapshot.default_model(),
     }))
 }
-

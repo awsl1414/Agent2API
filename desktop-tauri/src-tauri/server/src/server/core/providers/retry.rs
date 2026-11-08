@@ -9,6 +9,11 @@ pub const RETRY_DECISION_METHOD: &str = "retry.decision";
 pub enum RetryDecision {
     #[default]
     Default,
-    Retry { delay_ms: u64, reason: String },
-    Stop { reason: String },
+    Retry {
+        delay_ms: u64,
+        reason: String,
+    },
+    Stop {
+        reason: String,
+    },
 }

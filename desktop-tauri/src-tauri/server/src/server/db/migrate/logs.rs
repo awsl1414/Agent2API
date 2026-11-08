@@ -10,8 +10,8 @@ use rusqlite::{params, Connection};
 
 use super::backup::backup_legacy_file;
 use super::LegacyOutcome;
-use crate::server::logs_store::{self, LogEntry};
 use crate::server::logging;
+use crate::server::logs_store::{self, LogEntry};
 
 /// 日志旧文件名（`{log_dir}/logs.jsonl`）。
 ///
@@ -133,9 +133,7 @@ pub(super) fn import_logs(conn: &Connection, dir: &Path) -> Option<LegacyOutcome
     if skipped > 0 {
         logging::console_line(
             "[Storage]",
-            &format!(
-                "事件日志迁移：{imported} 条新导入、{skipped} 条已存在（重复导入自动跳过）"
-            ),
+            &format!("事件日志迁移：{imported} 条新导入、{skipped} 条已存在（重复导入自动跳过）"),
         );
     }
     Some(LegacyOutcome {
@@ -180,7 +178,10 @@ fn parse_jsonl(text: &str) -> Vec<LogEntry> {
             .get("message")
             .map(|item| item.as_str().unwrap_or_default().to_string())
             .unwrap_or_default();
-        let level = object.get("level").and_then(serde_json::Value::as_str).unwrap_or("info");
+        let level = object
+            .get("level")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("info");
         let category = object
             .get("category")
             .and_then(serde_json::Value::as_str)
@@ -193,7 +194,10 @@ fn parse_jsonl(text: &str) -> Vec<LogEntry> {
                 .get("id")
                 .and_then(serde_json::Value::as_u64)
                 .unwrap_or(parsed.len() as u64 + 1),
-            ts: object.get("ts").and_then(serde_json::Value::as_i64).unwrap_or(0),
+            ts: object
+                .get("ts")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0),
             level: logs_store::normalize_level(level),
             category: logs_store::normalize_category(category),
             message: logs_store::clamp_message(&message),
@@ -294,12 +298,10 @@ fn write_logs(conn: &Connection, entries: &[LogEntry]) -> rusqlite::Result<(usiz
     // 按**同一段逻辑**算一遍。两处必须同步：这里若漏了夹紧（`clamp`），
     // 配置里写个天文数字就会让裁剪空转（那正是 `RETENTION_*_DAYS` 要防的）。
     let settings = crate::server::config::retention_settings();
-    let days = settings
-        .log_days
-        .clamp(
-            crate::server::config::RETENTION_MIN_DAYS,
-            crate::server::config::RETENTION_MAX_DAYS,
-        );
+    let days = settings.log_days.clamp(
+        crate::server::config::RETENTION_MIN_DAYS,
+        crate::server::config::RETENTION_MAX_DAYS,
+    );
     let day = chrono::Local::now().date_naive() - chrono::Duration::days(days - 1);
     let cutoff = day
         .and_hms_opt(0, 0, 0)

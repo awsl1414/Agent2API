@@ -143,7 +143,11 @@ fn string_list(value: Option<&Value>) -> Vec<String> {
 
 /// 白名单列表 → 落盘形态（**空也写成 `[]`**，见模块头）
 fn list_value(list: &[String]) -> Value {
-    Value::Array(list.iter().map(|item| Value::String(item.clone())).collect())
+    Value::Array(
+        list.iter()
+            .map(|item| Value::String(item.clone()))
+            .collect(),
+    )
 }
 
 /// 「有一把网关 Key 解不开」的**进程级一次性**告警。
@@ -536,9 +540,7 @@ pub fn encrypt_legacy_keys() -> usize {
     if let Err(error) = save(&entries) {
         logging::log(
             "[Keys]",
-            &format!(
-                "⚠️  网关 Key 加密未完成（下次启动会自动重试，本次 Key 照常可用）: {error}"
-            ),
+            &format!("⚠️  网关 Key 加密未完成（下次启动会自动重试，本次 Key 照常可用）: {error}"),
         );
         return 0;
     }

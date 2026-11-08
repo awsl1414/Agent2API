@@ -52,16 +52,26 @@ pub fn default_time_end(start: &str) -> String {
 
 pub fn spread_minutes(schedule: &Schedule) -> i64 {
     (today_at_minutes(&schedule.time_end).unwrap_or(10)
-        - today_at_minutes(&schedule.time).unwrap_or(1)).max(0)
+        - today_at_minutes(&schedule.time).unwrap_or(1))
+    .max(0)
 }
 
 pub fn effective_end(schedule: &Schedule, provider: &str) -> String {
-    end_with_spread(&effective_time(schedule, provider), spread_minutes(schedule))
+    end_with_spread(
+        &effective_time(schedule, provider),
+        spread_minutes(schedule),
+    )
 }
 
-pub fn provider_window(schedule: &Schedule, provider: &str, now: DateTime<FixedOffset>) -> Option<(i64, i64)> {
-    Some((today_at(&effective_time(schedule, provider), now)?.timestamp_millis(),
-        today_at(&effective_end(schedule, provider), now)?.timestamp_millis()))
+pub fn provider_window(
+    schedule: &Schedule,
+    provider: &str,
+    now: DateTime<FixedOffset>,
+) -> Option<(i64, i64)> {
+    Some((
+        today_at(&effective_time(schedule, provider), now)?.timestamp_millis(),
+        today_at(&effective_end(schedule, provider), now)?.timestamp_millis(),
+    ))
 }
 
 /// 提供商专属的每日窗口时刻（北京时间，窗口开启后 1 分钟）。
@@ -120,11 +130,7 @@ pub(crate) fn main_fired(schedule: &Schedule, provider: &str, today: &str) -> bo
 /// 这是 `tick` 的判定核心 —— 条目不再有「一天只跑一次」的整体去重，改由
 /// **每家自己的日期标记**决定，于是同一条条目可以在 00:01 / 10:01 / 19:01
 /// 各跑一批。
-pub fn due_providers(
-    schedule: &Schedule,
-    now: DateTime<FixedOffset>,
-    today: &str,
-) -> Vec<String> {
+pub fn due_providers(schedule: &Schedule, now: DateTime<FixedOffset>, today: &str) -> Vec<String> {
     schedule
         .providers
         .iter()
@@ -165,8 +171,7 @@ pub fn retry_due_providers(
         .filter(|provider| !fired_on(&schedule.last_retried_providers, provider, today))
         .filter(|provider| main_fired(schedule, provider, today))
         .filter(|provider| {
-            provider_retry_time(schedule, provider)
-                .is_some_and(|time| time_passed(&time, now))
+            provider_retry_time(schedule, provider).is_some_and(|time| time_passed(&time, now))
         })
         .cloned()
         .collect()
@@ -202,18 +207,23 @@ pub fn overdue_providers(
 ///
 /// 主轮逐家算：今天还没跑且时刻未到 → 今天；已跑 / 时刻已过 → 明天。
 /// 补签轮单独算（见 [`retry_next_at`]）。两者取最早。
-pub fn next_run_at(
-    schedule: &Schedule,
-    now: DateTime<FixedOffset>,
-    today: &str,
-) -> Option<i64> {
+pub fn next_run_at(schedule: &Schedule, now: DateTime<FixedOffset>, today: &str) -> Option<i64> {
     let mut earliest: Option<i64> = if schedule.account_plan.date == today {
-        schedule.account_plan.next_at().map(|at| at.max(now.timestamp_millis()))
-    } else { None };
+        schedule
+            .account_plan
+            .next_at()
+            .map(|at| at.max(now.timestamp_millis()))
+    } else {
+        None
+    };
     for provider in &schedule.providers {
-        if !crate::server::core::plugin_host::serves_provider(provider) { continue; }
+        if !crate::server::core::plugin_host::serves_provider(provider) {
+            continue;
+        }
         let fired = main_fired(schedule, provider, today);
-        if !fired && schedule.account_plan.date == today { continue; }
+        if !fired && schedule.account_plan.date == today {
+            continue;
+        }
         let Some(at) = next_occurrence(&effective_time(schedule, provider), fired, now) else {
             continue;
         };
@@ -228,18 +238,16 @@ pub fn next_run_at(
 /// 补签轮的下一次时刻（毫秒）；补签关掉（`retryTime` 为空）给 None。
 ///
 /// 「还有得补」（某家今天没补过且窗口已过）→ 今天；否则顺延到明天。
-pub fn retry_next_at(
-    schedule: &Schedule,
-    now: DateTime<FixedOffset>,
-    today: &str,
-) -> Option<i64> {
+pub fn retry_next_at(schedule: &Schedule, now: DateTime<FixedOffset>, today: &str) -> Option<i64> {
     if schedule.retry_time.is_empty() {
         return None;
     }
     // 逐家算补签点，取最近的那个「今天还没补过」的；都已补过就顺延到明天
     let mut earliest: Option<i64> = None;
     for provider in &schedule.providers {
-        if !crate::server::core::plugin_host::serves_provider(provider) { continue; }
+        if !crate::server::core::plugin_host::serves_provider(provider) {
+            continue;
+        }
         let Some(time) = provider_retry_time(schedule, provider) else {
             continue;
         };
@@ -247,10 +255,16 @@ pub fn retry_next_at(
             continue;
         };
         let pending = !fired_on(&schedule.last_retried_providers, provider, today);
-        if pending && !main_fired(schedule, provider, today) && target <= now { continue; }
+        if pending && !main_fired(schedule, provider, today) && target <= now {
+            continue;
+        }
         let next = if pending {
             // 已到点还没补（等下一个 tick）→ 就是现在
-            if target > now { target.timestamp_millis() } else { now.timestamp_millis() }
+            if target > now {
+                target.timestamp_millis()
+            } else {
+                now.timestamp_millis()
+            }
         } else {
             (target + chrono::Duration::days(1)).timestamp_millis()
         };
@@ -261,7 +275,8 @@ pub fn retry_next_at(
 
 /// `HH:MM` → 当天零点起的分钟数（非法返回 None）
 fn today_at_minutes(time_text: &str) -> Option<i64> {
-    let normalized = normalize_time(Some(&serde_json::Value::String(time_text.to_string()))).ok()?;
+    let normalized =
+        normalize_time(Some(&serde_json::Value::String(time_text.to_string()))).ok()?;
     let (hour, minute) = normalized.split_once(':')?;
     Some(hour.parse::<i64>().ok()? * 60 + minute.parse::<i64>().ok()?)
 }
@@ -278,11 +293,7 @@ fn time_passed(time_text: &str, now: DateTime<FixedOffset>) -> bool {
 }
 
 /// 某个时刻的下一次出现：`fired`（今天已经跑过）或时刻已过 → 明天。
-fn next_occurrence(
-    time_text: &str,
-    fired: bool,
-    now: DateTime<FixedOffset>,
-) -> Option<i64> {
+fn next_occurrence(time_text: &str, fired: bool, now: DateTime<FixedOffset>) -> Option<i64> {
     let target = today_at(time_text, now)?;
     let next = if fired || target <= now {
         target + chrono::Duration::days(1)

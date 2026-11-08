@@ -34,7 +34,10 @@ pub(crate) fn provider_error(provider: &str) -> Option<String> {
 }
 
 fn key(id: &str) -> String {
-    format!("pluginRequirement:{id}:{CURRENT_VERSION}:{}", super::host_target())
+    format!(
+        "pluginRequirement:{id}:{CURRENT_VERSION}:{}",
+        super::host_target()
+    )
 }
 
 fn cached_asset(state: &task_state::TaskState, id: &str) -> Option<update::PackAsset> {
@@ -52,21 +55,30 @@ pub(super) fn update_for(pack: &PackSummary) -> Option<Value> {
     }
     let state = task_state::read(&key(&pack.id)).unwrap_or_default();
     let asset = cached_asset(&state, &pack.id);
-    let task = operations::snapshot()["operations"].as_array()
-        .and_then(|tasks| tasks.iter().find(|task| task["id"] == pack.id
-            && task["requiredVersion"].as_str() == Some(CURRENT_VERSION)))
+    let task = operations::snapshot()["operations"]
+        .as_array()
+        .and_then(|tasks| {
+            tasks.iter().find(|task| {
+                task["id"] == pack.id && task["requiredVersion"].as_str() == Some(CURRENT_VERSION)
+            })
+        })
         .cloned()
         .unwrap_or(Value::Null);
-    let operation_error = task["error"].as_str().or_else(|| task["hostError"].as_str());
+    let operation_error = task["error"]
+        .as_str()
+        .or_else(|| task["hostError"].as_str());
     let error = state.last_error.as_deref().or(operation_error);
-    let operation_state = task_state::read(&format!("pluginOperation:{}", pack.id)).unwrap_or_default();
-    let reason = error.map(|error| update::describe_error(error, state.retry_at)).unwrap_or_else(|| {
-        if pack.signed {
-            "正在自动补齐当前网关所需的官方插件；日常更新开关不影响本次修复".to_string()
-        } else {
-            "未签名包不会被自动覆盖，请点击补齐插件或从文件安装符合最低版本要求的包".to_string()
-        }
-    });
+    let operation_state =
+        task_state::read(&format!("pluginOperation:{}", pack.id)).unwrap_or_default();
+    let reason = error
+        .map(|error| update::describe_error(error, state.retry_at))
+        .unwrap_or_else(|| {
+            if pack.signed {
+                "正在自动补齐当前网关所需的官方插件；日常更新开关不影响本次修复".to_string()
+            } else {
+                "未签名包不会被自动覆盖，请点击补齐插件或从文件安装符合最低版本要求的包".to_string()
+            }
+        });
     Some(json!({
         "id": pack.id, "current": pack.version, "latest": asset.as_ref().map(|asset| &asset.version),
         "required": true, "requiredVersion": pack.required_version,
@@ -89,7 +101,12 @@ async fn find_asset(id: &str) -> Result<update::PackAsset, String> {
     let mut detail = update::PluginDetail {
         protocol: agent2api_provider_protocol::PROTOCOL_VERSION,
         repo: update::FALLBACK_REPO.to_string(),
-        tag_template: if id == "agent2api-web-providers" { "web-v{version}" } else { "v{version}" }.to_string(),
+        tag_template: if id == "agent2api-web-providers" {
+            "web-v{version}"
+        } else {
+            "v{version}"
+        }
+        .to_string(),
         asset_template: "{id}-{version}-{target}.zip".to_string(),
         homepage: String::new(),
         require_signed: true,
@@ -108,7 +125,10 @@ async fn find_asset(id: &str) -> Result<update::PackAsset, String> {
                 }
             }
         }
-        Err(error) => logging::verbose("[Plugin]", &format!("插件索引读取失败，尝试内置官方配套源：{error}")),
+        Err(error) => logging::verbose(
+            "[Plugin]",
+            &format!("插件索引读取失败，尝试内置官方配套源：{error}"),
+        ),
     }
     let minimum = minimum_version(id).ok_or_else(|| "这个插件不属于官方配套包".to_string())?;
     update::required_release(&detail.repo, id, &detail, minimum, &super::host_target()).await
@@ -124,18 +144,29 @@ async fn resolve(id: &str, manual: bool) -> Result<update::PackAsset, String> {
         }
     }
     let guard = match task_state::claim(
-        &key(id), RETRY_INTERVAL_MS, manual, ManualBackoff::Respect, 60_000,
+        &key(id),
+        RETRY_INTERVAL_MS,
+        manual,
+        ManualBackoff::Respect,
+        60_000,
     )? {
         Claim::Acquired(guard) => guard,
-        Claim::Deferred(state) => return Err(state.last_error.as_deref()
-            .map(|error| update::describe_error(error, state.retry_at))
-            .unwrap_or_else(|| update::waiting_message(&state))),
+        Claim::Deferred(state) => {
+            return Err(state
+                .last_error
+                .as_deref()
+                .map(|error| update::describe_error(error, state.retry_at))
+                .unwrap_or_else(|| update::waiting_message(&state)))
+        }
     };
     match find_asset(id).await {
         Ok(asset) => {
             guard.finish(
-                true, format!("找到官方配套插件 v{}", asset.version),
-                Some(json!(asset)), 0, RETRY_INTERVAL_MS,
+                true,
+                format!("找到官方配套插件 v{}", asset.version),
+                Some(json!(asset)),
+                0,
+                RETRY_INTERVAL_MS,
             )?;
             Ok(asset)
         }
@@ -147,7 +178,10 @@ async fn resolve(id: &str, manual: bool) -> Result<update::PackAsset, String> {
 }
 
 fn installed(id: &str, automatic: bool) -> Result<InstalledPack, String> {
-    let pack = PackRegistry::load().packs.into_iter().find(|pack| pack.id == id)
+    let pack = PackRegistry::load()
+        .packs
+        .into_iter()
+        .find(|pack| pack.id == id)
         .ok_or_else(|| "还没有安装这个插件包".to_string())?;
     if version_error(id, &pack.version).is_none() {
         return Err("插件已满足当前网关的最低版本要求，不需要补齐".to_string());
@@ -173,14 +207,20 @@ pub(super) async fn start(id: &str, manual: bool) -> Result<operations::Operatio
 }
 
 pub(super) async fn apply() {
-    let Ok(states) = task_state::read_all() else { return };
+    let Ok(states) = task_state::read_all() else {
+        return;
+    };
     let now = logging::now_ms();
     let packs = PackRegistry::load();
     for pack in packs.packs {
-        if !pack.signed || version_error(&pack.id, &pack.version).is_none()
+        if !pack.signed
+            || version_error(&pack.id, &pack.version).is_none()
             || operations::active(&pack.id)
-            || states.get(&key(&pack.id)).is_some_and(|state| state.running() || now < state.due_at())
-            || states.get(&format!("pluginOperation:{}", pack.id))
+            || states
+                .get(&key(&pack.id))
+                .is_some_and(|state| state.running() || now < state.due_at())
+            || states
+                .get(&format!("pluginOperation:{}", pack.id))
                 .is_some_and(|state| state.running() || now < state.retry_at)
         {
             continue;

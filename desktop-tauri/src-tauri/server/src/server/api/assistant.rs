@@ -52,7 +52,7 @@ use crate::server::logging;
 use crate::server::ServerState;
 
 use super::disconnect_guard::DisconnectGuard;
-use super::pipeline::{self, json_response, RecordContext, RecordingStream, sse_response};
+use super::pipeline::{self, json_response, sse_response, RecordContext, RecordingStream};
 
 /// 对外模型名的长度上限（与 `model_test` 的 `text_field` 上限同一量级）
 const MAX_MODEL_CHARS: usize = 128;
@@ -94,10 +94,7 @@ pub async fn put_config(State(_state): State<ServerState>, body: Bytes) -> Respo
         Err(message) => return errors::management_error(400, message),
     };
     if !config::set_assistant_config(config.clone()) {
-        logging::log(
-            "[Config]",
-            "⚠️  AI 助手设置写入失败（本次运行内仍生效）",
-        );
+        logging::log("[Config]", "⚠️  AI 助手设置写入失败（本次运行内仍生效）");
     }
     // 回给前端的形态与 GET 完全一致（展开过的工具表）——「存了什么」与
     // 「界面看到什么」用同一个序列化口，免得前端保存后自己那那份与后端分叉
@@ -157,15 +154,21 @@ fn parse_config(block: &Map<String, Value>) -> Result<AssistantConfig, String> {
         None | Some(Value::Null) => None,
         Some(Value::String(text)) => {
             let text = text.trim();
-            if text.chars().count() > MAX_MODEL_CHARS { return Err("标题总结模型名过长".into()); }
+            if text.chars().count() > MAX_MODEL_CHARS {
+                return Err("标题总结模型名过长".into());
+            }
             (!text.is_empty()).then(|| text.to_string())
         }
         Some(_) => return Err("titleModel 必须是字符串或 null".into()),
     };
     let title_prompt = match block.get("titlePrompt") {
         None | Some(Value::Null) => String::new(),
-        Some(Value::String(text)) if text.chars().count() <= MAX_SYSTEM_PROMPT_CHARS => text.clone(),
-        Some(Value::String(_)) => return Err(format!("标题总结提示词最长 {MAX_SYSTEM_PROMPT_CHARS} 字")),
+        Some(Value::String(text)) if text.chars().count() <= MAX_SYSTEM_PROMPT_CHARS => {
+            text.clone()
+        }
+        Some(Value::String(_)) => {
+            return Err(format!("标题总结提示词最长 {MAX_SYSTEM_PROMPT_CHARS} 字"))
+        }
         Some(_) => return Err("titlePrompt 必须是字符串".into()),
     };
     let api_key_id = match block.get("apiKeyId") {
@@ -244,7 +247,11 @@ pub async fn chat(State(state): State<ServerState>, headers: HeaderMap, body: By
                 return errors::management_error(400, format!("tools 最多 {MAX_TOOLS} 个"));
             }
             for tool in tools {
-                let Some(id) = tool.get("function").and_then(|function| function.get("name")).and_then(Value::as_str) else {
+                let Some(id) = tool
+                    .get("function")
+                    .and_then(|function| function.get("name"))
+                    .and_then(Value::as_str)
+                else {
                     return errors::management_error(400, "工具缺少 function.name");
                 };
                 if !config::ALL_TOOL_IDS.contains(&id) || !config.tool_enabled(id) {
@@ -286,22 +293,50 @@ pub async fn chat(State(state): State<ServerState>, headers: HeaderMap, body: By
 
     // 模型路由：对外名 → 上游名（默认值 / 映射别名 / 目录校验与 /v1/* 同源）
     let started_at = logging::now_ms();
-    let requested_model = match super::request_prepare::resolve_model(&state, &mut upstream, access.scope.as_ref()).await {
-        Ok(name) => name,
-        Err(error) => {
-            pipeline::record_early_failure(&state, started_at, &model, reasoning.as_deref().unwrap_or(""), &access.source, &error);
-            return chat_error(error);
-        }
-    };
+    let requested_model =
+        match super::request_prepare::resolve_model(&state, &mut upstream, access.scope.as_ref())
+            .await
+        {
+            Ok(name) => name,
+            Err(error) => {
+                pipeline::record_early_failure(
+                    &state,
+                    started_at,
+                    &model,
+                    reasoning.as_deref().unwrap_or(""),
+                    &access.source,
+                    &error,
+                );
+                return chat_error(error);
+            }
+        };
 
-    if upstream.get("tools").and_then(Value::as_array).is_some_and(|tools| tools.iter().any(|tool| {
-        tool.pointer("/function/name").and_then(Value::as_str) == Some("edit_images")
-    })) {
-        let catalog = crate::server::core::providers::catalog::models_response(state.store(), access.scope.as_ref());
-        let supports_images = catalog.get("data").and_then(Value::as_array)
-            .and_then(|models| models.iter().find(|item| {
-                item.get("id").and_then(Value::as_str).is_some_and(|id| id.eq_ignore_ascii_case(&requested_model))
-            })).is_some_and(|model| model.get("supports_images").and_then(Value::as_bool) == Some(true));
+    if upstream
+        .get("tools")
+        .and_then(Value::as_array)
+        .is_some_and(|tools| {
+            tools.iter().any(|tool| {
+                tool.pointer("/function/name").and_then(Value::as_str) == Some("edit_images")
+            })
+        })
+    {
+        let catalog = crate::server::core::providers::catalog::models_response(
+            state.store(),
+            access.scope.as_ref(),
+        );
+        let supports_images = catalog
+            .get("data")
+            .and_then(Value::as_array)
+            .and_then(|models| {
+                models.iter().find(|item| {
+                    item.get("id")
+                        .and_then(Value::as_str)
+                        .is_some_and(|id| id.eq_ignore_ascii_case(&requested_model))
+                })
+            })
+            .is_some_and(|model| {
+                model.get("supports_images").and_then(Value::as_bool) == Some(true)
+            });
         if !supports_images {
             super::assistant_images::preserve_tool_references(&mut upstream);
         }
@@ -319,7 +354,8 @@ pub async fn chat(State(state): State<ServerState>, headers: HeaderMap, body: By
         reasoning.as_deref().unwrap_or(""),
         &access.source,
         true,
-    ).await;
+    )
+    .await;
     if let Some(token) = cancellation::register(&telemetry_id) {
         telemetry.set_cancel_token(token);
     }
@@ -347,7 +383,10 @@ pub async fn chat(State(state): State<ServerState>, headers: HeaderMap, body: By
         .await;
 
     match outcome {
-        Ok(ForwardOutcome::Stream { status, stream: source }) => {
+        Ok(ForwardOutcome::Stream {
+            status,
+            stream: source,
+        }) => {
             let status = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
             let context = RecordContext {
                 stats: state.request_stats(),

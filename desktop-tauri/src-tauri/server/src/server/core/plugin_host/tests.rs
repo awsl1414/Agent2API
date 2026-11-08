@@ -17,8 +17,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::*;
-use crate::server::core::providers::adapter::{ReasoningPatch, UpstreamErrorClass};
 use crate::server::core::providers::adapter::ProviderAdapter;
+use crate::server::core::providers::adapter::{ReasoningPatch, UpstreamErrorClass};
 use crate::server::core::upstream::usage::RequestTelemetry;
 use crate::server::core::upstream::ForwardOutcome;
 
@@ -48,7 +48,11 @@ impl GatewayCallbacks for TestCallbacks {
         _provider: String,
         account: String,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<serde_json::Value, proto::WireError>> + Send + '_>,
+        Box<
+            dyn std::future::Future<Output = Result<serde_json::Value, proto::WireError>>
+                + Send
+                + '_,
+        >,
     > {
         Box::pin(async move {
             if account == "missing" {
@@ -67,7 +71,11 @@ impl GatewayCallbacks for TestCallbacks {
         &self,
         _provider: String,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<serde_json::Value, proto::WireError>> + Send + '_>,
+        Box<
+            dyn std::future::Future<Output = Result<serde_json::Value, proto::WireError>>
+                + Send
+                + '_,
+        >,
     > {
         Box::pin(async { Ok(serde_json::json!([])) })
     }
@@ -78,7 +86,11 @@ impl GatewayCallbacks for TestCallbacks {
         _expect: serde_json::Value,
         _secret: serde_json::Value,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<serde_json::Value, proto::WireError>> + Send + '_>,
+        Box<
+            dyn std::future::Future<Output = Result<serde_json::Value, proto::WireError>>
+                + Send
+                + '_,
+        >,
     > {
         Box::pin(async { Ok(serde_json::json!({ "updated": true })) })
     }
@@ -88,8 +100,9 @@ impl GatewayCallbacks for TestCallbacks {
         _account: String,
         _model: String,
         _reset_at: Option<i64>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), proto::WireError>> + Send + '_>>
-    {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<(), proto::WireError>> + Send + '_>,
+    > {
         Box::pin(async { Ok(()) })
     }
 
@@ -98,7 +111,11 @@ impl GatewayCallbacks for TestCallbacks {
         _account: String,
         _kind: String,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<serde_json::Value, proto::WireError>> + Send + '_>,
+        Box<
+            dyn std::future::Future<Output = Result<serde_json::Value, proto::WireError>>
+                + Send
+                + '_,
+        >,
     > {
         Box::pin(async { Ok(serde_json::Value::Null) })
     }
@@ -108,8 +125,9 @@ impl GatewayCallbacks for TestCallbacks {
         _account: String,
         _kind: String,
         _value: serde_json::Value,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), proto::WireError>> + Send + '_>>
-    {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<(), proto::WireError>> + Send + '_>,
+    > {
         Box::pin(async { Ok(()) })
     }
 
@@ -118,7 +136,11 @@ impl GatewayCallbacks for TestCallbacks {
         _provider: String,
         _key: String,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<serde_json::Value, proto::WireError>> + Send + '_>,
+        Box<
+            dyn std::future::Future<Output = Result<serde_json::Value, proto::WireError>>
+                + Send
+                + '_,
+        >,
     > {
         Box::pin(async { Ok(serde_json::Value::Null) })
     }
@@ -128,8 +150,9 @@ impl GatewayCallbacks for TestCallbacks {
         _provider: String,
         _key: String,
         _value: serde_json::Value,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), proto::WireError>> + Send + '_>>
-    {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<(), proto::WireError>> + Send + '_>,
+    > {
         Box::pin(async { Ok(()) })
     }
 
@@ -182,7 +205,10 @@ async fn build_chat_request_goes_through_rpc() {
         eprintln!("跳过：插件二进制不存在");
         return;
     };
-    let demo = providers.iter().find(|p| p.id.0 == "demo").expect("demo 存在");
+    let demo = providers
+        .iter()
+        .find(|p| p.id.0 == "demo")
+        .expect("demo 存在");
     let adapter = RpcAdapter::new(
         "demo".into(),
         crate::server::core::providers::ProviderKind::WorkBuddy,
@@ -201,7 +227,11 @@ async fn build_chat_request_goes_through_rpc() {
         .build_chat_request_async(&account, &body, &headers)
         .await
         .expect("插件应当返回构造计划");
-    assert!(plan.url.ends_with("/v1/chat/completions"), "URL: {}", plan.url);
+    assert!(
+        plan.url.ends_with("/v1/chat/completions"),
+        "URL: {}",
+        plan.url
+    );
     assert_eq!(plan.body["model"], "demo-fast");
     assert!(
         plan.headers.iter().any(|(k, _)| k == "authorization"),
@@ -211,7 +241,9 @@ async fn build_chat_request_goes_through_rpc() {
 
     // 同步版必须报错（说明调用链还在用旧签名）
     assert!(
-        adapter.build_chat_request(&account, &body, &headers).is_err(),
+        adapter
+            .build_chat_request(&account, &body, &headers)
+            .is_err(),
         "插件实现的同步版应当拒绝，而不是返回另一份结果"
     );
 
@@ -224,7 +256,10 @@ async fn classify_error_goes_through_rpc() {
         eprintln!("跳过：插件二进制不存在");
         return;
     };
-    let demo = providers.iter().find(|p| p.id.0 == "demo").expect("demo 存在");
+    let demo = providers
+        .iter()
+        .find(|p| p.id.0 == "demo")
+        .expect("demo 存在");
     let adapter = RpcAdapter::new(
         "demo".into(),
         crate::server::core::providers::ProviderKind::WorkBuddy,
@@ -257,7 +292,10 @@ async fn reasoning_patch_goes_through_rpc() {
         eprintln!("跳过：插件二进制不存在");
         return;
     };
-    let demo = providers.iter().find(|p| p.id.0 == "demo").expect("demo 存在");
+    let demo = providers
+        .iter()
+        .find(|p| p.id.0 == "demo")
+        .expect("demo 存在");
     let adapter = RpcAdapter::new(
         "demo".into(),
         crate::server::core::providers::ProviderKind::WorkBuddy,
@@ -296,9 +334,15 @@ async fn refusal_markers_come_from_handshake() {
         eprintln!("跳过：插件二进制不存在");
         return;
     };
-    let demo = providers.iter().find(|p| p.id.0 == "demo").expect("demo 存在");
+    let demo = providers
+        .iter()
+        .find(|p| p.id.0 == "demo")
+        .expect("demo 存在");
     // 握手里的标记（协议层）
-    assert_eq!(demo.refusal_finishes, vec!["content_policy_violation".to_string()]);
+    assert_eq!(
+        demo.refusal_finishes,
+        vec!["content_policy_violation".to_string()]
+    );
     assert_eq!(demo.refusal_markers, vec!["insufficient_quota".to_string()]);
 
     // 适配器侧应当把它们作为 &'static 切片暴露出来（trait 的签名要求）
@@ -308,7 +352,10 @@ async fn refusal_markers_come_from_handshake() {
         host.clone(),
         demo.clone(),
     );
-    assert_eq!(adapter.stream_refusal_finishes(), &["content_policy_violation"]);
+    assert_eq!(
+        adapter.stream_refusal_finishes(),
+        &["content_policy_violation"]
+    );
     assert_eq!(adapter.stream_refusal_markers(), &["insufficient_quota"]);
 
     host.shutdown().await;
@@ -320,7 +367,10 @@ async fn ensure_token_reads_the_account_through_callbacks() {
         eprintln!("跳过：插件二进制不存在");
         return;
     };
-    let demo = providers.iter().find(|p| p.id.0 == "demo").expect("demo 存在");
+    let demo = providers
+        .iter()
+        .find(|p| p.id.0 == "demo")
+        .expect("demo 存在");
     let adapter = RpcAdapter::new(
         "demo".into(),
         crate::server::core::providers::ProviderKind::WorkBuddy,
@@ -349,7 +399,10 @@ async fn missing_account_reports_not_found() {
         eprintln!("跳过：插件二进制不存在");
         return;
     };
-    let demo = providers.iter().find(|p| p.id.0 == "demo").expect("demo 存在");
+    let demo = providers
+        .iter()
+        .find(|p| p.id.0 == "demo")
+        .expect("demo 存在");
     let adapter = RpcAdapter::new(
         "demo".into(),
         crate::server::core::providers::ProviderKind::WorkBuddy,
@@ -372,13 +425,20 @@ async fn missing_account_reports_not_found() {
 /// ── 为什么必须在测试里起一个真 HTTP 服务 ──────────────────────
 /// `demo` 的 `conversation` 是真的发请求（那正是要验的路径：插件自己出网、
 /// 自己推帧）。把它换成假实现就等于只测了网关自己的循环。
-async fn fake_upstream(body_marker: &'static str, payload: &'static str) -> (String, tokio::task::JoinHandle<()>) {
+async fn fake_upstream(
+    body_marker: &'static str,
+    payload: &'static str,
+) -> (String, tokio::task::JoinHandle<()>) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("绑定回环端口");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("绑定回环端口");
     let port = listener.local_addr().expect("本地地址").port();
     let handle = tokio::spawn(async move {
         loop {
-            let Ok((mut socket, _)) = listener.accept().await else { return };
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
             let marker = body_marker;
             let payload = payload;
             tokio::spawn(async move {
@@ -477,7 +537,10 @@ async fn conversation_streams_head_and_chunks() {
             Err(_) => panic!("等下一帧超时（流卡住了）"),
         }
     }
-    assert!(text.contains("\"content\":\"你\""), "应当收到插件推来的正文帧：{text}");
+    assert!(
+        text.contains("\"content\":\"你\""),
+        "应当收到插件推来的正文帧：{text}"
+    );
     assert!(text.contains("[DONE]"), "流末尾要有终止帧：{text}");
 
     host.shutdown().await;
@@ -520,7 +583,10 @@ async fn conversation_non_stream_aggregates_on_the_gateway() {
         .and_then(|m| m.get("content"))
         .and_then(serde_json::Value::as_str)
         .unwrap_or("");
-    assert_eq!(content, "你好", "网关要把插件推来的帧聚合成完整正文：{body}");
+    assert_eq!(
+        content, "你好",
+        "网关要把插件推来的帧聚合成完整正文：{body}"
+    );
 
     host.shutdown().await;
 }
@@ -572,7 +638,10 @@ async fn conversation_upstream_error_is_classified() {
     })
     .await
     .expect("收流不应超时");
-    assert!(collected.contains("rate limited"), "正文应当透传：{collected}");
+    assert!(
+        collected.contains("rate limited"),
+        "正文应当透传：{collected}"
+    );
 
     host.shutdown().await;
 }
@@ -609,10 +678,7 @@ async fn dropping_the_stream_aborts_the_plugin_call() {
     // 给 abort 一点时间落到插件那边；关键断言是「宿主仍然活着」——
     // abort 路径上 panic 会让下一次调用失败。
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let still_alive = adapter
-        .ensure_access_token(&store, "acc-1")
-        .await
-        .is_ok();
+    let still_alive = adapter.ensure_access_token(&store, "acc-1").await.is_ok();
     assert!(still_alive, "丢弃流之后宿主应当仍然可用");
 
     host.shutdown().await;
@@ -625,8 +691,11 @@ mod spawn_env {
     use super::*;
 
     fn temp_dir() -> std::path::PathBuf {
-        let dir = std::env::temp_dir()
-            .join(format!("agent2api-plugin-host-{}-{}", std::process::id(), line!()));
+        let dir = std::env::temp_dir().join(format!(
+            "agent2api-plugin-host-{}-{}",
+            std::process::id(),
+            line!()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -663,14 +732,23 @@ mod spawn_env {
         assert_eq!(program, exe);
         assert_eq!(argv, args);
 
-        let (program, argv) =
-            super::super::lifecycle::command_argv(Some(" /lib/ld-linux-aarch64.so.1 "), &exe, &args);
-        assert_eq!(program, std::path::PathBuf::from("/lib/ld-linux-aarch64.so.1"));
-        assert_eq!(argv, vec![
-            "--library-path".to_string(),
-            "/opt/plugins/pack/1.0.0".to_string(),
-            "/opt/plugins/pack/1.0.0/entry-bin".to_string(),
-            "serve".to_string(),
-        ]);
+        let (program, argv) = super::super::lifecycle::command_argv(
+            Some(" /lib/ld-linux-aarch64.so.1 "),
+            &exe,
+            &args,
+        );
+        assert_eq!(
+            program,
+            std::path::PathBuf::from("/lib/ld-linux-aarch64.so.1")
+        );
+        assert_eq!(
+            argv,
+            vec![
+                "--library-path".to_string(),
+                "/opt/plugins/pack/1.0.0".to_string(),
+                "/opt/plugins/pack/1.0.0/entry-bin".to_string(),
+                "serve".to_string(),
+            ]
+        );
     }
 }

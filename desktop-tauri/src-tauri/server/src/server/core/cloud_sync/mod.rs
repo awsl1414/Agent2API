@@ -96,7 +96,11 @@ pub(crate) fn save_settings(input: settings::SaveInput) -> Result<Value, String>
                 "WebDAV"
             },
             manifest::remote_dir_display(&saved.remote_root, &saved.profile),
-            if saved.enabled { "（已启用）" } else { "（未启用）" }
+            if saved.enabled {
+                "（已启用）"
+            } else {
+                "（未启用）"
+            }
         ),
     );
     Ok(saved.public_json())
@@ -130,10 +134,8 @@ pub(crate) async fn test_connection(input: settings::SaveInput) -> Result<Value,
     probe.webdav.username = input.webdav_username;
     probe.webdav.user_agent = input.webdav_user_agent;
     if !input.webdav_password.is_empty() {
-        probe.webdav.password = crypto::seal(
-            input.webdav_password.as_bytes(),
-            SecretScope::CloudSync,
-        )?;
+        probe.webdav.password =
+            crypto::seal(input.webdav_password.as_bytes(), SecretScope::CloudSync)?;
     }
     probe.s3.region = input.s3_region;
     probe.s3.bucket = input.s3_bucket;
@@ -225,8 +227,8 @@ pub(crate) async fn upload_locked(
     transport.test_connection().await?;
 
     let snapshot = snapshot::build(db)?;
-    let snapshot_bytes = serde_json::to_vec(&snapshot)
-        .map_err(|error| format!("序列化同步快照失败: {error}"))?;
+    let snapshot_bytes =
+        serde_json::to_vec(&snapshot).map_err(|error| format!("序列化同步快照失败: {error}"))?;
     if snapshot_bytes.len() as u64 > MAX_ARTIFACT_BYTES {
         return Err(format!(
             "本机业务数据超过同步上限（{} 字节 > {} 字节），请先清理签到 / 余额记录",
@@ -237,9 +239,9 @@ pub(crate) async fn upload_locked(
 
     // 账号密钥：本机还没有密钥（从未保存过账号）时不传
     let key_bytes = crypto::existing_key_bytes(SecretScope::Accounts);
-    let password = settings.sync_password_plain()?.ok_or_else(|| {
-        "未设置同步密码，无法加密上云的账号密钥".to_string()
-    })?;
+    let password = settings
+        .sync_password_plain()?
+        .ok_or_else(|| "未设置同步密码，无法加密上云的账号密钥".to_string())?;
     let key_envelope = match key_bytes.as_ref() {
         Some(bytes) => Some(keyfile::seal_key(bytes, &password)?),
         None => None,
@@ -377,8 +379,16 @@ pub(crate) async fn download_locked(
         "[CloudSync]",
         &format!(
             "☁️ 云同步下载完成：来自 {}（{}），替换前数据已备份到 backups/{}",
-            if device.is_empty() { "未知设备" } else { &device },
-            if created_at.is_empty() { "未知时间" } else { &created_at },
+            if device.is_empty() {
+                "未知设备"
+            } else {
+                &device
+            },
+            if created_at.is_empty() {
+                "未知时间"
+            } else {
+                &created_at
+            },
             safety
         ),
     );

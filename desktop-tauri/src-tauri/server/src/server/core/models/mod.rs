@@ -24,4 +24,6 @@ pub mod shape;
 // 取这些名字，保持与拆分前同一条导入路径。
 // `shape_value_text` 是 `shape::value_text` 的别名导出：聚合目录要按 `name`
 // 匹配模型，需要与 `shape` 内部同一套 JS 文本化。
-pub use shape::{list_item, list_response_from, model_id, suggest_from, value_text as shape_value_text};
+pub use shape::{
+    list_item, list_response_from, model_id, suggest_from, value_text as shape_value_text,
+};

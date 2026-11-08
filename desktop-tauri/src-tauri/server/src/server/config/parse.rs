@@ -73,7 +73,11 @@ pub(super) fn env_captcha_enabled() -> bool {
 /// 包括空值。`AGENT2API_STRIP_NEWLINE_KEEPALIVE=` 这种"写了个空值"的 compose
 /// 写法在 Docker 里太常见了（未设置的变量插值就是这样），按非 0 即开会把它读成开。
 pub(super) fn env_strip_newline_keepalive() -> bool {
-    switch_on_from_env_text(std::env::var("AGENT2API_STRIP_NEWLINE_KEEPALIVE").ok().as_deref())
+    switch_on_from_env_text(
+        std::env::var("AGENT2API_STRIP_NEWLINE_KEEPALIVE")
+            .ok()
+            .as_deref(),
+    )
 }
 
 /// 环境变量 `AGENT2API_AUTO_CONTINUE` 的读法（**默认关**）。
@@ -113,7 +117,8 @@ pub(super) fn env_auto_continue_max_rounds() -> Option<i64> {
 /// 传 `None` 表达，测试不必碰真环境。
 pub(super) fn switch_on_from_env_text(raw: Option<&str>) -> bool {
     matches!(
-        raw.map(|value| value.trim().to_ascii_lowercase()).as_deref(),
+        raw.map(|value| value.trim().to_ascii_lowercase())
+            .as_deref(),
         Some("1") | Some("true") | Some("on")
     )
 }
@@ -155,7 +160,12 @@ pub(crate) fn int_in_range(value: &Value, min: i64, max: i64) -> Option<i64> {
 /// 非整数 / 越界一律 `None`，交调用方决定下一级（环境变量或默认值）。
 ///
 /// 判据本体在 [`int_in_range`]（读写两侧共用）。
-pub(super) fn bounded_int_option(map: &Map<String, Value>, key: &str, min: i64, max: i64) -> Option<i64> {
+pub(super) fn bounded_int_option(
+    map: &Map<String, Value>,
+    key: &str,
+    min: i64,
+    max: i64,
+) -> Option<i64> {
     map.get(key).and_then(|value| int_in_range(value, min, max))
 }
 
@@ -169,7 +179,13 @@ pub(super) fn bounded_int_option(map: &Map<String, Value>, key: &str, min: i64, 
 /// 接受 `30.0` 这种整值浮点（与 `parse_retention_value` 同一口径）：JSON 里
 /// `30` 与 `30.0` 都是合法数字，为后者回落到默认值会显得莫名其妙
 /// （用户手改文件时把 30 写成 30.0 是完全可能的事）。
-pub(super) fn bounded_int_field(map: &Map<String, Value>, key: &str, default: i64, min: i64, max: i64) -> i64 {
+pub(super) fn bounded_int_field(
+    map: &Map<String, Value>,
+    key: &str,
+    default: i64,
+    min: i64,
+    max: i64,
+) -> i64 {
     bounded_int_option(map, key, min, max).unwrap_or(default)
 }
 
@@ -239,7 +255,9 @@ pub(super) fn interval_field(task: &Map<String, Value>, default: i64, min: i64, 
         }),
         _ => None,
     });
-    parsed.filter(|value| (min..=max).contains(value)).unwrap_or(default)
+    parsed
+        .filter(|value| (min..=max).contains(value))
+        .unwrap_or(default)
 }
 
 /// 从一条任务的子对象里取开关。
@@ -250,7 +268,9 @@ pub(super) fn interval_field(task: &Map<String, Value>, default: i64, min: i64, 
 /// 用户什么也没动，凭证却不再自动续期了。写侧（`PUT /api/scheduled-tasks`）
 /// 则要求显式布尔值。
 pub(super) fn task_enabled(task: &Map<String, Value>, default: bool) -> bool {
-    task.get("enabled").and_then(Value::as_bool).unwrap_or(default)
+    task.get("enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(default)
 }
 
 /// 由原始 JSON 解析六条间隔型任务（缺字段各自用默认值）。
@@ -621,7 +641,9 @@ pub(super) fn auto_continue_rounds_from(map: &Map<String, Value>) -> i64 {
 /// [`switch_on_from_env_text`] 的注释）。默认值在这里显式出现一次，
 /// 也让「越界不夹紧、只是让位给下一级」这条规则有唯一一处落点。
 pub(super) fn resolve_rounds(from_file: Option<i64>, from_env: Option<i64>) -> i64 {
-    from_file.or(from_env).unwrap_or(DEFAULT_AUTO_CONTINUE_MAX_ROUNDS)
+    from_file
+        .or(from_env)
+        .unwrap_or(DEFAULT_AUTO_CONTINUE_MAX_ROUNDS)
 }
 
 #[cfg(test)]
@@ -656,12 +678,18 @@ mod tests {
     #[test]
     fn the_env_switch_only_accepts_one_true_or_on() {
         for on in ["1", "true", "on", " TRUE ", "On", "ON "] {
-            assert!(switch_on_from_env_text(Some(on)), "{on} 应当算开启（大小写与首尾空白都要被吃掉）");
+            assert!(
+                switch_on_from_env_text(Some(on)),
+                "{on} 应当算开启（大小写与首尾空白都要被吃掉）"
+            );
         }
         for off in ["", " ", "0", "yes", "10", "2", "no", "开启", "trueX", "one"] {
             assert!(!switch_on_from_env_text(Some(off)), "{off} 不该被当成开启");
         }
-        assert!(!switch_on_from_env_text(None), "环境变量没设（None）必须是关");
+        assert!(
+            !switch_on_from_env_text(None),
+            "环境变量没设（None）必须是关"
+        );
     }
 
     /// 整数型环境变量的口径：只有**纯整数**且在范围内才算数。
@@ -670,8 +698,16 @@ mod tests {
     /// 夹紧到 8 —— 后者会让人以为自己的 99 生效了。
     #[test]
     fn the_env_integer_must_be_a_plain_integer_in_range() {
-        assert_eq!(bounded_int_from_env_text(Some("1"), 1, 8), Some(1), "下限要收");
-        assert_eq!(bounded_int_from_env_text(Some(" 8 "), 1, 8), Some(8), "上限要收，空白要吃掉");
+        assert_eq!(
+            bounded_int_from_env_text(Some("1"), 1, 8),
+            Some(1),
+            "下限要收"
+        );
+        assert_eq!(
+            bounded_int_from_env_text(Some(" 8 "), 1, 8),
+            Some(8),
+            "上限要收，空白要吃掉"
+        );
         for unusable in ["", " ", "0", "9", "-1", "3.0", "3.5", "abc", "8.", "+"] {
             assert_eq!(
                 bounded_int_from_env_text(Some(unusable), 1, 8),
@@ -690,23 +726,61 @@ mod tests {
     fn an_out_of_range_file_value_falls_back_to_the_default_not_the_bound() {
         let too_many = map_of(&[(KEY_AUTO_CONTINUE_MAX_ROUNDS, json!(99))]);
         assert_eq!(
-            bounded_int_option(&too_many, KEY_AUTO_CONTINUE_MAX_ROUNDS, AUTO_CONTINUE_MIN_ROUNDS, AUTO_CONTINUE_MAX_ROUNDS),
+            bounded_int_option(
+                &too_many,
+                KEY_AUTO_CONTINUE_MAX_ROUNDS,
+                AUTO_CONTINUE_MIN_ROUNDS,
+                AUTO_CONTINUE_MAX_ROUNDS
+            ),
             None,
             "越界必须表达成「这一级没给出可用值」，夹紧就不叫回落了"
         );
         assert_eq!(
-            bounded_int_field(&too_many, KEY_AUTO_CONTINUE_MAX_ROUNDS, DEFAULT_AUTO_CONTINUE_MAX_ROUNDS, AUTO_CONTINUE_MIN_ROUNDS, AUTO_CONTINUE_MAX_ROUNDS),
+            bounded_int_field(
+                &too_many,
+                KEY_AUTO_CONTINUE_MAX_ROUNDS,
+                DEFAULT_AUTO_CONTINUE_MAX_ROUNDS,
+                AUTO_CONTINUE_MIN_ROUNDS,
+                AUTO_CONTINUE_MAX_ROUNDS
+            ),
             DEFAULT_AUTO_CONTINUE_MAX_ROUNDS,
             "回落的是默认值 3，不是上限 8"
         );
         // 边界上的两个数与「写坏的类型」各归各位
         let zero = map_of(&[(KEY_AUTO_CONTINUE_MAX_ROUNDS, json!(0))]);
-        assert_eq!(bounded_int_field(&zero, KEY_AUTO_CONTINUE_MAX_ROUNDS, DEFAULT_AUTO_CONTINUE_MAX_ROUNDS, AUTO_CONTINUE_MIN_ROUNDS, AUTO_CONTINUE_MAX_ROUNDS), DEFAULT_AUTO_CONTINUE_MAX_ROUNDS, "0 在范围外（想关去关开关）");
+        assert_eq!(
+            bounded_int_field(
+                &zero,
+                KEY_AUTO_CONTINUE_MAX_ROUNDS,
+                DEFAULT_AUTO_CONTINUE_MAX_ROUNDS,
+                AUTO_CONTINUE_MIN_ROUNDS,
+                AUTO_CONTINUE_MAX_ROUNDS
+            ),
+            DEFAULT_AUTO_CONTINUE_MAX_ROUNDS,
+            "0 在范围外（想关去关开关）"
+        );
         let text = map_of(&[(KEY_AUTO_CONTINUE_MAX_ROUNDS, json!("3"))]);
-        assert_eq!(bounded_int_option(&text, KEY_AUTO_CONTINUE_MAX_ROUNDS, AUTO_CONTINUE_MIN_ROUNDS, AUTO_CONTINUE_MAX_ROUNDS), None, "字符串数字不算（与写侧同一口径）");
+        assert_eq!(
+            bounded_int_option(
+                &text,
+                KEY_AUTO_CONTINUE_MAX_ROUNDS,
+                AUTO_CONTINUE_MIN_ROUNDS,
+                AUTO_CONTINUE_MAX_ROUNDS
+            ),
+            None,
+            "字符串数字不算（与写侧同一口径）"
+        );
         // `3.0` 算 3：JSON 里 3 与 3.0 是同一个数，手改文件时写成 3.0 完全可能
         let floaty = map_of(&[(KEY_AUTO_CONTINUE_MAX_ROUNDS, json!(3.0))]);
-        assert_eq!(bounded_int_option(&floaty, KEY_AUTO_CONTINUE_MAX_ROUNDS, AUTO_CONTINUE_MIN_ROUNDS, AUTO_CONTINUE_MAX_ROUNDS), Some(3));
+        assert_eq!(
+            bounded_int_option(
+                &floaty,
+                KEY_AUTO_CONTINUE_MAX_ROUNDS,
+                AUTO_CONTINUE_MIN_ROUNDS,
+                AUTO_CONTINUE_MAX_ROUNDS
+            ),
+            Some(3)
+        );
     }
 
     /// 优先级链：文件写了就以它为准（**包括 false 与 1**），否则环境变量，否则默认。
@@ -715,15 +789,29 @@ mod tests {
     /// 实际让用户在面板上关不掉（库里已经是 false，环境里那句 `on` 一直把它顶开）。
     #[test]
     fn the_file_value_beats_the_env_even_when_it_says_off() {
-        assert!(!resolve_auto_continue(Some(false), true), "文件里的 false 必须盖过环境变量的开");
-        assert!(resolve_auto_continue(Some(true), false), "文件里的 true 必须盖过环境变量的关");
+        assert!(
+            !resolve_auto_continue(Some(false), true),
+            "文件里的 false 必须盖过环境变量的开"
+        );
+        assert!(
+            resolve_auto_continue(Some(true), false),
+            "文件里的 true 必须盖过环境变量的关"
+        );
         assert!(resolve_auto_continue(None, true), "文件没配时环境变量说话");
         assert!(!resolve_auto_continue(None, false), "两级都没配 → 默认关");
 
-        assert_eq!(resolve_rounds(Some(1), Some(8)), 1, "文件里的 1 必须盖过环境变量的 8");
+        assert_eq!(
+            resolve_rounds(Some(1), Some(8)),
+            1,
+            "文件里的 1 必须盖过环境变量的 8"
+        );
         assert_eq!(resolve_rounds(Some(8), None), 8);
         assert_eq!(resolve_rounds(None, Some(8)), 8, "文件不可用时环境变量说话");
-        assert_eq!(resolve_rounds(None, None), DEFAULT_AUTO_CONTINUE_MAX_ROUNDS, "两级都不可用才落默认");
+        assert_eq!(
+            resolve_rounds(None, None),
+            DEFAULT_AUTO_CONTINUE_MAX_ROUNDS,
+            "两级都不可用才落默认"
+        );
         // 越界的文件值在这里已经是 None（上面试用例过了），链上表现为「让位给下一级」
         assert_eq!(resolve_rounds(None, Some(1)), 1);
     }
@@ -754,7 +842,10 @@ mod tests {
         assert_eq!(auto_continue_rounds_from(&off), 1, "下限边界值 1 必须能用");
 
         // 类型写坏的那一项等于「没配」：越界 / 字符串都不许留下一个可感的值
-        let junk = map_of(&[(KEY_AUTO_CONTINUE_MAX_ROUNDS, json!(0)), (KEY_AUTO_CONTINUE, json!("true"))]);
+        let junk = map_of(&[
+            (KEY_AUTO_CONTINUE_MAX_ROUNDS, json!(0)),
+            (KEY_AUTO_CONTINUE, json!("true")),
+        ]);
         assert_eq!(
             auto_continue_rounds_from(&junk),
             resolve_rounds(None, env_auto_continue_max_rounds()),

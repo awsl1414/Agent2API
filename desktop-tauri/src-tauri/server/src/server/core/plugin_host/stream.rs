@@ -62,7 +62,9 @@ impl UsageSniffer {
         for &byte in bytes {
             if self.skip_lf {
                 self.skip_lf = false;
-                if byte == b'\n' { continue; }
+                if byte == b'\n' {
+                    continue;
+                }
             }
             if byte == b'\r' || byte == b'\n' {
                 self.consume_line(telemetry);
@@ -76,14 +78,20 @@ impl UsageSniffer {
                     // 超大事件只在下一个空行恢复，余段不能被误认成新事件。
                     self.skipping_event = true;
                 }
-                if !self.skipping_event { self.line.push(byte); }
+                if !self.skipping_event {
+                    self.line.push(byte);
+                }
             }
         }
     }
 
     fn finish(&mut self, telemetry: &RequestTelemetry) {
-        if self.line_bytes > 0 { self.consume_line(telemetry); }
-        if !self.skipping_event { self.consume_data(telemetry, false); }
+        if self.line_bytes > 0 {
+            self.consume_line(telemetry);
+        }
+        if !self.skipping_event {
+            self.consume_data(telemetry, false);
+        }
         self.line.clear();
         self.data.clear();
         self.line_bytes = 0;
@@ -102,15 +110,23 @@ impl UsageSniffer {
             }
         }
         if self.line_bytes == 0 {
-            if !self.skipping_event { self.consume_data(telemetry, true); }
+            if !self.skipping_event {
+                self.consume_data(telemetry, true);
+            }
             self.data.clear();
             self.event_bytes = 0;
             self.skipping_event = false;
         } else if !self.skipping_event {
             let line = if !self.first_line_seen {
-                self.line.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&self.line)
-            } else { &self.line };
-            let payload = line.strip_prefix(b"data:").or_else(|| (line == b"data").then_some(&[][..]));
+                self.line
+                    .strip_prefix(b"\xef\xbb\xbf")
+                    .unwrap_or(&self.line)
+            } else {
+                &self.line
+            };
+            let payload = line
+                .strip_prefix(b"data:")
+                .or_else(|| (line == b"data").then_some(&[][..]));
             if let Some(payload) = payload {
                 let payload = payload.strip_prefix(b" ").unwrap_or(payload);
                 self.data.extend_from_slice(payload);
@@ -123,24 +139,36 @@ impl UsageSniffer {
     }
 
     fn consume_data(&mut self, telemetry: &RequestTelemetry, complete: bool) {
-        let Ok(text) = std::str::from_utf8(&self.data) else { return };
+        let Ok(text) = std::str::from_utf8(&self.data) else {
+            return;
+        };
         if text.trim() == "[DONE]" {
             self.done |= complete;
             return;
         }
         if ![b"usage".as_slice(), b"error".as_slice()]
-            .iter().any(|field| self.data.windows(field.len()).any(|window| window == *field))
+            .iter()
+            .any(|field| {
+                self.data
+                    .windows(field.len())
+                    .any(|window| window == *field)
+            })
         {
             return;
         }
-        let Ok(chunk) = serde_json::from_slice::<Value>(&self.data) else { return };
+        let Ok(chunk) = serde_json::from_slice::<Value>(&self.data) else {
+            return;
+        };
         if let Some(usage) = chunk.get("usage").filter(|value| value.is_object()) {
             telemetry.report_usage(usage);
         }
         if let Some(provider) = self.strict_provider {
             if let Some((failure, private)) = strict::stream_failure(provider, &chunk) {
                 let prior_interruption = self.failure.as_ref().is_some_and(|body| {
-                    matches!(body.get("statusCode").and_then(Value::as_u64), Some(499 | 504))
+                    matches!(
+                        body.get("statusCode").and_then(Value::as_u64),
+                        Some(499 | 504)
+                    )
                 });
                 if self.failure.is_none() || strict::stopped(&failure) && !prior_interruption {
                     self.failure = Some(private);
@@ -149,11 +177,20 @@ impl UsageSniffer {
             }
             return;
         }
-        if let Some(error) = chunk.get("error").filter(|value| crate::server::core::protocol::is_truthy(value)) {
-            if self.failure.is_none() { self.failure = Some(error.clone()); }
-            let message = error.get("message").and_then(Value::as_str)
-                .or_else(|| error.as_str()).filter(|text| !text.trim().is_empty())
-                .map(str::to_string).unwrap_or_else(|| "上游流式返回错误".to_string());
+        if let Some(error) = chunk
+            .get("error")
+            .filter(|value| crate::server::core::protocol::is_truthy(value))
+        {
+            if self.failure.is_none() {
+                self.failure = Some(error.clone());
+            }
+            let message = error
+                .get("message")
+                .and_then(Value::as_str)
+                .or_else(|| error.as_str())
+                .filter(|text| !text.trim().is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| "上游流式返回错误".to_string());
             telemetry.note_error(&message);
         }
     }
@@ -237,34 +274,69 @@ impl RpcStream {
         if let Some(slot) = &self.failure {
             let mut slot = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             // 已确认的取消/超时/清理失败不能被更早的额度帧覆盖。
-            if slot.is_none() || self.usage.strict_provider.is_some() && strict::stopped(&error)
-                && !slot.as_ref().is_some_and(|prior| matches!(prior.status_code, 499 | 504)) {
+            if slot.is_none()
+                || self.usage.strict_provider.is_some()
+                    && strict::stopped(&error)
+                    && !slot
+                        .as_ref()
+                        .is_some_and(|prior| matches!(prior.status_code, 499 | 504))
+            {
                 *slot = Some(error);
             }
         }
     }
 
     fn capture_frame_failure(&self) {
-        let Some(error) = &self.usage.failure else { return };
+        let Some(error) = &self.usage.failure else {
+            return;
+        };
         if let Some(provider) = self.usage.strict_provider {
-            if let Some((failure, private)) = strict::stream_failure(provider, &json!({ "error": error })) {
+            if let Some((failure, private)) =
+                strict::stream_failure(provider, &json!({ "error": error }))
+            {
                 if let Some(slot) = &self.private_failure {
                     let mut slot = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                    if slot.is_none() || strict::stopped(&failure) { *slot = Some(private); }
+                    if slot.is_none() || strict::stopped(&failure) {
+                        *slot = Some(private);
+                    }
                 }
                 self.capture_failure(failure);
             }
             return;
         }
-        let status = error.get("status").or_else(|| error.get("statusCode")).and_then(Value::as_u64)
-            .and_then(|status| i32::try_from(status).ok()).filter(|status| (400..600).contains(status)).unwrap_or(502);
-        let mut failure = GatewayError::with_status(status,
-            error.get("message").and_then(Value::as_str).unwrap_or("上游流式返回错误"));
-        failure.code = error.get("code").and_then(|value| value.as_str().map(str::to_string)
-            .or_else(|| value.as_i64().map(|code| code.to_string())))
-            .or_else(|| error.get("type").and_then(Value::as_str).map(str::to_string));
-        failure.upstream_code = error.get("upstreamCode").or_else(|| error.get("upstream_code"))
-            .and_then(Value::as_i64).or_else(|| error.get("code").and_then(Value::as_i64));
+        let status = error
+            .get("status")
+            .or_else(|| error.get("statusCode"))
+            .and_then(Value::as_u64)
+            .and_then(|status| i32::try_from(status).ok())
+            .filter(|status| (400..600).contains(status))
+            .unwrap_or(502);
+        let mut failure = GatewayError::with_status(
+            status,
+            error
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("上游流式返回错误"),
+        );
+        failure.code = error
+            .get("code")
+            .and_then(|value| {
+                value
+                    .as_str()
+                    .map(str::to_string)
+                    .or_else(|| value.as_i64().map(|code| code.to_string()))
+            })
+            .or_else(|| {
+                error
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            });
+        failure.upstream_code = error
+            .get("upstreamCode")
+            .or_else(|| error.get("upstream_code"))
+            .and_then(Value::as_i64)
+            .or_else(|| error.get("code").and_then(Value::as_i64));
         self.capture_failure(failure);
     }
 
@@ -277,7 +349,9 @@ impl RpcStream {
             self.finish_strict_error(failure);
             return;
         }
-        self.capture_failure(GatewayError::with_status(502, message).with_code("runtime_stream_interrupted"));
+        self.capture_failure(
+            GatewayError::with_status(502, message).with_code("runtime_stream_interrupted"),
+        );
         self.ended = true;
         logging::console_line("[Model]", &format!("❌ {message}"));
         self.telemetry.note_error(message);
@@ -285,24 +359,35 @@ impl RpcStream {
             // 插件自己已经收尾过了：再写一条会让客户端收到两个终止信号
             return;
         }
-        self.pending.push_back(crate::server::core::upstream::sse::sse_frame(&json!({
-            "error": {
-                "message": message,
-                "type": "proxy_error",
-            }
-        })));
+        self.pending
+            .push_back(crate::server::core::upstream::sse::sse_frame(&json!({
+                "error": {
+                    "message": message,
+                    "type": "proxy_error",
+                }
+            })));
         if self.failure.is_none() {
-            self.pending.push_back(Bytes::from_static(b"data: [DONE]\n\n"));
+            self.pending
+                .push_back(Bytes::from_static(b"data: [DONE]\n\n"));
         }
     }
     fn finish_strict_error(&mut self, failure: GatewayError) {
-        let failure = self.failure.as_ref().and_then(|slot| {
-            let guard = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            guard.as_ref().filter(|prior| matches!(prior.status_code, 499 | 504)).cloned()
-        }).unwrap_or(failure);
+        let failure = self
+            .failure
+            .as_ref()
+            .and_then(|slot| {
+                let guard = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                guard
+                    .as_ref()
+                    .filter(|prior| matches!(prior.status_code, 499 | 504))
+                    .cloned()
+            })
+            .unwrap_or(failure);
         if strict::stopped(&failure) {
             if let Some(slot) = &self.private_failure {
-                slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
+                slot.lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .take();
             }
         }
         self.capture_failure(failure.clone());
@@ -310,7 +395,10 @@ impl RpcStream {
         logging::console_line("[Model]", &failure.message);
         self.telemetry.note_error(&failure.message);
         if !self.usage.done {
-            self.pending.push_back(crate::server::core::upstream::sse::sse_frame(&failure.payload()));
+            self.pending
+                .push_back(crate::server::core::upstream::sse::sse_frame(
+                    &failure.payload(),
+                ));
         }
     }
 }
@@ -348,8 +436,14 @@ impl Stream for RpcStream {
                     if let Some(provider) = this.usage.strict_provider {
                         this.usage.finish(&this.telemetry);
                         this.capture_frame_failure();
-                        this.finish_strict_error(strict::fatal(provider, 502, "runtime_stream_interrupted"));
-                    } else { this.finish_with_error(&message); }
+                        this.finish_strict_error(strict::fatal(
+                            provider,
+                            502,
+                            "runtime_stream_interrupted",
+                        ));
+                    } else {
+                        this.finish_with_error(&message);
+                    }
                 }
                 Poll::Ready(Some(StreamEvent::Done(Ok(_)))) => {
                     this.usage.finish(&this.telemetry);
@@ -361,7 +455,8 @@ impl Stream for RpcStream {
                             this.finish_with_error("辅助程序流缺少真实 [DONE]，未补成功终态");
                             continue;
                         }
-                        this.pending.push_back(Bytes::from_static(b"data: [DONE]\n\n"));
+                        this.pending
+                            .push_back(Bytes::from_static(b"data: [DONE]\n\n"));
                     }
                     this.ended = true;
                 }
@@ -371,14 +466,25 @@ impl Stream for RpcStream {
                         this.capture_frame_failure();
                         if let Some((_, private)) = strict::private_control(&error) {
                             if let Some(slot) = &this.private_failure {
-                                let mut slot = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                                if slot.is_none() { *slot = Some(private); }
+                                let mut slot =
+                                    slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                                if slot.is_none() {
+                                    *slot = Some(private);
+                                }
                             }
                         }
-                        let failure = super::rpc::rpc_error(provider, error, proto::methods::gateway::CONVERSATION);
+                        let failure = super::rpc::rpc_error(
+                            provider,
+                            error,
+                            proto::methods::gateway::CONVERSATION,
+                        );
                         this.finish_strict_error(failure);
                     } else {
-                        this.capture_failure(super::rpc::rpc_error("", error.clone(), proto::methods::gateway::CONVERSATION));
+                        this.capture_failure(super::rpc::rpc_error(
+                            "",
+                            error.clone(),
+                            proto::methods::gateway::CONVERSATION,
+                        ));
                         this.finish_with_error(&error.message);
                     }
                 }

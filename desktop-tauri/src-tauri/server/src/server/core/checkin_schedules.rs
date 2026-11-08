@@ -125,7 +125,8 @@ fn normalize_schedule(raw: &Value) -> Schedule {
         .filter(|value| !value.is_null())
         .and_then(|value| auto_checkin::normalize_time(Some(value)).ok())
         .unwrap_or_else(auto_checkin::default_time);
-    let time_end = raw.get("timeEnd")
+    let time_end = raw
+        .get("timeEnd")
         .and_then(|value| auto_checkin::normalize_time(Some(value)).ok())
         .filter(|end| times::valid_range(&time, end))
         .unwrap_or_else(|| times::default_time_end(&time));
@@ -148,7 +149,10 @@ fn normalize_schedule(raw: &Value) -> Schedule {
         last_fired_providers: date_map(raw.get("lastFiredProviders")),
         last_retried_providers: date_map(raw.get("lastRetriedProviders")),
         account_plan: account_plan::AccountPlan::from_value(raw.get("accountPlan")),
-        last_result: raw.get("lastResult").filter(|value| value.is_object()).cloned(),
+        last_result: raw
+            .get("lastResult")
+            .filter(|value| value.is_object())
+            .cloned(),
     }
 }
 
@@ -250,8 +254,7 @@ pub fn upsert(payload: &Value) -> Result<Schedule, String> {
         .filter(|text| !text.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| format!("schedule-{}", crate::server::logging::now_ms()));
-    let time = auto_checkin::normalize_time(payload.get("time"))
-        .map_err(|error| error.message)?;
+    let time = auto_checkin::normalize_time(payload.get("time")).map_err(|error| error.message)?;
     // 范围：只认注册过的提供商（去重、按注册顺序）；一条不勾到点也无账号可签
     let list_value = payload.get("providers");
     let picked: Vec<String> = auto_checkin::checkin_providers()
@@ -273,13 +276,14 @@ pub fn upsert(payload: &Value) -> Result<Schedule, String> {
         .to_string();
 
     let entries = stored_entries().unwrap_or_default();
-    let existing = entries.iter().position(|raw| {
-        raw.get("id").and_then(Value::as_str) == Some(id.as_str())
-    });
+    let existing = entries
+        .iter()
+        .position(|raw| raw.get("id").and_then(Value::as_str) == Some(id.as_str()));
     if existing.is_none() && entries.len() >= MAX_SCHEDULES {
         return Err(format!("定时条目最多 {MAX_SCHEDULES} 条"));
     }
-    let existing_entry = existing.map(|index| normalize_schedule(&entries[index]))
+    let existing_entry = existing
+        .map(|index| normalize_schedule(&entries[index]))
         .or_else(|| (!stored_key_exists() && id == DEFAULT_SCHEDULE_ID).then(legacy_schedule));
     let enabled = match payload.get("enabled").and_then(Value::as_bool) {
         Some(flag) => flag,
@@ -287,9 +291,7 @@ pub fn upsert(payload: &Value) -> Result<Schedule, String> {
         // 「原开关」在旧字段里（合成的 default 读的就是它），一并带过来
         None => match existing_entry.as_ref().map(|old| old.enabled) {
             Some(flag) => flag,
-            None if !stored_key_exists() && id == DEFAULT_SCHEDULE_ID => {
-                legacy_schedule().enabled
-            }
+            None if !stored_key_exists() && id == DEFAULT_SCHEDULE_ID => legacy_schedule().enabled,
             None => true,
         },
     };
@@ -299,16 +301,22 @@ pub fn upsert(payload: &Value) -> Result<Schedule, String> {
         .map(|old| (old.last_fired_date.clone(), old.last_result.clone()))
         .unwrap_or((None, None));
     // 存量兼容：第一次编辑合成的默认条目时，把旧字段的去重状态带过来
-    let (last_fired_date, last_result) = if last_fired_date.is_none() && !stored_key_exists() && id == DEFAULT_SCHEDULE_ID {
-        let legacy = legacy_schedule();
-        (legacy.last_fired_date, legacy.last_result)
-    } else {
-        (last_fired_date, last_result)
-    };
+    let (last_fired_date, last_result) =
+        if last_fired_date.is_none() && !stored_key_exists() && id == DEFAULT_SCHEDULE_ID {
+            let legacy = legacy_schedule();
+            (legacy.last_fired_date, legacy.last_result)
+        } else {
+            (last_fired_date, last_result)
+        };
     // 逐家去重标记同样要跨「编辑条目」保留：改时刻不该把今天已经签过的家重签一遍
     let (last_fired_providers, last_retried_providers) = existing_entry
         .as_ref()
-        .map(|old| (old.last_fired_providers.clone(), old.last_retried_providers.clone()))
+        .map(|old| {
+            (
+                old.last_fired_providers.clone(),
+                old.last_retried_providers.clone(),
+            )
+        })
         .unwrap_or_default();
     // ── 逐家时刻 / 补签的写入口径 ──────────────────────────────
     // 三个字段都**只认 payload 里真的给了的键**：老界面（与 `configure` 那条兼容
@@ -341,9 +349,10 @@ pub fn upsert(payload: &Value) -> Result<Schedule, String> {
         .unwrap_or(3);
     let time_end = match payload.get("timeEnd") {
         Some(value) => auto_checkin::normalize_time(Some(value)).map_err(|error| error.message)?,
-        None => existing_entry.as_ref().map(|old| {
-            times::end_with_spread(&time, times::spread_minutes(old))
-        }).unwrap_or_else(|| times::default_time_end(&time)),
+        None => existing_entry
+            .as_ref()
+            .map(|old| times::end_with_spread(&time, times::spread_minutes(old)))
+            .unwrap_or_else(|| times::default_time_end(&time)),
     };
     if !times::valid_range(&time, &time_end) {
         return Err("签到区间结束时间不能早于开始时间；暂不支持跨天区间".to_string());
@@ -362,26 +371,49 @@ pub fn upsert(payload: &Value) -> Result<Schedule, String> {
         last_fired_date,
         last_fired_providers,
         last_retried_providers,
-        account_plan: existing_entry.as_ref().map(|old| old.account_plan.clone()).unwrap_or_default(),
+        account_plan: existing_entry
+            .as_ref()
+            .map(|old| old.account_plan.clone())
+            .unwrap_or_default(),
         last_result,
     };
     let mut outcome = Err("定时条目保存失败".to_string());
     auto_checkin::update_state(|state| {
-        let mut entries = state.get("schedules").and_then(Value::as_array).cloned().unwrap_or_default();
-        let index = entries.iter().position(|raw| raw.get("id").and_then(Value::as_str) == Some(schedule.id.as_str()));
+        let mut entries = state
+            .get("schedules")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let index = entries
+            .iter()
+            .position(|raw| raw.get("id").and_then(Value::as_str) == Some(schedule.id.as_str()));
         if index.is_none() && entries.len() >= MAX_SCHEDULES {
             outcome = Err(format!("定时条目最多 {MAX_SCHEDULES} 条"));
             return;
         }
-        let current = index.map(|index| normalize_schedule(&entries[index]))
-            .or_else(|| (!state.contains_key("schedules") && schedule.id == DEFAULT_SCHEDULE_ID).then(|| legacy_schedule_of(state)));
+        let current = index
+            .map(|index| normalize_schedule(&entries[index]))
+            .or_else(|| {
+                (!state.contains_key("schedules") && schedule.id == DEFAULT_SCHEDULE_ID)
+                    .then(|| legacy_schedule_of(state))
+            });
         let mut schedule = schedule;
         if let Some(current) = current {
-            if payload.get("enabled").is_none() { schedule.enabled = current.enabled; }
-            if payload.get("providerTimes").is_none() { schedule.provider_times = current.provider_times; }
-            if payload.get("retryTime").is_none() { schedule.retry_time = current.retry_time; }
-            if payload.get("retryGapMinutes").is_none() { schedule.retry_gap_minutes = current.retry_gap_minutes; }
-            if payload.get("retryLimit").is_none() { schedule.retry_limit = current.retry_limit; }
+            if payload.get("enabled").is_none() {
+                schedule.enabled = current.enabled;
+            }
+            if payload.get("providerTimes").is_none() {
+                schedule.provider_times = current.provider_times;
+            }
+            if payload.get("retryTime").is_none() {
+                schedule.retry_time = current.retry_time;
+            }
+            if payload.get("retryGapMinutes").is_none() {
+                schedule.retry_gap_minutes = current.retry_gap_minutes;
+            }
+            if payload.get("retryLimit").is_none() {
+                schedule.retry_limit = current.retry_limit;
+            }
             schedule.last_fired_date = current.last_fired_date;
             schedule.last_fired_providers = current.last_fired_providers;
             schedule.last_retried_providers = current.last_retried_providers;
@@ -403,10 +435,15 @@ pub fn upsert(payload: &Value) -> Result<Schedule, String> {
 pub fn remove(id: &str) -> Result<(), String> {
     let mut outcome = Err(format!("定时条目不存在：{id}"));
     auto_checkin::update_state(|state| {
-        let mut entries = state.get("schedules").and_then(Value::as_array).cloned().unwrap_or_default();
+        let mut entries = state
+            .get("schedules")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         let before = entries.len();
         entries.retain(|raw| raw.get("id").and_then(Value::as_str) != Some(id));
-        if entries.len() < before || (!state.contains_key("schedules") && id == DEFAULT_SCHEDULE_ID) {
+        if entries.len() < before || (!state.contains_key("schedules") && id == DEFAULT_SCHEDULE_ID)
+        {
             state.insert("schedules".to_string(), Value::Array(entries));
             outcome = Ok(());
         }
@@ -471,17 +508,34 @@ pub fn mark_result(id: &str, result: Option<Value>) {
 fn patch_entry<F: FnOnce(&mut Schedule)>(id: &str, apply: F) {
     auto_checkin::update_state(|state| {
         if !state.contains_key("schedules") {
-            if id != DEFAULT_SCHEDULE_ID { return; }
+            if id != DEFAULT_SCHEDULE_ID {
+                return;
+            }
             let mut schedule = legacy_schedule_of(state);
             apply(&mut schedule);
             let value = to_value(&schedule);
-            for key in ["accountPlan", "lastFiredDate", "lastFiredProviders", "lastRetriedProviders", "lastResult"] {
+            for key in [
+                "accountPlan",
+                "lastFiredDate",
+                "lastFiredProviders",
+                "lastRetriedProviders",
+                "lastResult",
+            ] {
                 state.insert(key.to_string(), value[key].clone());
             }
             return;
         }
-        let mut entries = state.get("schedules").and_then(Value::as_array).cloned().unwrap_or_default();
-        let Some(index) = entries.iter().position(|raw| raw.get("id").and_then(Value::as_str) == Some(id)) else { return; };
+        let mut entries = state
+            .get("schedules")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let Some(index) = entries
+            .iter()
+            .position(|raw| raw.get("id").and_then(Value::as_str) == Some(id))
+        else {
+            return;
+        };
         let mut schedule = normalize_schedule(&entries[index]);
         apply(&mut schedule);
         entries[index] = to_value(&schedule);
@@ -550,9 +604,9 @@ pub fn extend_providers_once() -> bool {
             }
         }
         None => {
-            let legacy = ordered_providers(
-                &auto_checkin::normalize_providers(auto_checkin::raw_object().get("providers")),
-            );
+            let legacy = ordered_providers(&auto_checkin::normalize_providers(
+                auto_checkin::raw_object().get("providers"),
+            ));
             let mut providers = legacy.clone();
             for id in &added {
                 if !providers.iter().any(|item| item == id) {
@@ -583,9 +637,18 @@ pub fn extend_plugin_providers_once() -> bool {
     let known: Vec<String> = auto_checkin::raw_object()
         .get("pluginProvidersSeen")
         .and_then(Value::as_array)
-        .into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
-    let added: Vec<String> = available.into_iter().filter(|id| !known.contains(id)).collect();
-    if added.is_empty() { return false; }
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect();
+    let added: Vec<String> = available
+        .into_iter()
+        .filter(|id| !known.contains(id))
+        .collect();
+    if added.is_empty() {
+        return false;
+    }
     let mut changed = false;
     match stored_entries() {
         Some(mut entries) => {
@@ -605,14 +668,21 @@ pub fn extend_plugin_providers_once() -> bool {
                     changed = true;
                 }
             }
-            if changed { write_entries(entries); }
+            if changed {
+                write_entries(entries);
+            }
         }
         None => {
             let mut providers = legacy_schedule().providers;
             for id in &added {
-                if !providers.contains(id) { providers.push(id.clone()); changed = true; }
+                if !providers.contains(id) {
+                    providers.push(id.clone());
+                    changed = true;
+                }
             }
-            if changed { auto_checkin::write_state(json!({ "providers": providers })); }
+            if changed {
+                auto_checkin::write_state(json!({ "providers": providers }));
+            }
         }
     }
     let mut seen = known;

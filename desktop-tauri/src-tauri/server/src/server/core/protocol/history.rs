@@ -70,7 +70,10 @@ impl HistoryReport {
             parts.push("tool 结果重排（配对断裂修复）".to_string());
         }
         if self.orphans_removed > 0 {
-            parts.push(format!("剔除无法配对的 tool 条目 {} 个", self.orphans_removed));
+            parts.push(format!(
+                "剔除无法配对的 tool 条目 {} 个",
+                self.orphans_removed
+            ));
         }
         parts.join("；")
     }
@@ -392,7 +395,10 @@ fn assistant_call_ids(message: &Value) -> Vec<String> {
         .map(|calls| {
             calls
                 .iter()
-                .filter_map(|call| call.as_object().and_then(|call| non_empty_str(call.get("id"))))
+                .filter_map(|call| {
+                    call.as_object()
+                        .and_then(|call| non_empty_str(call.get("id")))
+                })
                 .collect()
         })
         .unwrap_or_default()

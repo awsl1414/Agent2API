@@ -37,7 +37,9 @@ use crate::server::core::task_state::{self, Claim};
 use crate::server::logging;
 
 use super::adapter::{adapter_by_id, adapter_for, implemented_kinds};
-use super::{catalog, executable_provider_ids, is_executable_provider, kind_id, meta, ProviderKind};
+use super::{
+    catalog, executable_provider_ids, is_executable_provider, kind_id, meta, ProviderKind,
+};
 
 /// 这一家被闸门挡住时给用户看的那句话（两条调用路径共用）。
 ///
@@ -51,7 +53,11 @@ use super::{catalog, executable_provider_ids, is_executable_provider, kind_id, m
 /// 定时 / 被动刷新确实受冷却约束，那时「还要等多久」正是用户想知道的信息。
 fn deferred_message(state: &task_state::TaskState, manual: bool) -> String {
     if state.retry_at > logging::now_ms() || state.running() {
-        if manual { state.waiting_message_bypassing() } else { state.waiting_message() }
+        if manual {
+            state.waiting_message_bypassing()
+        } else {
+            state.waiting_message()
+        }
     } else {
         "沿用缓存，尚未到刷新时间".to_string()
     }
@@ -81,7 +87,11 @@ pub async fn refresh(
             continue;
         }
         let adapter = adapter_for(kind);
-        let requested = accounts.get(provider).and_then(Value::as_str).unwrap_or("").trim();
+        let requested = accounts
+            .get(provider)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
         let mut item = json!({
             "provider": provider,
             "providerLabel": meta(kind).label,
@@ -89,11 +99,15 @@ pub async fn refresh(
         });
         if adapter.refresh_uses_account() {
             let used = if requested.is_empty() {
-                store.current_entry_for_provider(provider).map(|entry| entry.id)
+                store
+                    .current_entry_for_provider(provider)
+                    .map(|entry| entry.id)
             } else {
                 Some(requested.to_string())
             };
-            if let Some(id) = used { item["accountId"] = json!(id); }
+            if let Some(id) = used {
+                item["accountId"] = json!(id);
+            }
         }
         if !adapter.supports_model_refresh() {
             item["status"] = json!("skipped");
@@ -157,7 +171,11 @@ pub async fn refresh(
         }
         item["refreshedAt"] = json!(catalog::refresh_meta(kind).1);
         let success = item["status"] != "failed";
-        let summary = item.get("message").and_then(Value::as_str).unwrap_or("模型清单已刷新").to_string();
+        let summary = item
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("模型清单已刷新")
+            .to_string();
         // 间隔在这里**现读一次**（而不是复用开跑前那份）：这一轮可能跨几十秒的
         // 网络请求，期间用户完全可能把间隔改掉；用旧值排期会让界面显示「已生效」
         // 而实际按旧节奏跑（与 `scheduled_tasks::finish` 同一取舍）。
@@ -166,7 +184,9 @@ pub async fn refresh(
             item["status"] = json!("failed");
             item["message"] = json!(error);
         }
-        if cline { cline_result = Some(item.clone()); }
+        if cline {
+            cline_result = Some(item.clone());
+        }
         results.push(item);
     }
     // 真实插件与本体 runtime ID 的并集，不向旧占位适配器调度。
@@ -178,7 +198,11 @@ pub async fn refresh(
             continue;
         };
         let label = adapter.label();
-        let requested = accounts.get(&id).and_then(Value::as_str).unwrap_or("").trim();
+        let requested = accounts
+            .get(&id)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
         let mut item = json!({
             "provider": id,
             "providerLabel": label,
@@ -195,7 +219,9 @@ pub async fn refresh(
         // 不读 secret，也不把空账号发给 builtin / 插件执行体。
         let account_id = if adapter.refresh_uses_account() {
             let available = store.accounts_for_provider(&id);
-            let selected = available.iter().filter_map(|account| account.get("id").and_then(Value::as_str))
+            let selected = available
+                .iter()
+                .filter_map(|account| account.get("id").and_then(Value::as_str))
                 .find(|account_id| requested.is_empty() || *account_id == requested);
             let Some(selected) = selected else {
                 item["status"] = json!("skipped");
@@ -218,8 +244,18 @@ pub async fn refresh(
             None
         } else {
             let interval = config::scheduled_settings().model_refresh.interval * 60_000;
-            let backoff = if manual { task_state::ManualBackoff::Bypass } else { task_state::ManualBackoff::Respect };
-            match task_state::claim(&format!("modelRefresh:{id}"), interval, manual, backoff, 1_000) {
+            let backoff = if manual {
+                task_state::ManualBackoff::Bypass
+            } else {
+                task_state::ManualBackoff::Respect
+            };
+            match task_state::claim(
+                &format!("modelRefresh:{id}"),
+                interval,
+                manual,
+                backoff,
+                1_000,
+            ) {
                 Ok(Claim::Acquired(guard)) => Some(guard),
                 Ok(Claim::Deferred(state)) => {
                     item["status"] = json!("skipped");
@@ -251,7 +287,11 @@ pub async fn refresh(
         }
         if let Some(guard) = guard {
             let success = item["status"] != "failed";
-            let summary = item.get("message").and_then(Value::as_str).unwrap_or("模型清单已刷新").to_string();
+            let summary = item
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("模型清单已刷新")
+                .to_string();
             let interval = config::scheduled_settings().model_refresh.interval * 60_000;
             if let Err(error) = guard.finish(success, summary, None, 0, interval) {
                 item["status"] = json!("failed");
@@ -269,23 +309,34 @@ pub async fn refresh(
 /// 「定时任务什么时候跑一轮」—— 只改任务级键会让各家的实际间隔留在旧值上。
 pub fn reschedule(interval_ms: i64) -> Result<(), String> {
     for kind in implemented_kinds() {
-        if !adapter_for(kind).supports_model_refresh() { continue; }
+        if !adapter_for(kind).supports_model_refresh() {
+            continue;
+        }
         let scope = if matches!(kind, ProviderKind::ClineFree | ProviderKind::ClinePass) {
             "cline"
-        } else { kind_id(kind) };
+        } else {
+            kind_id(kind)
+        };
         task_state::reschedule(&format!("modelRefresh:{scope}"), interval_ms)?;
     }
     for id in executable_provider_ids() {
         // 插件有独立排期；这里只同步本体使用的网关闸门。
-        if crate::server::core::plugin_host::serves_provider(&id) { continue; }
-        if !adapter_by_id(&id).is_some_and(|adapter| adapter.supports_model_refresh()) { continue; }
+        if crate::server::core::plugin_host::serves_provider(&id) {
+            continue;
+        }
+        if !adapter_by_id(&id).is_some_and(|adapter| adapter.supports_model_refresh()) {
+            continue;
+        }
         task_state::reschedule(&format!("modelRefresh:{id}"), interval_ms)?;
     }
     // models.dev 元数据搭同一条任务、同一个间隔（见 `scheduled_tasks` 的
     // TASK_MODEL_REFRESH 分支）：它的排期键与各家同一命名空间，改间隔时若不
     // 一并重排，它会继续按旧节奏跑到下一轮自己领到新值为止。
     task_state::reschedule(
-        &format!("modelRefresh:{}", crate::server::core::model_meta::SCHEDULE_SCOPE),
+        &format!(
+            "modelRefresh:{}",
+            crate::server::core::model_meta::SCHEDULE_SCOPE
+        ),
         interval_ms,
     )?;
     Ok(())

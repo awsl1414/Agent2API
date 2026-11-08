@@ -179,7 +179,7 @@ pub fn resolve(provider: &Value, requested: &str) -> Option<(String, Option<Stri
             .get("enabled")
             .and_then(Value::as_bool)
             .unwrap_or(true)
-            && default.map_or(true, |mapping| {
+            && default.is_none_or(|mapping| {
                 mapping
                     .get("enabled")
                     .and_then(Value::as_bool)

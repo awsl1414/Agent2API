@@ -78,13 +78,16 @@ pub fn verify_installer(raw: &str) -> Result<PathBuf, String> {
     if !allowed.contains(&suffix.as_str()) {
         // 列出本平台允许的全部后缀：Linux 上有两种（deb / AppImage），
         // 只说一个会让拿另一种产物的用户以为自己的包不被支持
-        let list = allowed.iter().map(|s| format!(".{s}")).collect::<Vec<_>>().join(" / ");
+        let list = allowed
+            .iter()
+            .map(|s| format!(".{s}"))
+            .collect::<Vec<_>>()
+            .join(" / ");
         return Err(format!("只允许运行 {list} 安装包"));
     }
 
     let target = normalize(&path).ok_or_else(|| "无法解析安装包路径".to_string())?;
-    let root = normalize(&download_dir())
-        .ok_or_else(|| "无法解析下载目录".to_string())?;
+    let root = normalize(&download_dir()).ok_or_else(|| "无法解析下载目录".to_string())?;
     if !target.starts_with(&root) {
         return Err("安装包不在受控的下载目录内，已拒绝执行".to_string());
     }
@@ -189,9 +192,7 @@ fn launch_installer_linux(path: &Path, silent: bool) -> Result<(), String> {
             .stderr(std::process::Stdio::null())
             .spawn()
             .map(|_| ())
-            .map_err(|error| {
-                format!("调用系统安装器失败（需要桌面环境提供 xdg-open）: {error}")
-            })
+            .map_err(|error| format!("调用系统安装器失败（需要桌面环境提供 xdg-open）: {error}"))
     }
 }
 
@@ -262,13 +263,20 @@ fn launch_installer_elevated(path: &Path, silent: bool) -> Result<(), String> {
     }
 
     let to_wide = |text: &str| -> Vec<u16> {
-        std::ffi::OsStr::new(text).encode_wide().chain(std::iter::once(0)).collect()
+        std::ffi::OsStr::new(text)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
     };
     // runas = 提权启动；安装包自身带 requireAdministrator 清单
     let operation = to_wide("runas");
     let file = to_wide(&shell_path(path));
     // /S 静默，/R 装完自动重启（与改动前的行为一致）
-    let parameters = if silent { to_wide("/S /R") } else { to_wide("") };
+    let parameters = if silent {
+        to_wide("/S /R")
+    } else {
+        to_wide("")
+    };
     let directory = path
         .parent()
         .map(|dir| to_wide(&shell_path(dir)))

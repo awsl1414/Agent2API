@@ -38,15 +38,27 @@ pub struct WorkBuddyAuthError {
 
 impl WorkBuddyAuthError {
     pub fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into(), status_code: None, upstream_code: None }
+        Self {
+            message: message.into(),
+            status_code: None,
+            upstream_code: None,
+        }
     }
 
     pub fn with_status(status: i32, message: impl Into<String>) -> Self {
-        Self { message: message.into(), status_code: Some(status), upstream_code: None }
+        Self {
+            message: message.into(),
+            status_code: Some(status),
+            upstream_code: None,
+        }
     }
 
     pub fn with_code(message: impl Into<String>, status: Option<i32>, code: Option<i64>) -> Self {
-        Self { message: message.into(), status_code: status, upstream_code: code }
+        Self {
+            message: message.into(),
+            status_code: status,
+            upstream_code: code,
+        }
     }
 
     /// 归一后的 HTTP 状态码（无显式状态码 → 502，照抄 Node 版）
@@ -124,5 +136,9 @@ pub async fn send_raw(
     } else {
         serde_json::from_str::<Value>(&text).ok()
     };
-    Ok(ApiResponse { status, ok, payload })
+    Ok(ApiResponse {
+        status,
+        ok,
+        payload,
+    })
 }

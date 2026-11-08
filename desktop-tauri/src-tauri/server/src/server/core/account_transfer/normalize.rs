@@ -49,9 +49,9 @@ fn positive_number_of(value: Option<&Value>) -> Option<Value> {
             (parsed.is_finite() && parsed > 0.0).then(|| value.cloned().unwrap_or(Value::Null))
         }
         Some(Value::String(text)) => match text.trim().parse::<f64>() {
-            Ok(parsed) if parsed.is_finite() && parsed > 0.0 => {
-                Some(crate::server::core::account_store::state::json_number(parsed))
-            }
+            Ok(parsed) if parsed.is_finite() && parsed > 0.0 => Some(
+                crate::server::core::account_store::state::json_number(parsed),
+            ),
             _ => None,
         },
         _ => None,
@@ -60,8 +60,10 @@ fn positive_number_of(value: Option<&Value>) -> Option<Value> {
 
 /// 该键是否参与导入（内部字段与运行时标记不参与）
 fn importable_key(key: &str) -> bool {
-    !key.starts_with('_') && key != "format" && key != "customProviders"
-        && !LOCAL_OWNED_KEYS.iter().any(|owned| *owned == key)
+    !key.starts_with('_')
+        && key != "format"
+        && key != "customProviders"
+        && !LOCAL_OWNED_KEYS.contains(&key)
 }
 
 /// 归一一条导入记录。
@@ -118,7 +120,10 @@ pub(super) fn normalize_imported(
         }
     };
     if !access_token.is_empty() {
-        record.insert("accessToken".to_string(), Value::String(access_token.clone()));
+        record.insert(
+            "accessToken".to_string(),
+            Value::String(access_token.clone()),
+        );
     }
     if !refresh_token.is_empty() {
         record.insert("refreshToken".to_string(), Value::String(refresh_token));
@@ -175,7 +180,7 @@ pub(super) fn normalize_imported(
     // 判据是「workbuddy 系」而不是单个 id：国内版与国际版共用同一套账号 schema
     // （uid 身份 + edition/endpoint/prefixPath/platform），写成单 id 会让国际版
     // 掉进 else 分支把那些字段**清掉** —— 导入后账号只剩默认端点，转发必然 401。
-    if crate::server::core::providers::workbuddy::is_workbuddy_family(&provider) {
+    if crate::server::core::providers::workbuddy::is_workbuddy_family(provider) {
         normalize_workbuddy_known_fields(&mut record, item, before, provider);
     } else {
         // 非 WorkBuddy：edition / prefixPath / endpoint / platform 是腾讯端点
@@ -184,7 +189,7 @@ pub(super) fn normalize_imported(
         // 判据只有「是不是 WorkBuddy 系」一条，**不枚举别家** —— 新增一家
         // provider 时不需要回来加一行（旧实现的维护负担不在这里，而在
         // `identity.rs` 的逐家身份分支，那边已经改成通用链）。
-        strip_foreign_endpoint_keys(&mut record, &provider);
+        strip_foreign_endpoint_keys(&mut record, provider);
     }
 
     // 自定义提供商账号：apiKey / baseUrl / tokenTail 是本家 schema，
@@ -348,7 +353,8 @@ fn normalize_workbuddy_known_fields(
     provider: &str,
 ) {
     let edition = crate::server::core::providers::workbuddy::Region::from_provider_id(provider)
-        .map(|region| region.edition()).unwrap_or_else(|| resolve_edition(None));
+        .map(|region| region.edition())
+        .unwrap_or_else(|| resolve_edition(None));
     let explicit = |key: &str| item.get(key).filter(|value| !value.is_null());
     record.insert("edition".to_string(), Value::String(edition.id.to_string()));
     record.insert(
@@ -391,33 +397,46 @@ fn normalize_workbuddy_known_fields(
         ),
     );
 
-    let before_text = |getter: fn(&StoredAccount) -> String| -> String {
-        before.map(getter).unwrap_or_default()
-    };
+    let before_text =
+        |getter: fn(&StoredAccount) -> String| -> String { before.map(getter).unwrap_or_default() };
     for (key, fallback) in [
         ("nickname", before_text(StoredAccount::nickname)),
         ("enterpriseId", before_text(StoredAccount::enterprise_id)),
-        ("enterpriseName", before_text(StoredAccount::enterprise_name)),
+        (
+            "enterpriseName",
+            before_text(StoredAccount::enterprise_name),
+        ),
         ("domain", before_text(StoredAccount::domain)),
     ] {
         let incoming = text_of(item.get(key));
         record.insert(
             key.to_string(),
-            Value::String(if incoming.is_empty() { fallback } else { incoming }),
+            Value::String(if incoming.is_empty() {
+                fallback
+            } else {
+                incoming
+            }),
         );
     }
     let account_type = {
         let incoming = text_of(item.get("type"));
         if incoming.is_empty() {
             let fallback = before_text(StoredAccount::account_type);
-            if fallback.is_empty() { "personal".to_string() } else { fallback }
+            if fallback.is_empty() {
+                "personal".to_string()
+            } else {
+                fallback
+            }
         } else {
             incoming
         }
     };
     record.insert("type".to_string(), Value::String(account_type));
     for (key, getter) in [
-        ("expiresAt", StoredAccount::expires_at as fn(&StoredAccount) -> Option<f64>),
+        (
+            "expiresAt",
+            StoredAccount::expires_at as fn(&StoredAccount) -> Option<f64>,
+        ),
         ("refreshExpiresAt", StoredAccount::refresh_expires_at),
     ] {
         let fallback = before

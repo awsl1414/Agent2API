@@ -268,11 +268,9 @@ impl<T: Clone> Waiter<T> {
             if let Some(outcome) = self.flight.outcome() {
                 return outcome;
             }
-            let waited = tokio::time::timeout(
-                Duration::from_millis(WAIT_STEP_MS),
-                self.receiver.changed(),
-            )
-            .await;
+            let waited =
+                tokio::time::timeout(Duration::from_millis(WAIT_STEP_MS), self.receiver.changed())
+                    .await;
             match waited {
                 // 信号到达：下一轮读结果
                 Ok(Ok(())) => {}

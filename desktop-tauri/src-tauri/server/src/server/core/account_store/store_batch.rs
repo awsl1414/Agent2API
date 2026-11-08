@@ -18,10 +18,10 @@ use serde_json::{json, Map, Value};
 
 use crate::server::core::account_store::sql;
 use crate::server::core::account_store::state::StoredAccount;
-use crate::server::core::account_store::store_view::Visibility;
 use crate::server::core::account_store::store::{AccountStore, AccountStoreError};
 use crate::server::core::account_store::store_crud::normalize_max_concurrent;
 use crate::server::core::account_store::store_util::truncate_chars;
+use crate::server::core::account_store::store_view::Visibility;
 use crate::server::core::proxies::describe_account_proxy;
 use crate::server::core::{limiter, usage_query};
 use crate::server::logging;
@@ -53,11 +53,7 @@ impl BatchLimiterMode {
         matches!(self, Self::Append | Self::Replace)
     }
 
-    fn apply(
-        self,
-        fields: &Map<String, Value>,
-        incoming: &[limiter::LimiterRule],
-    ) -> Value {
+    fn apply(self, fields: &Map<String, Value>, incoming: &[limiter::LimiterRule]) -> Value {
         let mut current = limiter::effective_rules_in(fields);
         match self {
             Self::Append => {
@@ -96,16 +92,14 @@ impl AccountStore {
     ///
     /// 语义上是「对每个选中账号各跑一次 update_account」，但整批只落盘一次。
     /// 单个账号失败不中断整批：结果里分别记 ok / failed（含原因）。
-    pub fn batch_update(
-        &self,
-        ids: &[String],
-        patch: &Value,
-    ) -> Result<Value, AccountStoreError> {
+    pub fn batch_update(&self, ids: &[String], patch: &Value) -> Result<Value, AccountStoreError> {
         if ids.is_empty() {
             return Err(AccountStoreError::bad_request("缺少要操作的账号 id"));
         }
         let Some(patch_object) = patch.as_object() else {
-            return Err(AccountStoreError::bad_request("批量修改内容必须是 JSON 对象"));
+            return Err(AccountStoreError::bad_request(
+                "批量修改内容必须是 JSON 对象",
+            ));
         };
         // 备注名、凭证与优先级属于账号身份，不开放整组覆盖。
         let mut allowed = Map::new();
@@ -129,35 +123,53 @@ impl AccountStore {
         }
         if let Some(value) = patch_object.get("usageQuery") {
             if !value.is_object() {
-                return Err(AccountStoreError::bad_request("批量查询设置必须是 JSON 对象"));
+                return Err(AccountStoreError::bad_request(
+                    "批量查询设置必须是 JSON 对象",
+                ));
             }
-            allowed.insert("usageQuery".to_string(), Self::normalize_usage_query(value)?);
+            allowed.insert(
+                "usageQuery".to_string(),
+                Self::normalize_usage_query(value)?,
+            );
         }
         let limiter_mode = patch_object
             .get("limiterMode")
             .map(BatchLimiterMode::parse)
             .transpose()?;
-        let incoming_groups = patch_object.get("limiterGroups")
-            .map(limiter::normalize_groups).transpose().map_err(AccountStoreError::bad_request)?;
+        let incoming_groups = patch_object
+            .get("limiterGroups")
+            .map(limiter::normalize_groups)
+            .transpose()
+            .map_err(AccountStoreError::bad_request)?;
         if let Some(groups) = &incoming_groups {
-            if groups.iter().any(|group| group.conditions.iter().any(|condition| {
-                !matches!(condition.source_id.as_str(), "" | "account" | "local")
-            })) {
-                return Err(AccountStoreError::bad_request("套餐实例不能跨账号复制，请使用通用条件"));
+            if groups.iter().any(|group| {
+                group.conditions.iter().any(|condition| {
+                    !matches!(condition.source_id.as_str(), "" | "account" | "local")
+                })
+            }) {
+                return Err(AccountStoreError::bad_request(
+                    "套餐实例不能跨账号复制，请使用通用条件",
+                ));
             }
             if groups.is_empty() && limiter_mode.is_some_and(BatchLimiterMode::needs_rules) {
                 return Err(AccountStoreError::bad_request("请至少添加一个条件组"));
             }
         }
-        let incoming_rules = if incoming_groups.is_none() && limiter_mode.is_some_and(BatchLimiterMode::needs_rules) {
+        let incoming_rules = if incoming_groups.is_none()
+            && limiter_mode.is_some_and(BatchLimiterMode::needs_rules)
+        {
             let value = patch_object
                 .get("limiters")
                 .filter(|value| value.is_array())
-                .ok_or_else(|| AccountStoreError::bad_request("追加或替换限制器时必须提供规则数组"))?;
+                .ok_or_else(|| {
+                    AccountStoreError::bad_request("追加或替换限制器时必须提供规则数组")
+                })?;
             let rules = limiter::normalize_rules(value, &Map::new())
                 .map_err(AccountStoreError::bad_request)?;
             if rules.is_empty() {
-                return Err(AccountStoreError::bad_request("请至少添加一条限制规则；清空请使用清空操作"));
+                return Err(AccountStoreError::bad_request(
+                    "请至少添加一条限制规则；清空请使用清空操作",
+                ));
             }
             rules
         } else {
@@ -169,11 +181,22 @@ impl AccountStore {
             ));
         }
 
-        let group_needs_usage = incoming_groups.as_ref().is_some_and(|groups| groups.iter().any(|group|
-            group.conditions.iter().any(|condition| !matches!(condition.metric, limiter::types::Metric::Tokens | limiter::types::Metric::Requests))));
+        let group_needs_usage = incoming_groups.as_ref().is_some_and(|groups| {
+            groups.iter().any(|group| {
+                group.conditions.iter().any(|condition| {
+                    !matches!(
+                        condition.metric,
+                        limiter::types::Metric::Tokens | limiter::types::Metric::Requests
+                    )
+                })
+            })
+        });
         let needs_usage = allowed.contains_key("usageQuery")
             || (limiter_mode.is_some_and(BatchLimiterMode::needs_rules)
-                && (group_needs_usage || incoming_rules.iter().any(|rule| rule.kind == limiter::LimiterKind::Balance)));
+                && (group_needs_usage
+                    || incoming_rules
+                        .iter()
+                        .any(|rule| rule.kind == limiter::LimiterKind::Balance)));
         let _guard = self.guard();
         // 批量操作按语义要遍历**选中的那些账号**（逐条 apply_patch、逐条记
         // ok/failed），所以这里是「按需取那几条」而不是读全量：ids 里的每一项
@@ -208,7 +231,8 @@ impl AccountStore {
                 .get("isGuest")
                 .and_then(Value::as_bool)
                 == Some(true);
-            let has_usage = !needs_usage || (!guest && usage_query::supports_usage_provider(&provider));
+            let has_usage =
+                !needs_usage || (!guest && usage_query::supports_usage_provider(&provider));
             let mut account_patch = allowed.clone();
             if !has_usage {
                 account_patch.remove("usageQuery");
@@ -216,7 +240,10 @@ impl AccountStore {
             if let Some(mode) = limiter_mode {
                 if mode.needs_rules()
                     && !has_usage
-                    && (group_needs_usage || incoming_rules.iter().any(|rule| rule.kind == limiter::LimiterKind::Balance))
+                    && (group_needs_usage
+                        || incoming_rules
+                            .iter()
+                            .any(|rule| rule.kind == limiter::LimiterKind::Balance))
                 {
                     skipped.push(json!({
                         "id": id, "name": name,
@@ -224,21 +251,37 @@ impl AccountStore {
                     }));
                     continue;
                 }
-                if incoming_groups.is_some() || record.fields().contains_key("limiterGroups") && !mode.needs_rules() {
+                if incoming_groups.is_some()
+                    || record.fields().contains_key("limiterGroups") && !mode.needs_rules()
+                {
                     let mut groups = limiter::effective_groups_in(record.fields());
                     match mode {
-                        BatchLimiterMode::Append => for group in incoming_groups.iter().flatten() {
-                            if !groups.contains(group) { groups.push(group.clone()); }
-                        },
-                        BatchLimiterMode::Replace => groups = incoming_groups.clone().unwrap_or_default(),
-                        BatchLimiterMode::Enable | BatchLimiterMode::Disable => for group in &mut groups {
-                            group.enabled = matches!(mode, BatchLimiterMode::Enable);
-                        },
+                        BatchLimiterMode::Append => {
+                            for group in incoming_groups.iter().flatten() {
+                                if !groups.contains(group) {
+                                    groups.push(group.clone());
+                                }
+                            }
+                        }
+                        BatchLimiterMode::Replace => {
+                            groups = incoming_groups.clone().unwrap_or_default()
+                        }
+                        BatchLimiterMode::Enable | BatchLimiterMode::Disable => {
+                            for group in &mut groups {
+                                group.enabled = matches!(mode, BatchLimiterMode::Enable);
+                            }
+                        }
                         BatchLimiterMode::Clear => groups.clear(),
                     }
-                    account_patch.insert("limiterGroups".to_string(), limiter::types::json_of(&groups));
+                    account_patch.insert(
+                        "limiterGroups".to_string(),
+                        limiter::types::json_of(&groups),
+                    );
                 } else {
-                    account_patch.insert("limiters".to_string(), mode.apply(record.fields(), &incoming_rules));
+                    account_patch.insert(
+                        "limiters".to_string(),
+                        mode.apply(record.fields(), &incoming_rules),
+                    );
                 }
             }
             if account_patch.is_empty() {
@@ -281,7 +324,9 @@ impl AccountStore {
         }
         // 写库完成后再动注册表（放锁，见 `disabled_catpaw` 的说明）
         drop(_guard);
-        if limiter_mode.is_some() { limiter::counter::invalidate(); }
+        if limiter_mode.is_some() {
+            limiter::counter::invalidate();
+        }
         for (id, provider) in disabled_catpaw {
             self.invalidate_catpaw_sessions(&id, &provider);
         }
@@ -409,7 +454,9 @@ impl AccountStore {
         if targets.is_empty() {
             // 没有任何一条可删：不写库，直接给当前快照
             let state = self.load(&_guard);
-            return Ok(json!({ "removed": removed, "failed": failed, "list": self.snapshot(&state, Visibility::UserFacing) }));
+            return Ok(
+                json!({ "removed": removed, "failed": failed, "list": self.snapshot(&state, Visibility::UserFacing) }),
+            );
         }
         // 整批一个事务：删除要么全生效、要么一条都不删
         self.with_conn_mut(&_guard, |conn| {

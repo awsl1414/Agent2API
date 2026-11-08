@@ -66,7 +66,7 @@ impl SuppressionGuard {
 
 impl Drop for SuppressionGuard {
     fn drop(&mut self) {
-        let _ = SUPPRESS_DEPTH.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
+        let _ = SUPPRESS_DEPTH.try_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
             Some(value.saturating_sub(1))
         });
     }

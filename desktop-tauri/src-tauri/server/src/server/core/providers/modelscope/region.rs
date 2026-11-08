@@ -124,6 +124,9 @@ mod tests {
     /// 误算进国内版。
     #[test]
     fn account_id_prefixes_are_distinct() {
-        assert_ne!(Region::Cn.account_id_prefix(), Region::Intl.account_id_prefix());
+        assert_ne!(
+            Region::Cn.account_id_prefix(),
+            Region::Intl.account_id_prefix()
+        );
     }
 }

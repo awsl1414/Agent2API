@@ -52,7 +52,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::server::logging;
 
-pub use super::pack_view::{list_packs, resolve_ui_file, PackProviderSummary, PackSummary, PackUiSummary};
+pub use super::pack_view::{
+    list_packs, resolve_ui_file, PackProviderSummary, PackSummary, PackUiSummary,
+};
 
 /// 官方发布者公钥表：`(key_id, 32 字节 ed25519 公钥的十六进制)`。
 ///
@@ -149,9 +151,13 @@ pub fn verify_signature(
         );
     };
     let payload = proto::signing_payload(manifest, target, &binary_hash, &collect_ui_files(dir));
-    let Ok(signature_bytes) = base64::engine::general_purpose::STANDARD.decode(signature.value.trim())
+    let Ok(signature_bytes) =
+        base64::engine::general_purpose::STANDARD.decode(signature.value.trim())
     else {
-        return (SignatureState::Invalid, Some("签名不是合法的 base64".to_string()));
+        return (
+            SignatureState::Invalid,
+            Some("签名不是合法的 base64".to_string()),
+        );
     };
     match verify_ed25519(&public_bytes, payload.as_bytes(), &signature_bytes) {
         true => (SignatureState::Verified, None),
@@ -328,8 +334,7 @@ impl PackRegistry {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("建目录失败: {e}"))?;
         }
-        let text =
-            serde_json::to_string_pretty(self).map_err(|e| format!("序列化失败: {e}"))?;
+        let text = serde_json::to_string_pretty(self).map_err(|e| format!("序列化失败: {e}"))?;
         let tmp = path.with_extension("json.tmp");
         std::fs::write(&tmp, text).map_err(|e| format!("写临时文件失败: {e}"))?;
         std::fs::rename(&tmp, &path).map_err(|e| format!("替换注册表失败: {e}"))
@@ -342,7 +347,9 @@ impl PackRegistry {
 
     /// 某个 provider 是否由已启用的包提供。
     pub fn provider_enabled(&self, provider: &str) -> bool {
-        if crate::server::core::providers::availability::is_suspended(provider) { return false; }
+        if crate::server::core::providers::availability::is_suspended(provider) {
+            return false;
+        }
         self.packs.iter().any(|pack| {
             pack.enabled
                 && pack
@@ -369,8 +376,15 @@ pub fn validate_manifest(manifest: &proto::PackManifest, host_protocol: u32) -> 
     if manifest.providers.is_empty() {
         return Err("插件包里没有声明任何提供商。".to_string());
     }
-    if let Some(provider) = manifest.providers.iter().find(|provider| super::ownership::reserved(provider.id.as_str())) {
-        return Err(format!("提供商「{}」是本体保留身份，插件包不得声明，请移除后重新安装。", provider.id.as_str()));
+    if let Some(provider) = manifest
+        .providers
+        .iter()
+        .find(|provider| super::ownership::reserved(provider.id.as_str()))
+    {
+        return Err(format!(
+            "提供商「{}」是本体保留身份，插件包不得声明，请移除后重新安装。",
+            provider.id.as_str()
+        ));
     }
     if manifest.entry.is_empty() {
         return Err("插件包没有声明入口二进制。".to_string());
@@ -574,10 +588,7 @@ fn explain_dir_error(error: std::io::Error, subject: &Path) -> std::io::Error {
     } else {
         "（重试 3 次仍被拒绝：请检查该目录的写权限）"
     };
-    std::io::Error::new(
-        error.kind(),
-        format!("{}{}：{subject:?}", error, hint),
-    )
+    std::io::Error::new(error.kind(), format!("{}{}：{subject:?}", error, hint))
 }
 
 /// 卸载一个包：删版本目录 + 从注册表移除。
@@ -659,7 +670,10 @@ mod tests {
                 order: 0,
                 default_enabled: true,
             }],
-            entry: BTreeMap::from([("x86_64-pc-windows-msvc".to_string(), "bin/x.exe".to_string())]),
+            entry: BTreeMap::from([(
+                "x86_64-pc-windows-msvc".to_string(),
+                "bin/x.exe".to_string(),
+            )]),
             icons: None,
             ui: Vec::new(),
             homepage: None,
@@ -816,7 +830,12 @@ mod tests {
         // 公钥表是编译期常量，测试里临时替换不了 —— 所以这里直接调
         // verify_ed25519 验逻辑（表查找那一段由上面几条 Invalid 用例覆盖）
         let decoded = base64::engine::general_purpose::STANDARD
-            .decode(m.signature.as_ref().map(|s| s.value.clone()).unwrap_or_default())
+            .decode(
+                m.signature
+                    .as_ref()
+                    .map(|s| s.value.clone())
+                    .unwrap_or_default(),
+            )
             .expect("解 base64");
         assert!(verify_ed25519(
             &hex_to_32(&public_hex).expect("公钥十六进制"),

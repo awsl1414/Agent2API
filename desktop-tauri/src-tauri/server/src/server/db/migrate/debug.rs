@@ -128,7 +128,10 @@ pub(super) fn import_debug(conn: &Connection, dir: &Path) -> Option<LegacyOutcom
         Err(error) => {
             logging::console_line(
                 "[Storage]",
-                &format!("❌ 调试报文迁移失败：无法读取 {}（{error}）", path.display()),
+                &format!(
+                    "❌ 调试报文迁移失败：无法读取 {}（{error}）",
+                    path.display()
+                ),
             );
             return None;
         }

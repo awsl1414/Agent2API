@@ -10,10 +10,21 @@ pub fn compare(value: f64, condition: &Condition) -> bool {
     }
 }
 
-pub fn read(account: &Value, condition: &Condition, facts: &sources::Facts, counts: &counter::Facts, now: i64) -> Reading {
+pub fn read(
+    account: &Value,
+    condition: &Condition,
+    facts: &sources::Facts,
+    counts: &counter::Facts,
+    now: i64,
+) -> Reading {
     let id = account.get("id").and_then(Value::as_str).unwrap_or("");
     let record = facts.get(id);
-    let source = record.and_then(|record| record.sources.iter().find(|source| source.id == condition.source_id));
+    let source = record.and_then(|record| {
+        record
+            .sources
+            .iter()
+            .find(|source| source.id == condition.source_id)
+    });
     let metadata = source.or(condition.source.as_ref());
     let mut reading = Reading::default();
     if let Some(source) = metadata {
@@ -32,48 +43,76 @@ pub fn read(account: &Value, condition: &Condition, facts: &sources::Facts, coun
     }
     let value = if matches!(condition.metric, Metric::Tokens | Metric::Requests) {
         reading.local = true;
-        let Some(window) = counter::window_for(condition) else { return reading };
+        let Some(window) = counter::window_for(condition) else {
+            return reading;
+        };
         if window.starts_at > now || (window.ends_at > 0 && now >= window.ends_at) {
             reading.reason = "统计周期尚未开始或已经结束".to_string();
             return reading;
         }
         let (start, end) = counter::window_bounds(&window, now);
         reading.window_start = start;
-        reading.resets_at = if window.reset == Reset::Rolling { 0 } else { end };
-        let count = counts.get(&(id.to_string(), counter::key(condition)))
+        reading.resets_at = if window.reset == Reset::Rolling {
+            0
+        } else {
+            end
+        };
+        let count = counts
+            .get(&(id.to_string(), counter::key(condition)))
             .filter(|count| window.reset == Reset::Rolling || count.start == start);
         if let Some(count) = count {
             let models = counter::models_for(condition);
             if !models.is_empty() {
                 for model in models {
-                    let value = count.by_model.get(&model.to_ascii_lowercase())
-                        .map(|count| if condition.metric == Metric::Tokens { count.tokens as f64 } else { count.requests as f64 })
+                    let value = count
+                        .by_model
+                        .get(&model.to_ascii_lowercase())
+                        .map(|count| {
+                            if condition.metric == Metric::Tokens {
+                                count.tokens as f64
+                            } else {
+                                count.requests as f64
+                            }
+                        })
                         .unwrap_or(0.0);
                     reading.model_values.insert(model.clone(), value);
-                    if compare(value, condition) { reading.models.push(model.clone()); }
+                    if compare(value, condition) {
+                        reading.models.push(model.clone());
+                    }
                 }
                 reading.model_values.values().copied().reduce(f64::max)
             } else {
-                Some(if condition.metric == Metric::Tokens { count.tokens as f64 } else { count.requests as f64 })
+                Some(if condition.metric == Metric::Tokens {
+                    count.tokens as f64
+                } else {
+                    count.requests as f64
+                })
             }
-        } else { None }
+        } else {
+            None
+        }
     } else if condition.source_id.is_empty() || condition.source_id == "account" {
         record.and_then(|record| record.remaining)
     } else {
-        source.filter(|source| source.live_at(now)).and_then(|source| {
-            reading.resets_at = source.resets_at;
-            match condition.metric {
-                Metric::Remaining => source.remaining,
-                Metric::Used => source.used,
-                Metric::RemainingPercent => source.remaining_percent.or_else(|| {
-                    Some(source.remaining? / source.total.filter(|total| *total > 0.0)? * 100.0)
-                }),
-                Metric::UsedPercent => source.remaining_percent.map(|remaining| 100.0 - remaining).or_else(|| {
-                    Some(source.used? / source.total.filter(|total| *total > 0.0)? * 100.0)
-                }),
-                _ => None,
-            }
-        })
+        source
+            .filter(|source| source.live_at(now))
+            .and_then(|source| {
+                reading.resets_at = source.resets_at;
+                match condition.metric {
+                    Metric::Remaining => source.remaining,
+                    Metric::Used => source.used,
+                    Metric::RemainingPercent => source.remaining_percent.or_else(|| {
+                        Some(source.remaining? / source.total.filter(|total| *total > 0.0)? * 100.0)
+                    }),
+                    Metric::UsedPercent => source
+                        .remaining_percent
+                        .map(|remaining| 100.0 - remaining)
+                        .or_else(|| {
+                            Some(source.used? / source.total.filter(|total| *total > 0.0)? * 100.0)
+                        }),
+                    _ => None,
+                }
+            })
     };
     reading.value = value.filter(|value| value.is_finite());
     reading.known = reading.value.is_some();
@@ -82,60 +121,121 @@ pub fn read(account: &Value, condition: &Condition, facts: &sources::Facts, coun
     } else {
         reading.value.is_some_and(|value| compare(value, condition))
     };
-    if !reading.local && reading.hit { reading.models = counter::models_for(condition).to_vec(); }
-    if !reading.known { reading.reason = "暂无可判定的额度读数".to_string(); }
+    if !reading.local && reading.hit {
+        reading.models = counter::models_for(condition).to_vec();
+    }
+    if !reading.known {
+        reading.reason = "暂无可判定的额度读数".to_string();
+    }
     reading
 }
 
-pub fn state(account: &Value, group: &Group, facts: &sources::Facts, counts: &counter::Facts, now: i64) -> GroupState {
-    let readings: Vec<Reading> = group.conditions.iter().map(|condition| read(account, condition, facts, counts, now)).collect();
+pub fn state(
+    account: &Value,
+    group: &Group,
+    facts: &sources::Facts,
+    counts: &counter::Facts,
+    now: i64,
+) -> GroupState {
+    let readings: Vec<Reading> = group
+        .conditions
+        .iter()
+        .map(|condition| read(account, condition, facts, counts, now))
+        .collect();
     // 与优先于或，只有成立的合取分支才能贡献拦截范围。
     let mut branches: Vec<Vec<usize>> = Vec::new();
     for (index, condition) in group.conditions.iter().enumerate() {
-        if index == 0 || condition.join == Join::Or { branches.push(Vec::new()); }
-        if let Some(branch) = branches.last_mut() { branch.push(index); }
+        if index == 0 || condition.join == Join::Or {
+            branches.push(Vec::new());
+        }
+        if let Some(branch) = branches.last_mut() {
+            branch.push(index);
+        }
     }
     let mut hit = false;
     let mut account_hit = false;
     let mut models = Vec::new();
     if group.enabled {
         for branch in branches {
-            if !branch.iter().all(|index| readings[*index].hit) { continue; }
+            if !branch.iter().all(|index| readings[*index].hit) {
+                continue;
+            }
             hit = true;
             let mut branch_models = Vec::new();
             for index in branch {
                 for model in &readings[index].models {
-                    if !branch_models.iter().any(|existing: &String| existing.eq_ignore_ascii_case(model)) {
+                    if !branch_models
+                        .iter()
+                        .any(|existing: &String| existing.eq_ignore_ascii_case(model))
+                    {
                         branch_models.push(model.clone());
                     }
                 }
             }
-            if branch_models.is_empty() { account_hit = true; }
+            if branch_models.is_empty() {
+                account_hit = true;
+            }
             for model in branch_models {
-                if !models.iter().any(|existing: &String| existing.eq_ignore_ascii_case(&model)) {
+                if !models
+                    .iter()
+                    .any(|existing: &String| existing.eq_ignore_ascii_case(&model))
+                {
                     models.push(model);
                 }
             }
         }
     }
-    GroupState { hit, account: hit && (group.target == Target::Account || account_hit), models, conditions: readings }
+    GroupState {
+        hit,
+        account: hit && (group.target == Target::Account || account_hit),
+        models,
+        conditions: readings,
+    }
 }
 
-pub fn blocked(account: &Value, model: &str, facts: &sources::Facts, counts: &counter::Facts, now: i64) -> bool {
+pub fn blocked(
+    account: &Value,
+    model: &str,
+    facts: &sources::Facts,
+    counts: &counter::Facts,
+    now: i64,
+) -> bool {
     groups::effective_groups(account).iter().any(|group| {
-        if group.action != Action::Skip { return false; }
+        if group.action != Action::Skip {
+            return false;
+        }
         let state = state(account, group, facts, counts, now);
-        if !state.hit { return false; }
-        state.account || (!model.is_empty() && state.models.iter().any(|wanted| wanted.eq_ignore_ascii_case(model)))
+        if !state.hit {
+            return false;
+        }
+        state.account
+            || (!model.is_empty()
+                && state
+                    .models
+                    .iter()
+                    .any(|wanted| wanted.eq_ignore_ascii_case(model)))
     })
 }
 
-pub fn disable_hit(account: &Value, facts: &sources::Facts, counts: &counter::Facts, now: i64) -> bool {
+pub fn disable_hit(
+    account: &Value,
+    facts: &sources::Facts,
+    counts: &counter::Facts,
+    now: i64,
+) -> bool {
     groups::effective_groups(account).iter().any(|group| {
         group.action == Action::Disable && state(account, group, facts, counts, now).hit
     })
 }
 
-pub fn states(account: &Value, facts: &sources::Facts, counts: &counter::Facts, now: i64) -> Vec<GroupState> {
-    groups::effective_groups(account).iter().map(|group| state(account, group, facts, counts, now)).collect()
+pub fn states(
+    account: &Value,
+    facts: &sources::Facts,
+    counts: &counter::Facts,
+    now: i64,
+) -> Vec<GroupState> {
+    groups::effective_groups(account)
+        .iter()
+        .map(|group| state(account, group, facts, counts, now))
+        .collect()
 }

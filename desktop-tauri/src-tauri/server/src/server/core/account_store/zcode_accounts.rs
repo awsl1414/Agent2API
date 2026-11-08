@@ -120,7 +120,10 @@ impl AccountStore {
         );
         public.insert(
             "rateLimits".to_string(),
-            record.get("rateLimits").cloned().unwrap_or_else(|| json!({})),
+            record
+                .get("rateLimits")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
         );
         public.insert("desktop".to_string(), Value::Bool(false));
         public.insert("available".to_string(), Value::Bool(available));
@@ -178,11 +181,16 @@ impl AccountStore {
         // `updatedAt` 无谓地跳动
         let current = zcode::normalize_plan(&record.zcode_plan()).unwrap_or(zcode::PLAN_CODING);
         let mirrored = ["pluginSecret", "pluginPublic"].iter().all(|field| {
-            record.get(field).and_then(Value::as_object)
+            record
+                .get(field)
+                .and_then(Value::as_object)
                 .map(|fields| fields.get(zcode::PLAN_FIELD).and_then(Value::as_str) == Some(plan))
                 .unwrap_or(true)
         });
-        if current == plan && record.get(zcode::PLAN_FIELD).and_then(Value::as_str) == Some(plan) && mirrored {
+        if current == plan
+            && record.get(zcode::PLAN_FIELD).and_then(Value::as_str) == Some(plan)
+            && mirrored
+        {
             return Ok(Vec::new());
         }
         record.set_zcode_plan(plan);
@@ -227,7 +235,9 @@ impl AccountStore {
     /// 与 `mark_checkin` 同一口径：**不**动 `updatedAt`（那是「记录被改过」的
     /// 时间，会显示在账号页的「更新于 …」上；落一次领取结果不是用户改动）。
     pub fn mark_zcode_claim(&self, account_id: &str, plan_id: &str, at: i64) -> bool {
-        if at <= 0 { return false; }
+        if at <= 0 {
+            return false;
+        }
         let guard = self.guard();
         let Some(mut record) = self.record_by_id(&guard, account_id) else {
             return false;

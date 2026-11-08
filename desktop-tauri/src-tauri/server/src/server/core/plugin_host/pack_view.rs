@@ -250,12 +250,16 @@ pub fn list_packs() -> Vec<PackSummary> {
                 .unwrap_or_else(|| pack.manifest_providers.clone());
             let providers = declared
                 .into_iter()
-                .filter(|item| !crate::server::core::providers::availability::is_suspended(item.id.as_str()))
+                .filter(|item| {
+                    !crate::server::core::providers::availability::is_suspended(item.id.as_str())
+                })
                 .map(|item| {
                     let id = item.id.0.clone();
                     let enabled = pack.providers.get(&id).copied().unwrap_or(true);
                     PackProviderSummary {
-                        loaded: pack.enabled && enabled && super::serves_provider(&id)
+                        loaded: pack.enabled
+                            && enabled
+                            && super::serves_provider(&id)
                             && super::provider_pack(&id).as_deref() == Some(pack.id.as_str()),
                         enabled,
                         label: item.label,
@@ -268,7 +272,8 @@ pub fn list_packs() -> Vec<PackSummary> {
                 name,
                 description,
                 version: pack.version.clone(),
-                required_version: super::compatibility::minimum_version(&pack.id).map(str::to_string),
+                required_version: super::compatibility::minimum_version(&pack.id)
+                    .map(str::to_string),
                 update_required,
                 compatibility_error,
                 enabled: pack.enabled,
@@ -288,7 +293,11 @@ pub fn list_packs() -> Vec<PackSummary> {
                 protocol,
                 homepage,
                 icon: pack_icon(&dir, manifest.as_ref()),
-                ui: if update_required { Vec::new() } else { pack_ui_pages(&pack.id, manifest.as_ref()) },
+                ui: if update_required {
+                    Vec::new()
+                } else {
+                    pack_ui_pages(&pack.id, manifest.as_ref())
+                },
             }
         })
         .collect()

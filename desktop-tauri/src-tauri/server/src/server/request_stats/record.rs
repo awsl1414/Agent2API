@@ -516,7 +516,8 @@ impl NewRequestEntry {
         let credit = if failed {
             None
         } else {
-            self.credit.filter(|value| value.is_finite() && *value >= 0.0)
+            self.credit
+                .filter(|value| value.is_finite() && *value >= 0.0)
         };
         // provider 从入参透传到记账条目（W2b 留的丢弃点在此接上）。
         // `None`（转发链没走到选路就失败）与空串（上游返回了空 id）都归一成
@@ -728,13 +729,21 @@ pub struct DailyEntry {
     /// 分组统计都要跨过报表读明细的窗口（`SUMMARY_WINDOW_MS`，`all` / `month`
     /// 可能跨年），只靠明细算会少掉一大段。
     /// 键名不沿用 `*Tokens` 是因为它承载的语义比 tokens 宽（请求数与成功数）。
-    #[serde(rename = "providerStats", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        rename = "providerStats",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub provider_stats: Vec<ProviderAccum>,
     /// 当天的按账号累计（**契约之外的补充字段**）。
     ///
     /// 与 `providerStats` 同一理由：区间级的账号用量排行要跨过报表读明细的
     /// 窗口，只有明细的话 `all` / `month` 会少掉一大段。
-    #[serde(rename = "accountStats", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        rename = "accountStats",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub account_stats: Vec<AccountAccum>,
     #[serde(rename = "clientStats", default, skip_serializing_if = "Vec::is_empty")]
     pub(in crate::server::request_stats) client_stats: Vec<ClientAccum>,

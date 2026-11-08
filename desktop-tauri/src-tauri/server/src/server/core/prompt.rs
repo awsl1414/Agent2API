@@ -212,7 +212,9 @@ impl GatewayBlocks {
 
     /// 三段全空（= 没有覆盖，配置里不该留这么一个空壳）
     pub fn is_empty(&self) -> bool {
-        Self::FIELDS.iter().all(|field| self.get(field).trim().is_empty())
+        Self::FIELDS
+            .iter()
+            .all(|field| self.get(field).trim().is_empty())
     }
 
     /// 逐段合并：自己这一段是空白就用 `fallback` 的那一段。

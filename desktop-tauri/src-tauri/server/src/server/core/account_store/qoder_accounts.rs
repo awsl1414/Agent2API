@@ -43,8 +43,16 @@ fn explicit_region(fields: &Map<String, Value>) -> Option<Region> {
 
 fn plugin_region(record: &StoredAccount) -> Option<Region> {
     // 公开快照可能在错分后的续期中被重写，恢复时优先取凭证原有的地区。
-    record.get("pluginSecret").and_then(Value::as_object).and_then(explicit_region)
-        .or_else(|| record.get("pluginPublic").and_then(Value::as_object).and_then(explicit_region))
+    record
+        .get("pluginSecret")
+        .and_then(Value::as_object)
+        .and_then(explicit_region)
+        .or_else(|| {
+            record
+                .get("pluginPublic")
+                .and_then(Value::as_object)
+                .and_then(explicit_region)
+        })
 }
 
 pub(crate) fn migrated_region(record: &StoredAccount) -> Option<Region> {
@@ -63,7 +71,9 @@ pub(crate) fn migrated_region(record: &StoredAccount) -> Option<Region> {
 pub(super) fn migrate_accounts(accounts: &mut [StoredAccount]) -> usize {
     let mut changed = 0;
     for record in accounts {
-        let Some(region) = migrated_region(record) else { continue; };
+        let Some(region) = migrated_region(record) else {
+            continue;
+        };
         if record.provider() != region.provider_id() {
             record.set_provider(region.provider_id());
             changed += 1;
@@ -73,15 +83,20 @@ pub(super) fn migrate_accounts(accounts: &mut [StoredAccount]) -> usize {
 }
 
 fn user_id_of(fields: &Map<String, Value>) -> Option<String> {
-    ["userId", "user_id", "uid"].into_iter().find_map(|key| match fields.get(key) {
-        Some(Value::String(text)) if !text.trim().is_empty() => Some(text.trim().to_string()),
-        Some(Value::Number(number)) => Some(number.to_string()),
-        _ => None,
-    })
+    ["userId", "user_id", "uid"]
+        .into_iter()
+        .find_map(|key| match fields.get(key) {
+            Some(Value::String(text)) if !text.trim().is_empty() => Some(text.trim().to_string()),
+            Some(Value::Number(number)) => Some(number.to_string()),
+            _ => None,
+        })
 }
 
 fn record_user_id(record: &StoredAccount) -> Option<String> {
-    record.get("pluginSecret").and_then(Value::as_object).and_then(user_id_of)
+    record
+        .get("pluginSecret")
+        .and_then(Value::as_object)
+        .and_then(user_id_of)
         .or_else(|| user_id_of(record.fields()))
 }
 
@@ -93,28 +108,47 @@ impl AccountStore {
         identity: &str,
         secret: &Value,
     ) -> Result<(String, Option<StoredAccount>), String> {
-        let mut records = self.with_conn(guard, |conn| {
-            let ids: Vec<String> = sql::queue_rows(conn)?.into_iter()
-                .filter(|row| Region::from_provider_id(&row.provider).is_some())
-                .map(|row| row.id).collect();
-            ids.into_iter().map(|id| sql::load_by_id(conn, &id))
-                .collect::<rusqlite::Result<Vec<_>>>()
-        }).map_err(|error| error.message)?;
+        let mut records = self
+            .with_conn(guard, |conn| {
+                let ids: Vec<String> = sql::queue_rows(conn)?
+                    .into_iter()
+                    .filter(|row| Region::from_provider_id(&row.provider).is_some())
+                    .map(|row| row.id)
+                    .collect();
+                ids.into_iter()
+                    .map(|id| sql::load_by_id(conn, &id))
+                    .collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .map_err(|error| error.message)?;
         let user_id = secret.as_object().and_then(user_id_of);
-        let existing = records.drain(..).flatten()
+        let existing = records
+            .drain(..)
+            .flatten()
             .filter(|record| migrated_region(record) == Some(region))
             .filter(|record| match user_id.as_ref() {
                 Some(user_id) => record_user_id(record).as_ref() == Some(user_id),
                 None => record.id() == identity,
             })
-            .min_by_key(|record| (record.added_at(), record.order_key(), record.id().to_string()));
+            .min_by_key(|record| {
+                (
+                    record.added_at(),
+                    record.order_key(),
+                    record.id().to_string(),
+                )
+            });
         if let Some(record) = existing {
             return Ok((record.id().to_string(), Some(record)));
         }
-        let id = format!("qoder-{}-{:x}", region.id(),
-            Sha256::digest(user_id.as_deref().unwrap_or(identity).as_bytes()));
-        if self.with_conn(guard, |conn| sql::load_by_id(conn, &id))
-            .map_err(|error| error.message)?.is_some() {
+        let id = format!(
+            "qoder-{}-{:x}",
+            region.id(),
+            Sha256::digest(user_id.as_deref().unwrap_or(identity).as_bytes())
+        );
+        if self
+            .with_conn(guard, |conn| sql::load_by_id(conn, &id))
+            .map_err(|error| error.message)?
+            .is_some()
+        {
             return Err("Qoder 账号 ID 已被其它账号占用，请先核对账号记录".to_string());
         }
         Ok((id, None))
@@ -150,18 +184,51 @@ impl AccountStore {
         // `credentials.can_refresh()` 等价：非空即算。
         let can_refresh = !record.refresh_token().trim().is_empty();
         let mut public = Map::new();
-        for key in ["id", "provider", "name", "userId", "email", "nickname", "mode", "source", "tokenTail", "expiresAt"] {
-            public.insert(key.to_string(), record.get(key).cloned().unwrap_or(Value::Null));
+        for key in [
+            "id",
+            "provider",
+            "name",
+            "userId",
+            "email",
+            "nickname",
+            "mode",
+            "source",
+            "tokenTail",
+            "expiresAt",
+        ] {
+            public.insert(
+                key.to_string(),
+                record.get(key).cloned().unwrap_or(Value::Null),
+            );
         }
-        public.insert("edition".to_string(), region.map(|value| Value::String(value.edition().to_string())).unwrap_or(Value::Null));
-        public.insert("editionLabel".to_string(), region.map(|value| Value::String(value.label().to_string())).unwrap_or(Value::Null));
+        public.insert(
+            "edition".to_string(),
+            region
+                .map(|value| Value::String(value.edition().to_string()))
+                .unwrap_or(Value::Null),
+        );
+        public.insert(
+            "editionLabel".to_string(),
+            region
+                .map(|value| Value::String(value.label().to_string()))
+                .unwrap_or(Value::Null),
+        );
         public.insert("hasRefreshToken".to_string(), Value::Bool(can_refresh));
         public.insert("priority".to_string(), Value::from(record.priority()));
         public.insert("enabled".to_string(), Value::Bool(record.enabled()));
         public.insert("addedAt".to_string(), Value::from(record.added_at()));
         public.insert("updatedAt".to_string(), Value::from(record.updated_at()));
-        public.insert("proxy".to_string(), crate::server::core::proxies::describe_account_proxy(Some(&record.proxy())));
-        public.insert("rateLimits".to_string(), record.get("rateLimits").cloned().unwrap_or_else(|| json!({})));
+        public.insert(
+            "proxy".to_string(),
+            crate::server::core::proxies::describe_account_proxy(Some(&record.proxy())),
+        );
+        public.insert(
+            "rateLimits".to_string(),
+            record
+                .get("rateLimits")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
+        );
         public.insert("desktop".to_string(), Value::Bool(false));
         public.insert("available".to_string(), Value::Bool(available));
         // `chatSupported` / `maxConcurrent` **刻意不在这里写**：它们是跨家的统一

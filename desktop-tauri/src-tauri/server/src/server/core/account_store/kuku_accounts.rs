@@ -36,7 +36,13 @@ impl AccountStore {
         for key in ["uid", "loginName", "tokenTail"] {
             public.insert(
                 key.to_string(),
-                Value::String(record.get(key).and_then(Value::as_str).unwrap_or("").to_string()),
+                Value::String(
+                    record
+                        .get(key)
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                ),
             );
         }
         public.insert("desktop".to_string(), Value::Bool(record.is_desktop()));

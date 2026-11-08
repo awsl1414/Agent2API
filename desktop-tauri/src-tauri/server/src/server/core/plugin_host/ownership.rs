@@ -21,7 +21,8 @@ pub enum ProviderCategory {
 }
 
 pub(super) fn category(dir: &Path) -> ProviderCategory {
-    std::fs::read_to_string(dir.join("pack.json")).ok()
+    std::fs::read_to_string(dir.join("pack.json"))
+        .ok()
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
         .and_then(|manifest| manifest.get("provider_category").cloned())
         .and_then(|value| serde_json::from_value(value).ok())
@@ -32,11 +33,18 @@ pub(super) fn owners(registry: &PackRegistry) -> BTreeMap<String, String> {
     owners_with(registry, None)
 }
 
-pub(super) fn owners_with(registry: &PackRegistry, prepared: Option<&InstalledPack>) -> BTreeMap<String, String> {
+pub(super) fn owners_with(
+    registry: &PackRegistry,
+    prepared: Option<&InstalledPack>,
+) -> BTreeMap<String, String> {
     let mut owners = BTreeMap::new();
     for pack in registry.packs.iter().filter(|pack| pack.enabled) {
         let ids = match prepared.filter(|prepared| prepared.id == pack.id) {
-            Some(prepared) => prepared.manifest_providers.iter().map(|provider| provider.id.0.clone()).collect(),
+            Some(prepared) => prepared
+                .manifest_providers
+                .iter()
+                .map(|provider| provider.id.0.clone())
+                .collect(),
             None => declared_ids(pack),
         };
         for provider in ids.into_iter().filter(|id| {
@@ -54,13 +62,25 @@ pub(super) fn owners_with(registry: &PackRegistry, prepared: Option<&InstalledPa
 
 pub(super) fn declared_ids(pack: &InstalledPack) -> Vec<String> {
     let dir = install::plugins_dir().join(&pack.id).join(&pack.version);
-    install::read_manifest(&dir).map(|manifest| manifest.providers)
+    install::read_manifest(&dir)
+        .map(|manifest| manifest.providers)
         .unwrap_or_else(|_| pack.manifest_providers.clone())
-        .into_iter().map(|provider| provider.id.0).collect()
+        .into_iter()
+        .map(|provider| provider.id.0)
+        .collect()
 }
 
-pub(super) fn migrated_enabled(registry: &PackRegistry, pack: &str, provider: &str) -> Option<bool> {
-    if pack != WEB_PACK_ID || provider != "chatglm" { return None; }
-    registry.packs.iter().find(|pack| pack.id == LEGACY_PACK_ID)
+pub(super) fn migrated_enabled(
+    registry: &PackRegistry,
+    pack: &str,
+    provider: &str,
+) -> Option<bool> {
+    if pack != WEB_PACK_ID || provider != "chatglm" {
+        return None;
+    }
+    registry
+        .packs
+        .iter()
+        .find(|pack| pack.id == LEGACY_PACK_ID)
         .and_then(|pack| pack.providers.get(provider).copied())
 }

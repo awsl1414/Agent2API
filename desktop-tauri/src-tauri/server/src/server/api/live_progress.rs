@@ -20,12 +20,20 @@ pub(super) fn sink(stats: Arc<RequestStats>, id: String) -> impl Fn(RunningProgr
             }
             // 等窗口结束后再取最新快照，容量为一的信号不累积历史状态。
             while receiver.try_recv().is_ok() {}
-            let progress = worker.lock().unwrap_or_else(|error| error.into_inner()).take();
+            let progress = worker
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .take();
             if let Some(progress) = progress {
                 let stats = stats.clone();
                 let id = id.clone();
-                if let Err(error) = tokio::task::spawn_blocking(move || stats.update_running(&id, &progress)).await {
-                    crate::server::logging::console_line("[Stats]", &format!("在途状态写入任务失败: {error}"));
+                if let Err(error) =
+                    tokio::task::spawn_blocking(move || stats.update_running(&id, &progress)).await
+                {
+                    crate::server::logging::console_line(
+                        "[Stats]",
+                        &format!("在途状态写入任务失败: {error}"),
+                    );
                 }
                 last_write = Some(Instant::now());
             }

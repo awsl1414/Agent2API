@@ -37,12 +37,20 @@ fn interpreter(exe: &Path) -> Option<String> {
     // 程序头内 p_offset / p_filesz 的偏移也随宽度走。
     let (phoff, phentsize, phnum, field_width, p_offset_at, p_filesz_at) = match header[4] {
         1 => (
-            le(&header[0x1c..0x20])?, le(&header[0x2a..0x2c])?, le(&header[0x2c..0x2e])?,
-            4usize, 0x04, 0x10,
+            le(&header[0x1c..0x20])?,
+            le(&header[0x2a..0x2c])?,
+            le(&header[0x2c..0x2e])?,
+            4usize,
+            0x04,
+            0x10,
         ),
         2 => (
-            le(&header[0x20..0x28])?, le(&header[0x36..0x38])?, le(&header[0x38..0x3a])?,
-            8usize, 0x08, 0x20,
+            le(&header[0x20..0x28])?,
+            le(&header[0x36..0x38])?,
+            le(&header[0x38..0x3a])?,
+            8usize,
+            0x08,
+            0x20,
         ),
         _ => return None,
     };
@@ -58,8 +66,7 @@ fn interpreter(exe: &Path) -> Option<String> {
             continue;
         }
         let offset = le(&entry[p_offset_at..p_offset_at + field_width])?;
-        let size = le(&entry[p_filesz_at..p_filesz_at + field_width])?
-            .min(INTERP_PATH_MAX);
+        let size = le(&entry[p_filesz_at..p_filesz_at + field_width])?.min(INTERP_PATH_MAX);
         file.seek(SeekFrom::Start(offset)).ok()?;
         let mut path = vec![0u8; size as usize];
         file.read_exact(&mut path).ok()?;
@@ -77,7 +84,12 @@ fn le(bytes: &[u8]) -> Option<u64> {
     if bytes.len() > 8 {
         return None;
     }
-    Some(bytes.iter().rev().fold(0u64, |acc, byte| (acc << 8) | u64::from(*byte)))
+    Some(
+        bytes
+            .iter()
+            .rev()
+            .fold(0u64, |acc, byte| (acc << 8) | u64::from(*byte)),
+    )
 }
 
 #[cfg(test)]
@@ -113,7 +125,10 @@ mod tests {
 
     #[test]
     fn a_missing_interpreter_is_reported_with_its_path() {
-        let exe = write_temp("interp-missing.so", &elf64_with_interp("/no/such/ld-linux.so.2"));
+        let exe = write_temp(
+            "interp-missing.so",
+            &elf64_with_interp("/no/such/ld-linux.so.2"),
+        );
         assert_eq!(
             missing_interpreter(&exe),
             Some("/no/such/ld-linux.so.2".to_string())
@@ -138,7 +153,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("agent2api-elf-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("truncated.so");
-        std::fs::write(&path, &ELF_MAGIC).unwrap();
+        std::fs::write(&path, ELF_MAGIC).unwrap();
         assert_eq!(missing_interpreter(&path), None);
     }
 }

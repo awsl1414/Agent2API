@@ -65,30 +65,94 @@ const COMPONENTS_CSS: &str = include_str!("../../../../../ui/css/components.css"
 /// 只列**插件家**用得到的那些（签到中心只画有签到能力的家）。宿主自己用的
 /// 其余图标不必在这里出现：它们走 `ui/assets/providers/` 的常规路径。
 const PROVIDER_ICONS: &[(&str, &[u8])] = &[
-    ("workbuddy", include_bytes!("../../../../../ui/assets/providers/workbuddy.png")),
-    ("raccoon", include_bytes!("../../../../../ui/assets/providers/raccoon.png")),
-    ("catpaw", include_bytes!("../../../../../ui/assets/providers/catpaw.png")),
-    ("autoclaw", include_bytes!("../../../../../ui/assets/providers/autoclaw.png")),
-    ("qoder", include_bytes!("../../../../../ui/assets/providers/qoder.png")),
-    ("cline", include_bytes!("../../../../../ui/assets/providers/cline.png")),
-    ("accio", include_bytes!("../../../../../ui/assets/providers/accio.png")),
-    ("zcode", include_bytes!("../../../../../ui/assets/providers/zcode.png")),
-    ("codearts", include_bytes!("../../../../../ui/assets/providers/codearts.png")),
-    ("trae", include_bytes!("../../../../../ui/assets/providers/trae.png")),
-    ("loomy", include_bytes!("../../../../../ui/assets/providers/loomy.png")),
-    ("kuku", include_bytes!("../../../../../ui/assets/providers/kuku.png")),
-    ("monkeycode", include_bytes!("../../../../../ui/assets/providers/monkeycode.png")),
-    ("commandcode", include_bytes!("../../../../../ui/assets/providers/commandcode.png")),
-    ("antigravity", include_bytes!("../../../../../ui/assets/providers/antigravity.png")),
-    ("officeace", include_bytes!("../../../../../ui/assets/providers/officeace.png")),
-    ("orcaterm", include_bytes!("../../../../../ui/assets/providers/orcaterm.png")),
-    ("chatglm", include_bytes!("../../../../../ui/assets/providers/chatglm.png")),
-    ("modelscope", include_bytes!("../../../../../ui/assets/providers/modelscope.png")),
-    ("atomcode", include_bytes!("../../../../../ui/assets/providers/atomcode.png")),
-    ("lobsterai", include_bytes!("../../../../../ui/assets/providers/lobsterai.png")),
+    (
+        "workbuddy",
+        include_bytes!("../../../../../ui/assets/providers/workbuddy.png"),
+    ),
+    (
+        "raccoon",
+        include_bytes!("../../../../../ui/assets/providers/raccoon.png"),
+    ),
+    (
+        "catpaw",
+        include_bytes!("../../../../../ui/assets/providers/catpaw.png"),
+    ),
+    (
+        "autoclaw",
+        include_bytes!("../../../../../ui/assets/providers/autoclaw.png"),
+    ),
+    (
+        "qoder",
+        include_bytes!("../../../../../ui/assets/providers/qoder.png"),
+    ),
+    (
+        "cline",
+        include_bytes!("../../../../../ui/assets/providers/cline.png"),
+    ),
+    (
+        "accio",
+        include_bytes!("../../../../../ui/assets/providers/accio.png"),
+    ),
+    (
+        "zcode",
+        include_bytes!("../../../../../ui/assets/providers/zcode.png"),
+    ),
+    (
+        "codearts",
+        include_bytes!("../../../../../ui/assets/providers/codearts.png"),
+    ),
+    (
+        "trae",
+        include_bytes!("../../../../../ui/assets/providers/trae.png"),
+    ),
+    (
+        "loomy",
+        include_bytes!("../../../../../ui/assets/providers/loomy.png"),
+    ),
+    (
+        "kuku",
+        include_bytes!("../../../../../ui/assets/providers/kuku.png"),
+    ),
+    (
+        "monkeycode",
+        include_bytes!("../../../../../ui/assets/providers/monkeycode.png"),
+    ),
+    (
+        "commandcode",
+        include_bytes!("../../../../../ui/assets/providers/commandcode.png"),
+    ),
+    (
+        "antigravity",
+        include_bytes!("../../../../../ui/assets/providers/antigravity.png"),
+    ),
+    (
+        "officeace",
+        include_bytes!("../../../../../ui/assets/providers/officeace.png"),
+    ),
+    (
+        "orcaterm",
+        include_bytes!("../../../../../ui/assets/providers/orcaterm.png"),
+    ),
+    (
+        "chatglm",
+        include_bytes!("../../../../../ui/assets/providers/chatglm.png"),
+    ),
+    (
+        "modelscope",
+        include_bytes!("../../../../../ui/assets/providers/modelscope.png"),
+    ),
+    (
+        "atomcode",
+        include_bytes!("../../../../../ui/assets/providers/atomcode.png"),
+    ),
+    (
+        "lobsterai",
+        include_bytes!("../../../../../ui/assets/providers/lobsterai.png"),
+    ),
 ];
 
-const MINIMAX_CODE_SVG: &[u8] = include_bytes!("../../../../../ui/assets/providers/minimax-code.svg");
+const MINIMAX_CODE_SVG: &[u8] =
+    include_bytes!("../../../../../ui/assets/providers/minimax-code.svg");
 
 /// 响应构造的小工具：省掉每个分支里重复的 builder 链。
 fn reply(status: StatusCode, mime: &'static str, body: Vec<u8>) -> Response {
@@ -118,8 +182,15 @@ pub async fn serve(Path(rest): Path<String>) -> Response {
         .split('/')
         .filter(|segment| !segment.is_empty() && *segment != ".")
         .collect();
-    if normalized.iter().any(|segment| *segment == ".." || segment.contains('\\')) {
-        return reply(StatusCode::NOT_FOUND, "text/plain; charset=utf-8", b"not found".to_vec());
+    if normalized
+        .iter()
+        .any(|segment| *segment == ".." || segment.contains('\\'))
+    {
+        return reply(
+            StatusCode::NOT_FOUND,
+            "text/plain; charset=utf-8",
+            b"not found".to_vec(),
+        );
     }
     let path = normalized.join("/");
     match path.as_str() {
@@ -153,22 +224,32 @@ pub async fn serve(Path(rest): Path<String>) -> Response {
             "text/css; charset=utf-8",
             ISLANDS_CSS.as_bytes().to_vec(),
         ),
-        "providers/minimax-code.svg" | "providers/minimax-code-global.svg" => reply(
-            StatusCode::OK,
-            "image/svg+xml",
-            MINIMAX_CODE_SVG.to_vec(),
-        ),
+        "providers/minimax-code.svg" | "providers/minimax-code-global.svg" => {
+            reply(StatusCode::OK, "image/svg+xml", MINIMAX_CODE_SVG.to_vec())
+        }
         other => {
             // 提供商图标：`providers/<id>.png`
             let Some(name) = other.strip_prefix("providers/") else {
-                return reply(StatusCode::NOT_FOUND, "text/plain; charset=utf-8", b"not found".to_vec());
+                return reply(
+                    StatusCode::NOT_FOUND,
+                    "text/plain; charset=utf-8",
+                    b"not found".to_vec(),
+                );
             };
             let Some(id) = name.strip_suffix(".png") else {
-                return reply(StatusCode::NOT_FOUND, "text/plain; charset=utf-8", b"not found".to_vec());
+                return reply(
+                    StatusCode::NOT_FOUND,
+                    "text/plain; charset=utf-8",
+                    b"not found".to_vec(),
+                );
             };
             match PROVIDER_ICONS.iter().find(|(key, _)| *key == id) {
                 Some((_, bytes)) => reply(StatusCode::OK, "image/png", bytes.to_vec()),
-                None => reply(StatusCode::NOT_FOUND, "text/plain; charset=utf-8", b"not found".to_vec()),
+                None => reply(
+                    StatusCode::NOT_FOUND,
+                    "text/plain; charset=utf-8",
+                    b"not found".to_vec(),
+                ),
             }
         }
     }

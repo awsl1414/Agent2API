@@ -38,8 +38,8 @@ use crate::server::request_stats::{RequestStats, RunningProgress};
 use crate::server::ServerState;
 
 mod raw;
-pub use raw::{capture_raw_body, capture_raw_json, raw_body_text};
 use raw::RawCapture;
+pub use raw::{capture_raw_body, capture_raw_json, raw_body_text};
 
 /// 调试落盘的目录名与文件名（Node 版 `join(CONFIG_DIR, 'debug', ...)`）
 const DEBUG_DIR: &str = "debug";
@@ -198,7 +198,12 @@ fn resolve_model_for(
         // 白名单收窄：不限制时 `allowed` 恒真，等价于原逻辑（零行为差异）
         let allowed = |name: &str| key_scope::allows_model(scope, name);
         let models = default_model_catalog();
-        let fallback = if (config::routing_profiles().group_for_model(default_model).is_some() || default_model_usable(default_model)) && allowed(default_model) {
+        let fallback = if (config::routing_profiles()
+            .group_for_model(default_model)
+            .is_some()
+            || default_model_usable(default_model))
+            && allowed(default_model)
+        {
             Some(default_model.to_string())
         } else {
             models
@@ -245,9 +250,14 @@ fn resolve_model_for(
     // 空路由也是已登记入口；权限照常检查，具体不可用原因交给组内选路报告。
     if let Some(group) = config::routing_profiles().group_for_model(&requested_model) {
         if !key_scope::allows_model(scope, &requested_model) {
-            return Err(GatewayError::with_status(404, "此路由组不在网关 Key 的可用模型列表里").with_code("model_not_found"));
+            return Err(
+                GatewayError::with_status(404, "此路由组不在网关 Key 的可用模型列表里")
+                    .with_code("model_not_found"),
+            );
         }
-        if image_generation { return Err(GatewayError::bad_request("对话路由组不能用于图片生成")); }
+        if image_generation {
+            return Err(GatewayError::bad_request("对话路由组不能用于图片生成"));
+        }
         if let Some(object) = payload.as_object_mut() {
             object.insert("model".into(), group.model.clone().into());
             object.insert("_wb_route_group_id".into(), group.id.clone().into());
@@ -257,9 +267,10 @@ fn resolve_model_for(
     }
     // 按提供商区分启停后，404 判定是「路由全链（原生 + 映射）都不可用」
     if !requested_model.is_empty() && model_blocked_everywhere(&requested_model) {
-        return Err(GatewayError::with_status(404, format!(
-            "模型已在网关中关闭: {requested_model}。完整列表见 GET /v1/models"
-        ))
+        return Err(GatewayError::with_status(
+            404,
+            format!("模型已在网关中关闭: {requested_model}。完整列表见 GET /v1/models"),
+        )
         .with_code("model_not_found"));
     }
     // ③ 广告视图里没有 → 400（「列表里没有就拒绝」；例外见函数头说明）
@@ -292,18 +303,27 @@ fn resolve_model_for(
         }
     }
     if !requested_model.is_empty() && !key_scope::allows_model(scope, &requested_model) {
-        return Err(GatewayError::with_status(404, format!(
-            "模型 '{requested_model}' 不可用：不在这把网关 Key 的可用模型列表里"
-        )).with_code("model_not_found"));
+        return Err(GatewayError::with_status(
+            404,
+            format!("模型 '{requested_model}' 不可用：不在这把网关 Key 的可用模型列表里"),
+        )
+        .with_code("model_not_found"));
     }
     if !image_generation && !requested_model.is_empty() {
-        let providers = crate::server::core::providers::catalog::forwarding_providers(&requested_model);
-        if !providers.is_empty() && providers.iter().all(|provider| {
-            crate::server::core::providers::images::provider_model_is_image(provider, &requested_model)
-        }) {
+        let providers =
+            crate::server::core::providers::catalog::forwarding_providers(&requested_model);
+        if !providers.is_empty()
+            && providers.iter().all(|provider| {
+                crate::server::core::providers::images::provider_model_is_image(
+                    provider,
+                    &requested_model,
+                )
+            })
+        {
             return Err(GatewayError::bad_request(format!(
                 "模型 '{requested_model}' 是图片生成模型，请使用 POST /v1/images/generations"
-            )).with_code("image_generation_required"));
+            ))
+            .with_code("image_generation_required"));
         }
     }
     // 记录本次实际用的模型（默认值已填充完毕），供账号页筛选默认选中
@@ -370,7 +390,10 @@ pub fn request_source(
     identity: Option<axum::extract::Extension<crate::server::request_stats::ApiKeyIdentity>>,
 ) -> crate::server::request_stats::RequestSource {
     let behavior_client = crate::server::core::client::classify(
-        headers.get(header::USER_AGENT).and_then(|value| value.to_str().ok()).unwrap_or(""),
+        headers
+            .get(header::USER_AGENT)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or(""),
     );
     let snapshot = crate::server::config::client_identification::current();
     let defaults = crate::server::core::client::ClientSettings::default();
@@ -380,7 +403,9 @@ pub fn request_source(
     );
     crate::server::request_stats::RequestSource {
         client,
-        api_key: identity.map(|axum::extract::Extension(identity)| identity).unwrap_or_default(),
+        api_key: identity
+            .map(|axum::extract::Extension(identity)| identity)
+            .unwrap_or_default(),
         evidence: Some(evidence),
         behavior_client,
     }
@@ -490,7 +515,9 @@ pub(super) fn running_progress(snapshot: &TelemetrySnapshot, started_at: i64) ->
         upstream_model: snapshot.upstream_model.clone(),
         upstream_reasoning: snapshot.upstream_reasoning.clone(),
         attempts: snapshot.attempts.max(1),
-        first_response_ms: snapshot.first_response_at.map(|at| (at - started_at).max(0)),
+        first_response_ms: snapshot
+            .first_response_at
+            .map(|at| (at - started_at).max(0)),
         phase: snapshot.phase.as_str().to_string(),
         // 初始连接阶段没有单独时间戳，沿用请求开始时刻。
         phase_started_at: snapshot.phase_started_at.or(Some(started_at)),
@@ -556,7 +583,11 @@ struct TerminalScan {
 
 impl TerminalScan {
     fn new(frames: TerminalFrames) -> Self {
-        Self { frames, window: Vec::new(), seen: false }
+        Self {
+            frames,
+            window: Vec::new(),
+            seen: false,
+        }
     }
 
     /// 吃一段刚下发的字节，返回「本次是否首次命中收尾帧」。
@@ -572,7 +603,12 @@ impl TerminalScan {
             .any(|frame| contains(&self.window, frame));
         // 只留「最长特征 - 1」个字节：比这更长的残留接不上任何一帧的开头，
         // 留着只会让窗口随响应体积无界增长（一次 SSE 响应动辄数百 KB）
-        let longest = self.frames.iter().map(|frame| frame.len()).max().unwrap_or(0);
+        let longest = self
+            .frames
+            .iter()
+            .map(|frame| frame.len())
+            .max()
+            .unwrap_or(0);
         let keep = longest.saturating_sub(1);
         if self.window.len() > keep {
             let drop = self.window.len() - keep;
@@ -593,7 +629,9 @@ impl TerminalScan {
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     !needle.is_empty()
         && haystack.len() >= needle.len()
-        && haystack.windows(needle.len()).any(|window| window == needle)
+        && haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
 }
 
 pub struct RecordingStream {
@@ -617,11 +655,20 @@ impl RecordingStream {
         context: RecordContext,
         frames: TerminalFrames,
     ) -> Self {
-        let terminal = if frames.is_empty() { None } else { Some(TerminalScan::new(frames)) };
+        let terminal = if frames.is_empty() {
+            None
+        } else {
+            Some(TerminalScan::new(frames))
+        };
         // 响应侧采集与请求侧同一道闸：调试模式关着就不攒缓冲（零开销）——
         // 这里定格一次，本请求的响应侧行为此后不再看开关（见 `RawCapture` 的说明）
         let raw = RawCapture::new(crate::server::core::debug_traffic::enabled());
-        Self { inner, context: Some(context), terminal, raw }
+        Self {
+            inner,
+            context: Some(context),
+            terminal,
+            raw,
+        }
     }
 
     /// 记账并清空上下文（幂等：第二次调用什么都不做）。
@@ -741,7 +788,11 @@ pub fn transformed_stream(
         };
         futures::stream::iter(frames.into_iter().map(Ok)).boxed()
     });
-    Box::new(RecordingStream::with_terminals(Box::new(converted), context, terminals))
+    Box::new(RecordingStream::with_terminals(
+        Box::new(converted),
+        context,
+        terminals,
+    ))
 }
 
 // ─── 响应构造 ───────────────────────────────────────────────
@@ -804,7 +855,10 @@ pub fn error_response(
 ) -> Response {
     let status = error.http_status().as_u16();
     // 记账里的状态码必须与客户端看到的那个一致
-    let recorded = RecordContext { status: i64::from(status), ..context };
+    let recorded = RecordContext {
+        status: i64::from(status),
+        ..context
+    };
     record_entry(&recorded, Some(error.message.clone()));
     convert(status, error)
 }
@@ -927,7 +981,10 @@ mod tests {
     #[test]
     fn spaced_done_still_counts() {
         assert!(seen_after(terminal::CHAT, &[LAST_CHUNK, SPACED_DONE]));
-        assert!(seen_after(OLD_CHAT, &[LAST_CHUNK, SPACED_DONE]), "旧表绿的不许变红");
+        assert!(
+            seen_after(OLD_CHAT, &[LAST_CHUNK, SPACED_DONE]),
+            "旧表绿的不许变红"
+        );
     }
 
     /// CRLF 行尾（上游按 SSE 规范用 `\r\n` 时）两种空格写法都算收尾。
@@ -974,7 +1031,12 @@ mod tests {
             scan.push(chunk.as_bytes());
         }
         let cap = longest(terminal::CHAT).saturating_sub(1);
-        assert!(scan.window.len() <= cap, "窗口留了 {} 字节，上限 {}", scan.window.len(), cap);
+        assert!(
+            scan.window.len() <= cap,
+            "窗口留了 {} 字节，上限 {}",
+            scan.window.len(),
+            cap
+        );
     }
 
     /// 另外两条入口的特征原样不动（帧名带协议前缀，不存在空格方言问题）。
@@ -982,12 +1044,24 @@ mod tests {
     /// 表就等于给那条入口悄悄换了判据。
     #[test]
     fn other_entries_keep_their_own_frames() {
-        assert!(seen_after(terminal::RESPONSES, &["event: response.completed\n"]));
-        assert!(seen_after(terminal::RESPONSES, &["event: response.failed\n"]));
+        assert!(seen_after(
+            terminal::RESPONSES,
+            &["event: response.completed\n"]
+        ));
+        assert!(seen_after(
+            terminal::RESPONSES,
+            &["event: response.failed\n"]
+        ));
         assert!(seen_after(terminal::ANTHROPIC, &["event: message_stop\n"]));
         // DONE 是 Chat 方言：喂给另外两张表都不该命中
-        assert!(!seen_after(terminal::RESPONSES, &[UNSPACED_DONE, SPACED_DONE]));
-        assert!(!seen_after(terminal::ANTHROPIC, &[UNSPACED_DONE, SPACED_DONE]));
+        assert!(!seen_after(
+            terminal::RESPONSES,
+            &[UNSPACED_DONE, SPACED_DONE]
+        ));
+        assert!(!seen_after(
+            terminal::ANTHROPIC,
+            &[UNSPACED_DONE, SPACED_DONE]
+        ));
     }
 
     // ── 记账结果本身（匹配器之外还有两处代码）──────────────────
@@ -1021,11 +1095,14 @@ mod tests {
     fn temp_stats(tag: &str) -> (Arc<RequestStats>, TempDir) {
         static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let id = SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let dir = std::env::temp_dir()
-            .join(format!("api-pipeline-{}-{}-{id}", std::process::id(), tag));
+        let dir =
+            std::env::temp_dir().join(format!("api-pipeline-{}-{}-{id}", std::process::id(), tag));
         let _ = std::fs::remove_dir_all(&dir);
         let db = Db::open(&dir.join("agent2api.db")).expect("临时库应当能建起来");
-        (Arc::new(RequestStats::with_db(Some(db), Retention::default)), TempDir(dir))
+        (
+            Arc::new(RequestStats::with_db(Some(db), Retention::default)),
+            TempDir(dir),
+        )
     }
 
     /// 建一条上下文：用量按生产实测的那份填（71476 / 56）
@@ -1057,8 +1134,12 @@ mod tests {
     fn stream_ending_at(
         frames: Vec<&'static [u8]>,
     ) -> impl futures::Stream<Item = Result<Bytes, std::io::Error>> + Send + Unpin {
-        futures::stream::iter(frames.into_iter().map(|frame| Ok(Bytes::from_static(frame))))
-            .chain(futures::stream::pending::<Result<Bytes, std::io::Error>>())
+        futures::stream::iter(
+            frames
+                .into_iter()
+                .map(|frame| Ok(Bytes::from_static(frame))),
+        )
+        .chain(futures::stream::pending::<Result<Bytes, std::io::Error>>())
     }
 
     /// 取回那条明细（本次用例的库里只有一条）
@@ -1104,7 +1185,10 @@ mod tests {
                 std::task::Poll::Pending => std::task::Poll::Ready(true),
             })
             .await;
-        assert!(still_pending, "客户端挂断前流必须还没有结束，否则走不到 Drop 那条分支");
+        assert!(
+            still_pending,
+            "客户端挂断前流必须还没有结束，否则走不到 Drop 那条分支"
+        );
         drop(stream);
         only_row(&stats)
     }
@@ -1113,22 +1197,41 @@ mod tests {
     /// 行是绿的、用量必须留着。这就是生产那 1176 行的形状。
     #[tokio::test]
     async fn hangup_right_after_unspaced_done_records_success_with_usage() {
-        let row =
-            record_after_hangup(&[LAST_CHUNK.as_bytes(), UNSPACED_DONE.as_bytes()], terminal::CHAT).await;
+        let row = record_after_hangup(
+            &[LAST_CHUNK.as_bytes(), UNSPACED_DONE.as_bytes()],
+            terminal::CHAT,
+        )
+        .await;
         assert_eq!(row["status"], Value::from(200), "状态码照原样：{row}");
         assert!(row["error"].is_null(), "收尾帧之后挂断不该记成中断：{row}");
-        assert_eq!(row["promptTokens"], Value::from(71476), "用量不能被清零：{row}");
-        assert_eq!(row["completionTokens"], Value::from(56), "用量不能被清零：{row}");
+        assert_eq!(
+            row["promptTokens"],
+            Value::from(71476),
+            "用量不能被清零：{row}"
+        );
+        assert_eq!(
+            row["completionTokens"],
+            Value::from(56),
+            "用量不能被清零：{row}"
+        );
     }
 
     /// 同一份字节、同一套丢弃动作，喂给**改前那张表** ⇒ 必须是红且 0 token。
     /// 这条是上一条的正对照：没有它，「绿」可能只是因为这套脚手架根本不写库。
     #[tokio::test]
     async fn the_old_needle_would_have_recorded_the_same_stream_as_an_abort() {
-        let row = record_after_hangup(&[LAST_CHUNK.as_bytes(), UNSPACED_DONE.as_bytes()], OLD_CHAT).await;
+        let row =
+            record_after_hangup(&[LAST_CHUNK.as_bytes(), UNSPACED_DONE.as_bytes()], OLD_CHAT).await;
         let error = row["error"].as_str().unwrap_or("");
-        assert!(error.contains("未完整下发"), "旧表下这条必须仍是中断：{row}");
-        assert_eq!(row["promptTokens"], Value::from(0), "旧口径的失败清零：{row}");
+        assert!(
+            error.contains("未完整下发"),
+            "旧表下这条必须仍是中断：{row}"
+        );
+        assert_eq!(
+            row["promptTokens"],
+            Value::from(0),
+            "旧口径的失败清零：{row}"
+        );
     }
 
     /// 反面对照：客户端在收尾帧**之前**就挂断 ⇒ 仍然是中断、仍然是红。
@@ -1139,6 +1242,10 @@ mod tests {
         let row = record_after_hangup(&[LAST_CHUNK.as_bytes()], terminal::CHAT).await;
         let error = row["error"].as_str().unwrap_or("");
         assert!(error.contains("未完整下发"), "真中断必须留摘要：{row}");
-        assert_eq!(row["promptTokens"], Value::from(0), "失败的行按契约清零：{row}");
+        assert_eq!(
+            row["promptTokens"],
+            Value::from(0),
+            "失败的行按契约清零：{row}"
+        );
     }
 }

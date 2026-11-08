@@ -42,7 +42,9 @@ pub fn bounded(text: &str, max: usize) -> (String, bool) {
     let mut out = String::with_capacity(text.len().min(max));
     for ch in text.chars() {
         let ch = if ch.is_control() { ' ' } else { ch };
-        if out.len() + ch.len_utf8() > max { return (out, true); }
+        if out.len() + ch.len_utf8() > max {
+            return (out, true);
+        }
         out.push(ch);
     }
     (out, false)
@@ -53,50 +55,82 @@ impl ClientEvidence {
         let mut evidence = Self::default();
         for name in std::iter::once("user-agent").chain(IDENTITY_HEADERS.iter().copied()) {
             let mut values = headers.get_all(name).iter();
-            let Some(value) = values.next() else { continue; };
-            let text = match value.to_str() {
-                Ok(text) if values.next().is_none() && !text.chars().any(|ch| ch.is_control() && ch != '\t') => text,
-                _ => { evidence.invalid_headers.push(name.into()); continue; }
+            let Some(value) = values.next() else {
+                continue;
             };
-            let (text, truncated) = bounded(text, if name == "user-agent" { MAX_UA_BYTES } else { MAX_HEADER_BYTES });
+            let text = match value.to_str() {
+                Ok(text)
+                    if values.next().is_none()
+                        && !text.chars().any(|ch| ch.is_control() && ch != '\t') =>
+                {
+                    text
+                }
+                _ => {
+                    evidence.invalid_headers.push(name.into());
+                    continue;
+                }
+            };
+            let (text, truncated) = bounded(
+                text,
+                if name == "user-agent" {
+                    MAX_UA_BYTES
+                } else {
+                    MAX_HEADER_BYTES
+                },
+            );
             if name == "user-agent" {
                 evidence.user_agent = text;
                 evidence.user_agent_truncated = truncated;
             } else {
                 evidence.headers.insert(name.into(), text);
-                if truncated { evidence.truncated_headers.push(name.into()); }
+                if truncated {
+                    evidence.truncated_headers.push(name.into());
+                }
             }
         }
         evidence
     }
 
     pub fn value(&self, header: &str) -> &str {
-        if header == "user-agent" { &self.user_agent }
-        else { self.headers.get(header).map(String::as_str).unwrap_or("") }
+        if header == "user-agent" {
+            &self.user_agent
+        } else {
+            self.headers.get(header).map(String::as_str).unwrap_or("")
+        }
     }
 
     pub fn truncated(&self, header: &str) -> bool {
-        if header == "user-agent" { self.user_agent_truncated }
-        else { self.truncated_headers.iter().any(|name| name == header) }
+        if header == "user-agent" {
+            self.user_agent_truncated
+        } else {
+            self.truncated_headers.iter().any(|name| name == header)
+        }
     }
 
     pub fn normalized(mut self) -> Self {
         let (ua, truncated) = bounded(&self.user_agent, MAX_UA_BYTES);
         self.user_agent = ua;
         self.user_agent_truncated |= truncated;
-        self.headers.retain(|name, _| IDENTITY_HEADERS.contains(&name.as_str()));
+        self.headers
+            .retain(|name, _| IDENTITY_HEADERS.contains(&name.as_str()));
         for (name, text) in &mut self.headers {
             let (value, truncated) = bounded(text, MAX_HEADER_BYTES);
             *text = value;
-            if truncated && !self.truncated_headers.contains(name) { self.truncated_headers.push(name.clone()); }
+            if truncated && !self.truncated_headers.contains(name) {
+                self.truncated_headers.push(name.clone());
+            }
         }
-        self.truncated_headers.retain(|name| IDENTITY_HEADERS.contains(&name.as_str()));
-        self.invalid_headers.retain(|name| name == "user-agent" || IDENTITY_HEADERS.contains(&name.as_str()));
+        self.truncated_headers
+            .retain(|name| IDENTITY_HEADERS.contains(&name.as_str()));
+        self.invalid_headers
+            .retain(|name| name == "user-agent" || IDENTITY_HEADERS.contains(&name.as_str()));
         self
     }
 
     pub fn encoded(&self) -> String {
-        if self.method.is_empty() { return "{}".into(); }
+        if self.method.is_empty() {
+            return "{}".into();
+        }
         serde_json::to_string(self).unwrap_or_else(|_| "{}".into())
     }
 }

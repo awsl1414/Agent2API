@@ -65,7 +65,10 @@ pub fn enabled() -> bool {
 
 /// 本部署是否可用容器内更新：Linux + 开关打开 + 架构有对应的包名。
 pub fn supported() -> bool {
-    cfg!(target_os = "linux") && !super::desktop_shell() && enabled() && bundle_name().is_some()
+    cfg!(target_os = "linux")
+        && !super::desktop_shell()
+        && enabled()
+        && bundle_name().is_some()
         && crate::server::core::system_info::in_container()
 }
 
@@ -119,11 +122,17 @@ pub async fn fetch_checksum(url: &str) -> Result<String, UpdateError> {
 
 /// 从校验文件正文里取哈希（首段 + 64 位十六进制）。
 fn parse_checksum(text: &str) -> Result<String, UpdateError> {
-    let token = text.split_whitespace().next().unwrap_or("").to_ascii_lowercase();
+    let token = text
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
     if token.len() == 64 && token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         Ok(token)
     } else {
-        Err(UpdateError::new("校验文件格式异常（找不到 sha256 哈希），已放弃安装"))
+        Err(UpdateError::new(
+            "校验文件格式异常（找不到 sha256 哈希），已放弃安装",
+        ))
     }
 }
 
@@ -176,7 +185,10 @@ pub fn extract_bundle(
     let mut total: u64 = 0;
     let mut seen = std::collections::HashSet::new();
     let mut entries = 0usize;
-    let mut out = Extracted { binary: false, ui_files: 0 };
+    let mut out = Extracted {
+        binary: false,
+        ui_files: 0,
+    };
 
     loop {
         if !read_header(&mut tar, &mut header)? {
@@ -190,8 +202,17 @@ pub fn extract_bundle(
             return Err(UpdateError::new("更新包条目过多，已中止"));
         }
         let recorded = octal(&header[148..156]);
-        let calculated: u64 = header.iter().enumerate()
-            .map(|(index, byte)| if (148..156).contains(&index) { 32 } else { u64::from(*byte) }).sum();
+        let calculated: u64 = header
+            .iter()
+            .enumerate()
+            .map(|(index, byte)| {
+                if (148..156).contains(&index) {
+                    32
+                } else {
+                    u64::from(*byte)
+                }
+            })
+            .sum();
         if recorded != calculated {
             return Err(UpdateError::new("更新包已损坏（tar 头校验失败）"));
         }
@@ -214,7 +235,9 @@ pub fn extract_bundle(
         match entry_type {
             'L' => {
                 let body = read_meta(&mut tar, size)?;
-                name = String::from_utf8_lossy(&body).trim_end_matches('\0').to_string();
+                name = String::from_utf8_lossy(&body)
+                    .trim_end_matches('\0')
+                    .to_string();
                 read_padding(&mut tar, size)?;
                 long_name = Some(name);
                 continue;
@@ -222,7 +245,9 @@ pub fn extract_bundle(
             'x' => {
                 let body = read_meta(&mut tar, size)?;
                 let text = String::from_utf8_lossy(&body).to_string();
-                if let Some(value) = text.lines().filter_map(|line| line.split_once(' '))
+                if let Some(value) = text
+                    .lines()
+                    .filter_map(|line| line.split_once(' '))
                     .find_map(|(_, record)| record.strip_prefix("path="))
                 {
                     long_name = Some(value.to_string());
@@ -233,8 +258,8 @@ pub fn extract_bundle(
             _ => {}
         }
 
-        let relative = safe_relative(&name)
-            .ok_or_else(|| UpdateError::new("更新包包含不安全的路径"))?;
+        let relative =
+            safe_relative(&name).ok_or_else(|| UpdateError::new("更新包包含不安全的路径"))?;
         if !seen.insert(relative.clone()) {
             return Err(UpdateError::new("更新包包含重复条目"));
         }
@@ -291,7 +316,9 @@ pub fn extract_bundle(
 /// 返回可安全 `join` 到暂存目录的相对路径。
 fn safe_relative(name: &str) -> Option<PathBuf> {
     let mut trimmed = name;
-    while let Some(rest) = trimmed.strip_prefix("./") { trimmed = rest; }
+    while let Some(rest) = trimmed.strip_prefix("./") {
+        trimmed = rest;
+    }
     if trimmed.is_empty() || trimmed.starts_with('/') || trimmed.contains(['\\', '\0']) {
         return None;
     }
@@ -348,11 +375,13 @@ fn write_entry(reader: &mut impl Read, target: &Path, size: u64) -> Result<(), U
         return Err(UpdateError::new("更新包里的条目体积异常，已中止"));
     }
     if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| UpdateError::new(format!("创建目录失败（{}）：{error}", parent.display())))?;
+        std::fs::create_dir_all(parent).map_err(|error| {
+            UpdateError::new(format!("创建目录失败（{}）：{error}", parent.display()))
+        })?;
     }
-    let mut file = std::fs::File::create(target)
-        .map_err(|error| UpdateError::new(format!("写入文件失败（{}）：{error}", target.display())))?;
+    let mut file = std::fs::File::create(target).map_err(|error| {
+        UpdateError::new(format!("写入文件失败（{}）：{error}", target.display()))
+    })?;
     let mut remaining = size;
     let mut buffer = vec![0u8; 64 * 1024];
     while remaining > 0 {
@@ -360,12 +389,14 @@ fn write_entry(reader: &mut impl Read, target: &Path, size: u64) -> Result<(), U
         reader
             .read_exact(&mut buffer[..chunk])
             .map_err(|error| UpdateError::new(format!("读取更新包失败：{error}")))?;
-        file.write_all(&buffer[..chunk])
-            .map_err(|error| UpdateError::new(format!("写入文件失败（{}）：{error}", target.display())))?;
+        file.write_all(&buffer[..chunk]).map_err(|error| {
+            UpdateError::new(format!("写入文件失败（{}）：{error}", target.display()))
+        })?;
         remaining -= chunk as u64;
     }
-    file.flush()
-        .map_err(|error| UpdateError::new(format!("写入文件失败（{}）：{error}", target.display())))?;
+    file.flush().map_err(|error| {
+        UpdateError::new(format!("写入文件失败（{}）：{error}", target.display()))
+    })?;
     set_mode(target, 0o644);
     Ok(())
 }
@@ -401,7 +432,10 @@ fn octal(bytes: &[u8]) -> u64 {
 
 /// tar 头里的 C 字符串字段
 fn cstr(bytes: &[u8]) -> String {
-    let end = bytes.iter().position(|byte| *byte == 0).unwrap_or(bytes.len());
+    let end = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
     String::from_utf8_lossy(&bytes[..end]).to_string()
 }
 
@@ -511,10 +545,9 @@ pub fn apply(
     let bin_stage = parent.join(format!(".a2a-update-{id}"));
     // 界面的暂存目录必须与界面目录同父（rename 要同文件系统）
     let ui_stage = match ui_dir {
-        Some(dir) if dir.is_dir() => match dir.parent() {
-            Some(parent) => Some(parent.join(format!(".a2a-ui-{id}"))),
-            None => None,
-        },
+        Some(dir) if dir.is_dir() => dir
+            .parent()
+            .map(|parent| parent.join(format!(".a2a-ui-{id}"))),
         _ => None,
     };
 
@@ -536,7 +569,9 @@ pub fn apply(
     let outcome = (|| {
         let extracted = extract_bundle(archive, &bin_stage, ui_stage.as_deref())?;
         if !extracted.binary {
-            return Err(UpdateError::new("更新包里没有 agent2api-server，已放弃安装"));
+            return Err(UpdateError::new(
+                "更新包里没有 agent2api-server，已放弃安装",
+            ));
         }
         let staged_bin = bin_stage.join(BINARY_ENTRY);
         set_mode(&staged_bin, 0o755);
@@ -550,7 +585,8 @@ pub fn apply(
                     // 整单失败：二进制也还原，不留「新版程序 + 旧版界面」的半套
                     if let Err(restore_error) = std::fs::rename(backup_path(exe), exe) {
                         return Err(UpdateError::new(format!(
-                            "{}；恢复现行程序失败：{restore_error}", error.message
+                            "{}；恢复现行程序失败：{restore_error}",
+                            error.message
                         )));
                     }
                     return Err(error);

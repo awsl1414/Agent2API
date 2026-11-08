@@ -10,7 +10,7 @@ use crate::server::core::plugin_host::update::MAX_PACK_BYTES;
 use crate::server::errors::management_error;
 use crate::server::http::{ok_json, parse_body};
 
-const MAX_PACK_BASE64_BYTES: usize = (MAX_PACK_BYTES + 2) / 3 * 4;
+const MAX_PACK_BASE64_BYTES: usize = MAX_PACK_BYTES.div_ceil(3) * 4;
 // 仅插件上传路由使用：96 MiB ZIP 的 base64 为 128 MiB，另留有限的 JSON 开销。
 pub(crate) const MAX_PACK_UPLOAD_BYTES: usize = MAX_PACK_BASE64_BYTES + 1024 * 1024;
 
@@ -117,9 +117,14 @@ pub async fn set_provider(body: Bytes) -> Response {
     if id.is_empty() || provider.is_empty() {
         return management_error(400, "缺少插件包 id 或提供商 id");
     }
-    change_pack(id, plugin_host::operations::PackChange::Provider {
-        id: provider.to_string(), enabled,
-    }).await
+    change_pack(
+        id,
+        plugin_host::operations::PackChange::Provider {
+            id: provider.to_string(),
+            enabled,
+        },
+    )
+    .await
 }
 
 pub async fn check_update() -> Response {
@@ -218,8 +223,7 @@ fn pack_bytes(body: &[u8]) -> Result<Vec<u8>, String> {
         .take_while(|byte| *byte == b'=')
         .take(2)
         .count();
-    let estimated =
-        (encoded.len() / 4 * 3 + encoded.len() % 4 * 3 / 4).saturating_sub(padding);
+    let estimated = (encoded.len() / 4 * 3 + encoded.len() % 4 * 3 / 4).saturating_sub(padding);
     if estimated > MAX_PACK_BYTES {
         return Err(pack_size_error());
     }

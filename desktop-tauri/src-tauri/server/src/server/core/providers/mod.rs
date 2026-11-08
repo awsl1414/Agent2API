@@ -60,10 +60,10 @@
 //!
 //! 本文件仍然只做「身份与元数据」这一件事，不认识磁盘也不认识账号。
 
-pub mod adapter;
-pub mod availability;
 pub mod accio;
+pub mod adapter;
 pub mod autoclaw;
+pub mod availability;
 pub mod catalog;
 /// 远程模型清单的**持久化缓存**（各家的清单在进程重启后由它读回，见模块头）。
 /// 不进身份体系：它是各家的共用基础设施，只按 scope 字符串存取 JSON。
@@ -79,30 +79,30 @@ pub mod content_block;
 pub mod custom;
 pub mod images;
 pub mod loomy;
-/// MonkeyCode 的两个站点：`monkeycode/` 里只剩**地区身份**
-/// （`monkeycode` / `monkeycode-intl` 是两家 provider）与展示名。
-/// 转发与账号实现在插件里。
-pub mod monkeycode;
-/// ModelScope（魔搭）的两个站点：`modelscope/region.rs` 里只剩**地区身份**
-/// （`modelscope` / `modelscope-intl` 是两家 provider）。转发、签到与账号实现
-/// 在插件里。
-pub mod modelscope;
-pub mod onboarding_memory;
-/// **本地就绪闸门**：一条通道在「还没出本机就注定发不出去」时，让选路绕开它
-/// （当前唯一的用户是 ZCode 活动套餐的令牌池，判据与取舍见模块头）。
-/// 不进身份体系：它是各家的共用设施，只按 provider id 记状态。
-pub mod readiness;
-pub mod policy;
 /// **未安装插件**时的占位适配器（如实报错 + 指路去装插件）。
 ///
 /// 本项目把「怎么伪装成官方客户端打某个上游」的全部实现搬到了独立的提供商
 /// 插件里（不随本仓库发布），因此网关这边没有内置转发实现 —— 这个模块就是
 /// 「插件缺失」时的那条路径。见文件头的完整说明。
 pub mod missing_plugin;
+/// ModelScope（魔搭）的两个站点：`modelscope/region.rs` 里只剩**地区身份**
+/// （`modelscope` / `modelscope-intl` 是两家 provider）。转发、签到与账号实现
+/// 在插件里。
+pub mod modelscope;
+/// MonkeyCode 的两个站点：`monkeycode/` 里只剩**地区身份**
+/// （`monkeycode` / `monkeycode-intl` 是两家 provider）与展示名。
+/// 转发与账号实现在插件里。
+pub mod monkeycode;
+pub mod onboarding_memory;
+pub mod policy;
 pub mod qoder;
+/// **本地就绪闸门**：一条通道在「还没出本机就注定发不出去」时，让选路绕开它
+/// （当前唯一的用户是 ZCode 活动套餐的令牌池，判据与取舍见模块头）。
+/// 不进身份体系：它是各家的共用设施，只按 provider id 记状态。
+pub mod readiness;
 pub mod refresh_flight;
-pub mod router;
 pub mod retry;
+pub mod router;
 pub mod workbuddy;
 pub mod zcode;
 
@@ -230,37 +230,124 @@ pub const PROVIDERS: &[ProviderMeta] = &[
     // 顺序 = 展示顺序，也决定模型目录合并时同名模型先归谁家。
     // 成对/成组的提供商**相邻**排列（同一条产品线的两个版本，中间隔着别家
     // 会让「找国际版」变成一次扫描），国内版在前（与存量账号的归属一致）。
-    ProviderMeta { id: "workbuddy", label: "WorkBuddy 国内版" },
-    ProviderMeta { id: "workbuddy-intl", label: "WorkBuddy 国际版" },
-    ProviderMeta { id: "raccoon", label: "小浣熊" },
-    ProviderMeta { id: "catpaw", label: "CatPaw" },
-    ProviderMeta { id: "autoclaw", label: "AutoClaw 国内版" },
-    ProviderMeta { id: "autoclaw-intl", label: "AutoClaw 国际版" },
-    ProviderMeta { id: "qoder", label: "Qoder 中国版" },
-    ProviderMeta { id: "qoder-intl", label: "Qoder 国际版" },
-    ProviderMeta { id: "cline-free", label: "Cline Free" },
-    ProviderMeta { id: "cline-pass", label: "Cline Pass" },
-    ProviderMeta { id: "accio", label: "Accio" },
-    ProviderMeta { id: "accio-cn", label: "Accio 国内版" },
-    ProviderMeta { id: "zcode", label: "ZCode 国内版" },
-    ProviderMeta { id: "zcode-intl", label: "ZCode 国际版" },
-    ProviderMeta { id: "codearts", label: "CodeArts" },
-    ProviderMeta { id: "trae", label: "Trae" },
-    ProviderMeta { id: "loomy", label: "Loomy" },
-    ProviderMeta { id: "kuku", label: "KukuAI" },
-    ProviderMeta { id: "monkeycode", label: "MonkeyCode" },
-    ProviderMeta { id: "monkeycode-intl", label: "MonkeyCode 国际版" },
-    ProviderMeta { id: "commandcode", label: "Command Code" },
-    ProviderMeta { id: "antigravity", label: "Antigravity" },
+    ProviderMeta {
+        id: "workbuddy",
+        label: "WorkBuddy 国内版",
+    },
+    ProviderMeta {
+        id: "workbuddy-intl",
+        label: "WorkBuddy 国际版",
+    },
+    ProviderMeta {
+        id: "raccoon",
+        label: "小浣熊",
+    },
+    ProviderMeta {
+        id: "catpaw",
+        label: "CatPaw",
+    },
+    ProviderMeta {
+        id: "autoclaw",
+        label: "AutoClaw 国内版",
+    },
+    ProviderMeta {
+        id: "autoclaw-intl",
+        label: "AutoClaw 国际版",
+    },
+    ProviderMeta {
+        id: "qoder",
+        label: "Qoder 中国版",
+    },
+    ProviderMeta {
+        id: "qoder-intl",
+        label: "Qoder 国际版",
+    },
+    ProviderMeta {
+        id: "cline-free",
+        label: "Cline Free",
+    },
+    ProviderMeta {
+        id: "cline-pass",
+        label: "Cline Pass",
+    },
+    ProviderMeta {
+        id: "accio",
+        label: "Accio",
+    },
+    ProviderMeta {
+        id: "accio-cn",
+        label: "Accio 国内版",
+    },
+    ProviderMeta {
+        id: "zcode",
+        label: "ZCode 国内版",
+    },
+    ProviderMeta {
+        id: "zcode-intl",
+        label: "ZCode 国际版",
+    },
+    ProviderMeta {
+        id: "codearts",
+        label: "CodeArts",
+    },
+    ProviderMeta {
+        id: "trae",
+        label: "Trae",
+    },
+    ProviderMeta {
+        id: "loomy",
+        label: "Loomy",
+    },
+    ProviderMeta {
+        id: "kuku",
+        label: "KukuAI",
+    },
+    ProviderMeta {
+        id: "monkeycode",
+        label: "MonkeyCode",
+    },
+    ProviderMeta {
+        id: "monkeycode-intl",
+        label: "MonkeyCode 国际版",
+    },
+    ProviderMeta {
+        id: "commandcode",
+        label: "Command Code",
+    },
+    ProviderMeta {
+        id: "antigravity",
+        label: "Antigravity",
+    },
     // 以下各家排在末尾：它们与前面几家的模型名大面积同名，注册表顺序决定
     // 目录合并时同名模型先归谁家 —— 放末尾即「同名时优先已有各家」。
-    ProviderMeta { id: "officeace", label: "OfficeAce 果办" },
-    ProviderMeta { id: "orcaterm", label: "OrcaTerm" },
-    ProviderMeta { id: "chatglm", label: "智谱清言" },
-    ProviderMeta { id: "modelscope", label: "ModelScope 国内版" },
-    ProviderMeta { id: "modelscope-intl", label: "ModelScope 国际版" },
-    ProviderMeta { id: "atomcode", label: "AtomCode" },
-    ProviderMeta { id: "lobsterai", label: "LobsterAI" },
+    ProviderMeta {
+        id: "officeace",
+        label: "OfficeAce 果办",
+    },
+    ProviderMeta {
+        id: "orcaterm",
+        label: "OrcaTerm",
+    },
+    ProviderMeta {
+        id: "chatglm",
+        label: "智谱清言",
+    },
+    ProviderMeta {
+        id: "modelscope",
+        label: "ModelScope 国内版",
+    },
+    ProviderMeta {
+        id: "modelscope-intl",
+        label: "ModelScope 国际版",
+    },
+    ProviderMeta {
+        id: "atomcode",
+        label: "AtomCode",
+    },
+    ProviderMeta {
+        id: "lobsterai",
+        label: "LobsterAI",
+    },
 ];
 
 /// provider id 在注册表里的下标（未知 id → None）。

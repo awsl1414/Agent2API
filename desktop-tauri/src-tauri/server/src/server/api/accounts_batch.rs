@@ -10,7 +10,7 @@ use crate::server::http::ok_json;
 use crate::server::ServerState;
 
 pub async fn batch_accounts(state: &ServerState, body: &Bytes) -> Response {
-    let payload = match parse_json_body(&body, "请求内容不是有效 JSON") {
+    let payload = match parse_json_body(body, "请求内容不是有效 JSON") {
         Ok(value) => value,
         Err(response) => return response,
     };
@@ -39,14 +39,18 @@ pub async fn batch_accounts(state: &ServerState, body: &Bytes) -> Response {
         "remove" => state.store().batch_remove(&ids),
         "enable" | "disable" => {
             let enabled = action == "enable";
-            state.store().batch_update(&ids, &json!({ "enabled": enabled }))
+            state
+                .store()
+                .batch_update(&ids, &json!({ "enabled": enabled }))
         }
         "proxy" => {
             // 允许 proxy=null（批量改为直连）；缺字段是显式报错
             let Some(target) = payload.get("proxy") else {
                 return management_error(400, "批量修改代理时缺少 proxy 字段");
             };
-            state.store().batch_update(&ids, &json!({ "proxy": target }))
+            state
+                .store()
+                .batch_update(&ids, &json!({ "proxy": target }))
         }
         "concurrency" => {
             // 并发上限（0 = 不限）；缺字段是显式报错，值本身由 store 归一
@@ -62,7 +66,9 @@ pub async fn batch_accounts(state: &ServerState, body: &Bytes) -> Response {
             let Some(target) = payload.get("usageQuery") else {
                 return management_error(400, "批量查询设置缺少 usageQuery 字段");
             };
-            state.store().batch_update(&ids, &json!({ "usageQuery": target }))
+            state
+                .store()
+                .batch_update(&ids, &json!({ "usageQuery": target }))
         }
         "limiters" => {
             let Some(mode) = payload.get("limiterMode") else {

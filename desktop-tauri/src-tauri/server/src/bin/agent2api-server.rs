@@ -86,7 +86,9 @@ fn main() -> ExitCode {
     }
     if std::env::args().nth(1).as_deref() == Some("--windows-updater") {
         let id = std::env::args().nth(2).unwrap_or_default();
-        return ExitCode::from(agent2api_server::server::core::update::windows_service::run_helper(&id) as u8);
+        return ExitCode::from(
+            agent2api_server::server::core::update::windows_service::run_helper(&id) as u8,
+        );
     }
     // Windows 服务形态判定放在**参数解析之前**：服务进程没有控制台，
     // 配置写错（端口非法之类）时 eprintln 会全部丢掉，而「配置错导致起不来」
@@ -199,7 +201,8 @@ fn start_gateway(launch: &Launch) -> Result<Running, String> {
         let _ = restart_tx.try_send(());
     }));
 
-    let shutdown_tx = start(&state).map_err(|conflict| format!("网关启动失败：{}", conflict.message))?;
+    let shutdown_tx =
+        start(&state).map_err(|conflict| format!("网关启动失败：{}", conflict.message))?;
     agent2api_server::server::core::update::systemd::notify_ready();
 
     logging::log(

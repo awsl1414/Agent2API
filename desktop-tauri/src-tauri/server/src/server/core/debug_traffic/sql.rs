@@ -40,7 +40,11 @@ const COLUMNS: &str = "id, ts, url, provider, request_headers, request_body, sta
 pub(super) fn payload_bytes(entry: &TrafficEntry) -> i64 {
     let headers = entry.request_headers.to_string().len();
     let body = entry.request_body.to_string().len();
-    let response_headers = entry.response_headers.as_ref().map(|item| item.to_string().len()).unwrap_or(0);
+    let response_headers = entry
+        .response_headers
+        .as_ref()
+        .map(|item| item.to_string().len())
+        .unwrap_or(0);
     let response_body = entry.response_body.as_deref().map(str::len).unwrap_or(0);
     let identity = entry.id.len() + entry.url.len() + entry.provider.len();
     (headers + body + response_headers + response_body + identity) as i64
@@ -193,7 +197,9 @@ pub(super) fn count_and_bytes(conn: &Connection) -> rusqlite::Result<(usize, i64
 /// 按 id 取一条（同 id 多行时取 ts 最大的，再以 rowid 兜底 —— 与改造前
 /// 「内存里从尾部往前找第一个匹配」等价）
 pub(super) fn select_one(conn: &Connection, id: &str) -> rusqlite::Result<Option<TrafficEntry>> {
-    let sql = format!("SELECT {COLUMNS} FROM debug_traffic WHERE id = ?1 ORDER BY ts DESC, rowid DESC LIMIT 1");
+    let sql = format!(
+        "SELECT {COLUMNS} FROM debug_traffic WHERE id = ?1 ORDER BY ts DESC, rowid DESC LIMIT 1"
+    );
     let mut stmt = conn.prepare(&sql)?;
     let mut rows = stmt.query(params![id])?;
     match rows.next()? {

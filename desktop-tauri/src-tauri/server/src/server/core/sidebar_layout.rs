@@ -64,8 +64,8 @@ pub fn save(layout: Option<&Value>) -> Result<(), String> {
             if !value.is_object() {
                 return Err("侧边栏布局必须是 JSON 对象".to_string());
             }
-            let text = serde_json::to_string(value)
-                .map_err(|error| format!("布局序列化失败: {error}"))?;
+            let text =
+                serde_json::to_string(value).map_err(|error| format!("布局序列化失败: {error}"))?;
             access::kv_put(KV_KEY, &text);
         }
         // 清除：写空对象而不是删行 —— `kv_put` 没有删除口，而空对象经

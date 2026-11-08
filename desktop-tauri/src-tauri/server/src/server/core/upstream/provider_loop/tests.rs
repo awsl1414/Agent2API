@@ -96,7 +96,9 @@ fn temp_service() -> (TempDbDir, UpstreamService, String) {
     let seq = TEMP_SEQ.fetch_add(1, Ordering::SeqCst);
     let dir = std::env::temp_dir().join(format!("pl-quota-{}-{seq}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let store = AccountStore::with_db(Some(Db::open(&dir.join("agent2api.db")).expect("临时库应当能建起来")));
+    let store = AccountStore::with_db(Some(
+        Db::open(&dir.join("agent2api.db")).expect("临时库应当能建起来"),
+    ));
     let saved = store
         .add_account(
             &json!({"auth": {"accessToken": "at"}, "account": {"uid": "quota-1"}}),
@@ -130,10 +132,19 @@ fn stateful_quota_bookkeeping_keeps_the_adapter_reset_at() {
     };
     // 整组（福利池按账号记账）与单键走的是同一个循环，这里给两个名字覆盖循环体
     let group = vec!["m-benefit-a".to_string(), "m-benefit-b".to_string()];
-    mark_conversation_limited(&service, &id, &group, &class, "上游返回 403: insufficient quota");
+    mark_conversation_limited(
+        &service,
+        &id,
+        &group,
+        &class,
+        "上游返回 403: insufficient quota",
+    );
     for name in &group {
         let stored = rotate::account_limit_reset_at(&service, &id, name);
-        assert_eq!(stored, reset_at, "{name} 的 resetAt 应当是适配器给的恢复时刻");
+        assert_eq!(
+            stored, reset_at,
+            "{name} 的 resetAt 应当是适配器给的恢复时刻"
+        );
         let minutes = (stored - now) / 60_000;
         assert!(
             (stored - (now + 10 * 60 * 1000)).abs() > 60_000,
@@ -185,7 +196,11 @@ fn stateful_quota_bookkeeping_ignores_non_quota_classes() {
         upstream_code: None,
     };
     mark_conversation_limited(&service, &id, &single("m-fatal"), &class, message);
-    assert_eq!(rotate::account_limit_reset_at(&service, &id, "m-fatal"), 0, "非限额分类不该落冷却");
+    assert_eq!(
+        rotate::account_limit_reset_at(&service, &id, "m-fatal"),
+        0,
+        "非限额分类不该落冷却"
+    );
 }
 
 #[test]
@@ -196,13 +211,26 @@ fn codearts_daily_pool_envelope_cools_to_the_boundary_instead_of_ten_minutes() {
     // 生产库里那条真实文案（HTTP 200 的 SSE 里折出 403，首包门送进会话式分支）
     let error = GatewayError::with_status(403, "上游报告 InferHub.4291.200：insufficient quota");
     let class = adapter_for(ProviderKind::CodeArts).classify_conversation_error(&error);
-    let UpstreamErrorClass::QuotaLimited { reset_at: Some(reset_at), .. } = &class else {
+    let UpstreamErrorClass::QuotaLimited {
+        reset_at: Some(reset_at),
+        ..
+    } = &class
+    else {
         panic!("福利池耗尽的文案应分类为带恢复时刻的 QuotaLimited，实际 {class:?}");
     };
-    mark_conversation_limited(&service, &id, &single("glm-5.3-flash"), &class, &error.message);
+    mark_conversation_limited(
+        &service,
+        &id,
+        &single("glm-5.3-flash"),
+        &class,
+        &error.message,
+    );
 
     let stored = rotate::account_limit_reset_at(&service, &id, "glm-5.3-flash");
-    assert_eq!(stored, *reset_at, "落库的恢复时刻必须是适配器算出的日池重置点");
+    assert_eq!(
+        stored, *reset_at,
+        "落库的恢复时刻必须是适配器算出的日池重置点"
+    );
     // ── 断言「是下一个北京零点」，而不是「距现在 > 10 分钟」（2026-10-13 修）──
     //
     // 原断言写的是 `minutes > 10`，本意是「不是 10 分钟兜底常量」；但它有个
@@ -256,14 +284,22 @@ fn that_one_argument_is_the_divider_between_a_day_and_ten_minutes() {
     };
     mark_conversation_limited(&service, &id, &single("m-after"), &class, message);
     // 改前的那一发：另三个字段照旧，恢复时刻写成 None
-    rotate::mark_account_limited(&service, &pre_fix_id, "m-before", 403, Some(4291200), None, message);
+    rotate::mark_account_limited(
+        &service,
+        &pre_fix_id,
+        "m-before",
+        403,
+        Some(4291200),
+        None,
+        message,
+    );
 
     let after = rotate::account_limit_reset_at(&service, &id, "m-after");
     let before = rotate::account_limit_reset_at(&service, &pre_fix_id, "m-before");
     assert_eq!(after, reset_at, "改后应透传适配器给的恢复时刻");
     let before_minutes = (before - now) / 60_000;
     assert!(
-        before_minutes >= 9 && before_minutes <= 11,
+        (9..=11).contains(&before_minutes),
         "改前落的是存储层兜底冷却（10 分钟），实际 {before_minutes} 分钟"
     );
     // 分水岭本身：同一份分类结果，两种写法差出 2 小时以上 —— 白撞节拍就是从这里来的
@@ -274,7 +310,8 @@ fn that_one_argument_is_the_divider_between_a_day_and_ten_minutes() {
     );
 }
 
-const APIG_TOO_LARGE_BODY: &str = r#"{"error_msg":"Request entity too large","error_code":"APIG.0201","request_id":"apig-test"}"#;
+const APIG_TOO_LARGE_BODY: &str =
+    r#"{"error_msg":"Request entity too large","error_code":"APIG.0201","request_id":"apig-test"}"#;
 
 fn fatal(status: u16) -> UpstreamErrorClass {
     UpstreamErrorClass::Fatal {

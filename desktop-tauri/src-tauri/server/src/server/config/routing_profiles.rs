@@ -6,7 +6,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use super::{CONFIG, RuntimeConfig};
+use super::{RuntimeConfig, CONFIG};
 
 pub const KEY_ROUTING_PROFILES: &str = "routingProfiles";
 pub const MAX_ROUTING_MODELS: usize = 500;
@@ -15,7 +15,10 @@ pub const MAX_ROUTING_ACCOUNTS: usize = 10_000;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub enum RoutingProviderScope { All, Selected }
+pub enum RoutingProviderScope {
+    All,
+    Selected,
+}
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -38,11 +41,13 @@ pub struct RoutingProfile {
 impl RoutingProfile {
     pub fn scope(&self) -> RoutingProviderScope {
         // 旧名单无法区分主动移除和后来新增，缺少范围标记时保留原有限制。
-        self.provider_scope.unwrap_or(RoutingProviderScope::Selected)
+        self.provider_scope
+            .unwrap_or(RoutingProviderScope::Selected)
     }
 
     pub fn includes_provider(&self, provider: &str) -> bool {
-        (self.scope() == RoutingProviderScope::All || self.providers.iter().any(|id| id == provider))
+        (self.scope() == RoutingProviderScope::All
+            || self.providers.iter().any(|id| id == provider))
             && !self.disabled_providers.iter().any(|id| id == provider)
     }
 }
@@ -60,7 +65,9 @@ pub struct RoutingProfiles {
 
 impl RoutingProfiles {
     pub fn group_for_model(&self, model: &str) -> Option<&super::RoutingGroup> {
-        self.groups.values().find(|group| group.model.eq_ignore_ascii_case(model.trim()))
+        self.groups
+            .values()
+            .find(|group| group.model.eq_ignore_ascii_case(model.trim()))
     }
     pub fn model_profile(&self, model: &str) -> Option<&RoutingProfile> {
         self.models.get(&model.trim().to_ascii_lowercase())
@@ -70,17 +77,34 @@ impl RoutingProfiles {
         self.model_profile(model).or(self.global.as_ref())
     }
 
-    pub fn settings_for(&self, model: &str, mut settings: super::RoutingSettings) -> super::RoutingSettings {
-        for profile in [self.global.as_ref(), self.model_profile(model)].into_iter().flatten() {
-            if let Some(strategy) = &profile.strategy { settings.strategy = super::RouteStrategy::from_id(strategy); }
-            if let Some(sticky) = &profile.sticky { settings.sticky = super::StickyMode::from_id(sticky); }
+    pub fn settings_for(
+        &self,
+        model: &str,
+        mut settings: super::RoutingSettings,
+    ) -> super::RoutingSettings {
+        for profile in [self.global.as_ref(), self.model_profile(model)]
+            .into_iter()
+            .flatten()
+        {
+            if let Some(strategy) = &profile.strategy {
+                settings.strategy = super::RouteStrategy::from_id(strategy);
+            }
+            if let Some(sticky) = &profile.sticky {
+                settings.sticky = super::StickyMode::from_id(sticky);
+            }
         }
-        if let Some(group) = self.group_for_model(model) { return group.settings(settings); }
+        if let Some(group) = self.group_for_model(model) {
+            return group.settings(settings);
+        }
         settings
     }
 
     pub fn scope<'a>(&self, model: &'a str) -> &'a str {
-        if self.model_profile(model).is_some() { model } else { "" }
+        if self.model_profile(model).is_some() {
+            model
+        } else {
+            ""
+        }
     }
 }
 
@@ -89,13 +113,18 @@ pub(crate) fn from_raw(raw: &Map<String, Value>) -> Arc<RoutingProfiles> {
     let Some(object) = raw.get(KEY_ROUTING_PROFILES).and_then(Value::as_object) else {
         return Arc::new(profiles);
     };
-    profiles.global = object.get("global")
+    profiles.global = object
+        .get("global")
         .and_then(|value| serde_json::from_value::<RoutingProfile>(value.clone()).ok())
         .filter(|profile| validate_shape(profile).is_ok());
     if let Some(models) = object.get("models").and_then(Value::as_object) {
         for (model, value) in models.iter().take(MAX_ROUTING_MODELS) {
-            let Ok(model) = normalize_model(model) else { continue };
-            if model.is_empty() { continue; }
+            let Ok(model) = normalize_model(model) else {
+                continue;
+            };
+            if model.is_empty() {
+                continue;
+            }
             if let Ok(profile) = serde_json::from_value::<RoutingProfile>(value.clone()) {
                 if validate_shape(&profile).is_ok() {
                     profiles.models.insert(model, profile);
@@ -108,18 +137,34 @@ pub(crate) fn from_raw(raw: &Map<String, Value>) -> Arc<RoutingProfiles> {
 }
 
 pub fn routing_profiles() -> Arc<RoutingProfiles> {
-    CONFIG.read().ok()
+    CONFIG
+        .read()
+        .ok()
         .and_then(|guard| guard.as_ref().map(|config| config.routing_profiles.clone()))
         .unwrap_or_default()
 }
 
 pub fn routing_snapshot() -> (Arc<RoutingProfiles>, super::RoutingSettings) {
-    CONFIG.read().ok().and_then(|guard| guard.as_ref().map(|config| (config.routing_profiles.clone(), config.routing)))
+    CONFIG
+        .read()
+        .ok()
+        .and_then(|guard| {
+            guard
+                .as_ref()
+                .map(|config| (config.routing_profiles.clone(), config.routing))
+        })
         .unwrap_or_default()
 }
 
 pub fn settings_for_model(model: &str) -> super::RoutingSettings {
-    CONFIG.read().ok().and_then(|guard| guard.as_ref().map(|config| config.routing_profiles.settings_for(model, config.routing)))
+    CONFIG
+        .read()
+        .ok()
+        .and_then(|guard| {
+            guard
+                .as_ref()
+                .map(|config| config.routing_profiles.settings_for(model, config.routing))
+        })
         .unwrap_or_default()
 }
 
@@ -132,10 +177,18 @@ pub fn normalize_model(model: &str) -> Result<String, String> {
 }
 
 pub fn validate_shape(profile: &RoutingProfile) -> Result<(), String> {
-    if profile.strategy.as_deref().is_some_and(|value| !["order", "rotate", "provider"].contains(&value)) {
+    if profile
+        .strategy
+        .as_deref()
+        .is_some_and(|value| !["order", "rotate", "provider"].contains(&value))
+    {
         return Err("路由策略必须为 order、rotate 或 provider".to_string());
     }
-    if profile.sticky.as_deref().is_some_and(|value| !["auto", "session", "turn", "off"].contains(&value)) {
+    if profile
+        .sticky
+        .as_deref()
+        .is_some_and(|value| !["auto", "session", "turn", "off"].contains(&value))
+    {
         return Err("会话粘滞必须为 auto、session、turn 或 off".to_string());
     }
     fn unique(values: &[String], max: usize, label: &str) -> Result<(), String> {
@@ -144,7 +197,9 @@ pub fn validate_shape(profile: &RoutingProfile) -> Result<(), String> {
         }
         let mut seen = HashSet::new();
         for value in values {
-            if value.is_empty() || value.trim() != value || value.len() > 256
+            if value.is_empty()
+                || value.trim() != value
+                || value.len() > 256
                 || value.chars().any(char::is_control)
             {
                 return Err(format!("{label}包含空白或非法标识"));
@@ -156,10 +211,22 @@ pub fn validate_shape(profile: &RoutingProfile) -> Result<(), String> {
         Ok(())
     }
     unique(&profile.providers, MAX_ROUTING_PROVIDERS, "提供商列表")?;
-    unique(&profile.disabled_providers, MAX_ROUTING_PROVIDERS, "停用提供商列表")?;
-    unique(&profile.excluded_accounts, MAX_ROUTING_ACCOUNTS, "排除账号列表")?;
+    unique(
+        &profile.disabled_providers,
+        MAX_ROUTING_PROVIDERS,
+        "停用提供商列表",
+    )?;
+    unique(
+        &profile.excluded_accounts,
+        MAX_ROUTING_ACCOUNTS,
+        "排除账号列表",
+    )?;
     if profile.scope() == RoutingProviderScope::Selected
-        && profile.disabled_providers.iter().any(|id| !profile.providers.contains(id)) {
+        && profile
+            .disabled_providers
+            .iter()
+            .any(|id| !profile.providers.contains(id))
+    {
         return Err("停用提供商必须保留在当前路由列表中".to_string());
     }
     if profile.account_order.len() > MAX_ROUTING_PROVIDERS {
@@ -189,14 +256,25 @@ pub fn save_routing_profile(model: &str, profile: Option<RoutingProfile>) -> Res
         profile.provider_scope = Some(profile.scope());
         profile
     });
-    if let Some(profile) = &profile { validate_shape(profile)?; }
+    if let Some(profile) = &profile {
+        validate_shape(profile)?;
+    }
     let mut result = Ok(());
     let saved = super::update(|config: &mut RuntimeConfig| {
         let mut next = (*config.routing_profiles).clone();
-        if next.group_for_model(&model).is_some() { result = Err("此模型 ID 已被自定义路由组占用".into()); return; }
+        if next.group_for_model(&model).is_some() {
+            result = Err("此模型 ID 已被自定义路由组占用".into());
+            return;
+        }
         if model.is_empty() {
-            if next.global.as_ref().is_some_and(super::routing_workspace::global_accounts::has_restrictions)
-                || profile.as_ref().is_some_and(super::routing_workspace::global_accounts::has_restrictions) {
+            if next
+                .global
+                .as_ref()
+                .is_some_and(super::routing_workspace::global_accounts::has_restrictions)
+                || profile
+                    .as_ref()
+                    .is_some_and(super::routing_workspace::global_accounts::has_restrictions)
+            {
                 result = Err("全局默认已改为账号启停，请先转换旧版全局参与设置；模型独立路由仍可设置参与名单".into());
                 return;
             }
@@ -219,7 +297,9 @@ pub fn save_routing_profile(model: &str, profile: Option<RoutingProfile>) -> Res
         }
     });
     result?;
-    if !saved { return Err("路由配置落盘失败，本次修改仅在当前进程生效".to_string()); }
+    if !saved {
+        return Err("路由配置落盘失败，本次修改仅在当前进程生效".to_string());
+    }
     Ok(())
 }
 
@@ -233,10 +313,7 @@ mod tests {
             provider_scope: Some(RoutingProviderScope::Selected),
             providers: vec!["provider".to_string()],
             disabled_providers: vec![],
-            account_order: BTreeMap::from([(
-                "provider".to_string(),
-                vec!["account".to_string()],
-            )]),
+            account_order: BTreeMap::from([("provider".to_string(), vec!["account".to_string()])]),
             excluded_accounts: vec![],
             strategy: None,
             sticky: None,

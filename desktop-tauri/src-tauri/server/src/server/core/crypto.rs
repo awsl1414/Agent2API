@@ -264,7 +264,8 @@ fn create_key_file(path: &std::path::Path) -> Result<[u8; KEY_LEN], String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|error| format!("创建配置目录失败: {error}"))?;
     }
-    std::fs::write(path, key).map_err(|error| format!("写入密钥文件 {} 失败: {error}", path.display()))?;
+    std::fs::write(path, key)
+        .map_err(|error| format!("写入密钥文件 {} 失败: {error}", path.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
@@ -374,7 +375,9 @@ pub fn existing_key_bytes(scope: SecretScope) -> Option<[u8; KEY_LEN]> {
 }
 
 pub(crate) fn backup_key(scope: SecretScope) -> Result<Option<[u8; KEY_LEN]>, String> {
-    let guard = cache_for(scope).lock().map_err(|_| "密钥锁不可用".to_string())?;
+    let guard = cache_for(scope)
+        .lock()
+        .map_err(|_| "密钥锁不可用".to_string())?;
     if let Some(key) = *guard {
         return Ok(Some(key));
     }
@@ -412,8 +415,8 @@ pub(crate) fn seal_with_key(plaintext: &[u8], key: &[u8; KEY_LEN]) -> Result<Str
         Aes256Gcm::new_from_slice(key).map_err(|_| "密钥长度不受 AES-256 支持".to_string())?;
     let mut nonce_bytes = [0u8; NONCE_LEN];
     getrandom::getrandom(&mut nonce_bytes).map_err(|error| format!("系统随机源不可用: {error}"))?;
-    let nonce =
-        Nonce::<U12>::try_from(nonce_bytes.as_slice()).map_err(|_| "生成 nonce 失败".to_string())?;
+    let nonce = Nonce::<U12>::try_from(nonce_bytes.as_slice())
+        .map_err(|_| "生成 nonce 失败".to_string())?;
     let ciphertext = cipher
         .encrypt(&nonce, plaintext)
         .map_err(|_| "AES-GCM 加密失败".to_string())?;
@@ -429,14 +432,23 @@ pub(crate) fn seal_with_key(plaintext: &[u8], key: &[u8; KEY_LEN]) -> Result<Str
 /// 密钥不匹配那句会把**具体密钥文件名**带出去 —— 用户要知道该去找哪个文件，
 /// 这句会经 `status_json` 显示到界面上。
 pub fn open(envelope: &str, scope: SecretScope) -> Result<Vec<u8>, String> {
-    decrypt_envelope(envelope, || secret_key(scope), &format!(
-        "AES-GCM 解密失败（密钥文件 {} 是否被删除或更换？{}）",
-        scope.key_file(), scope.recovery_hint(),
-    ))
+    decrypt_envelope(
+        envelope,
+        || secret_key(scope),
+        &format!(
+            "AES-GCM 解密失败（密钥文件 {} 是否被删除或更换？{}）",
+            scope.key_file(),
+            scope.recovery_hint(),
+        ),
+    )
 }
 
 pub(crate) fn open_with_key(envelope: &str, key: &[u8; KEY_LEN]) -> Result<Vec<u8>, String> {
-    decrypt_envelope(envelope, || Ok(*key), "AES-GCM 解密失败（密文与备份密钥不匹配）")
+    decrypt_envelope(
+        envelope,
+        || Ok(*key),
+        "AES-GCM 解密失败（密文与备份密钥不匹配）",
+    )
 }
 
 fn decrypt_envelope(
@@ -464,7 +476,8 @@ fn decrypt_envelope(
         Aes256Gcm::new_from_slice(&key).map_err(|_| "密钥长度不受 AES-256 支持".to_string())?;
     let nonce = Nonce::<U12>::try_from(&blob[..NONCE_LEN])
         .map_err(|_| "密文 nonce 长度异常".to_string())?;
-    let plaintext = cipher.decrypt(&nonce, &blob[NONCE_LEN..])
+    let plaintext = cipher
+        .decrypt(&nonce, &blob[NONCE_LEN..])
         .map_err(|_| failure.to_string())?;
     // UTF-8 闸门：旧实现 `token.rs::decrypt` 的这条文案会被界面原样展示，
     // 属于对外行为，不能因为返回值换成字节就漏掉（见模块头）

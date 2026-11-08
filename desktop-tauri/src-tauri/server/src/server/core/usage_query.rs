@@ -107,7 +107,10 @@ pub fn resolve_batch_targets(
         }
     };
     let is_available = |account: &Value| {
-        account.get("available").and_then(Value::as_bool).unwrap_or(true)
+        account
+            .get("available")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
     };
     if let Some(id) = id.filter(|value| !value.is_empty()) {
         let found: Vec<Value> = accounts
@@ -116,7 +119,10 @@ pub fn resolve_batch_targets(
             .cloned()
             .collect();
         if found.is_empty() {
-            return Err(TargetError { message: "账号不存在".to_string(), status_code: 404 });
+            return Err(TargetError {
+                message: "账号不存在".to_string(),
+                status_code: 404,
+            });
         }
         return Ok((found, 0));
     }
@@ -136,7 +142,11 @@ pub fn resolve_batch_targets(
 /// 单账号余额查询：任何失败都收敛为 `{error}` 而不是抛出（批量查询不被单账号
 /// 拖垮），刷新重试在 `query_usage_inner` 里。
 async fn query_usage_for(store: &AccountStore, account: &Value) -> Value {
-    let id = account.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+    let id = account
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     let name = account.get("name").cloned().unwrap_or(Value::Null);
     let started = std::time::Instant::now();
     // 凭证与 provider 都从目标集合里的账号对象读，**不回读账号文件**：
@@ -172,13 +182,21 @@ async fn query_usage_for(store: &AccountStore, account: &Value) -> Value {
             json!({ "id": id, "name": name, "usage": Value::Null, "error": message, "code": code })
         }
     };
-    let provider = account.get("provider").and_then(Value::as_str)
+    let provider = account
+        .get("provider")
+        .and_then(Value::as_str)
         .unwrap_or(crate::server::core::providers::DEFAULT_PROVIDER_ID);
     let error = row.get("error").and_then(Value::as_str);
     let not_configured = row.get("code").and_then(Value::as_str)
         == Some(crate::server::core::providers::adapter::USAGE_NOT_CONFIGURED_CODE)
         || matches!(error, Some("没有可用凭证"));
-    let summary = if error.is_none() { "余额查询完成" } else if not_configured { "余额查询未配置" } else { "余额查询失败" };
+    let summary = if error.is_none() {
+        "余额查询完成"
+    } else if not_configured {
+        "余额查询未配置"
+    } else {
+        "余额查询失败"
+    };
     let log_key = format!(
         "{}|{}|{}|{}",
         provider,
@@ -187,19 +205,28 @@ async fn query_usage_for(store: &AccountStore, account: &Value) -> Value {
         row.get("code").and_then(Value::as_str).unwrap_or(""),
     );
     if error.is_none() || crate::server::core::usage_records::failure_log_due(log_key) {
-        let level = if error.is_none() || not_configured { "debug" } else { "warn" };
-        logging::log_event(level, "account", summary, Some(json!({
-        "provider": provider,
-        "providerLabel": crate::server::core::providers::label_of(provider),
-        "account": id,
-        "accountName": name,
-        "action": "usage.query",
-        "summary": summary,
-        "outcome": if error.is_none() { "success" } else { "failed" },
-        "detail": error,
-        "code": row.get("code"),
-        "durationMs": started.elapsed().as_millis() as u64,
-        })));
+        let level = if error.is_none() || not_configured {
+            "debug"
+        } else {
+            "warn"
+        };
+        logging::log_event(
+            level,
+            "account",
+            summary,
+            Some(json!({
+            "provider": provider,
+            "providerLabel": crate::server::core::providers::label_of(provider),
+            "account": id,
+            "accountName": name,
+            "action": "usage.query",
+            "summary": summary,
+            "outcome": if error.is_none() { "success" } else { "failed" },
+            "detail": error,
+            "code": row.get("code"),
+            "durationMs": started.elapsed().as_millis() as u64,
+            })),
+        );
     }
     row
 }
@@ -475,7 +502,9 @@ fn enforce_low_balance_disable(store: &AccountStore, account: &Value, row: &Valu
 fn enforce_token_disable(store: &AccountStore, accounts: &[Value], now: i64) {
     let facts = limiter::token_facts();
     for account in accounts {
-        if account.get("limiterGroups").is_some() { continue; }
+        if account.get("limiterGroups").is_some() {
+            continue;
+        }
         if matches!(account.get("enabled"), Some(Value::Bool(false))) {
             continue;
         }
@@ -592,7 +621,7 @@ async fn sweep_due(store: &AccountStore) {
         .map(|(account, _)| query_usage_for(store, account))
         .collect();
     let results = futures::future::join_all(futures).await;
-    for ((account, _), row) in due.iter().zip(results.into_iter()) {
+    for ((account, _), row) in due.iter().zip(results) {
         write_row_record(&row);
         enforce_low_balance_disable(store, account, &row);
     }
@@ -634,9 +663,8 @@ pub fn snapshot(store: &AccountStore) -> Value {
     let mut at = 0i64;
     for (id, record) in &records {
         let account = list.and_then(|list| {
-            list.iter().find(|account| {
-                account.get("id").and_then(Value::as_str) == Some(id.as_str())
-            })
+            list.iter()
+                .find(|account| account.get("id").and_then(Value::as_str) == Some(id.as_str()))
         });
         let Some(account) = account else { continue };
         if is_guest(account) {
@@ -649,7 +677,10 @@ pub fn snapshot(store: &AccountStore) -> Value {
             .and_then(Value::as_i64)
             .unwrap_or(0)
             .max(account.get("addedAt").and_then(Value::as_i64).unwrap_or(0));
-        let error = record.error.as_deref().filter(|_| record.last_attempt_at >= changed);
+        let error = record
+            .error
+            .as_deref()
+            .filter(|_| record.last_attempt_at >= changed);
         if let Some(error) = error {
             rows.push(json!({
                 "id": id,
@@ -686,23 +717,46 @@ pub fn snapshot(store: &AccountStore) -> Value {
             token_usage.insert(id.to_string(), Value::Array(entries));
         }
     }
-    if let Some(accounts) = list { limiter::counter::refresh(accounts); }
+    if let Some(accounts) = list {
+        limiter::counter::refresh(accounts);
+    }
     let source_facts = limiter::sources::facts();
     let counts = limiter::counter::facts();
     let mut limiter_states = serde_json::Map::new();
     let mut quota_sources = serde_json::Map::new();
     let mut limiter_models = serde_json::Map::new();
     for account in list.into_iter().flatten() {
-        let Some(id) = account.get("id").and_then(Value::as_str) else { continue };
+        let Some(id) = account.get("id").and_then(Value::as_str) else {
+            continue;
+        };
         let provider = crate::server::core::routing::provider_of(account);
-        quota_sources.insert(id.to_string(), limiter::sources::rows_for(account, &source_facts));
-        limiter_states.insert(id.to_string(), limiter::types::json_of(&limiter::evaluate::states(account, &source_facts, &counts, now)));
-        limiter_models.entry(provider.to_string()).or_insert_with(|| Value::Array(limiter::sources::account_models(provider)));
+        quota_sources.insert(
+            id.to_string(),
+            limiter::sources::rows_for(account, &source_facts),
+        );
+        limiter_states.insert(
+            id.to_string(),
+            limiter::types::json_of(&limiter::evaluate::states(
+                account,
+                &source_facts,
+                &counts,
+                now,
+            )),
+        );
+        limiter_models
+            .entry(provider.to_string())
+            .or_insert_with(|| Value::Array(limiter::sources::account_models(provider)));
     }
-    let visible_accounts: Vec<Value> = list.into_iter().flatten()
-        .filter(|account| crate::server::core::account_store::store_view::account_visible(
-            crate::server::core::routing::provider_of(account),
-        )).cloned().collect();
+    let visible_accounts: Vec<Value> = list
+        .into_iter()
+        .flatten()
+        .filter(|account| {
+            crate::server::core::account_store::store_view::account_visible(
+                crate::server::core::routing::provider_of(account),
+            )
+        })
+        .cloned()
+        .collect();
     json!({
         "at": at,
         "results": rows,
@@ -717,4 +771,3 @@ pub fn snapshot(store: &AccountStore) -> Value {
         ),
     })
 }
-

@@ -107,9 +107,14 @@ mod mutations;
 mod seeds;
 
 use seeds::seed_extra_aliases;
-pub use seeds::{migrate_qoder_default_enabled, migrate_workbuddy_default_enabled, seed_hidden_disabled, seed_qoder_defaults, QODER_DEFAULT_ENABLED};
+pub use seeds::{
+    migrate_qoder_default_enabled, migrate_workbuddy_default_enabled, seed_hidden_disabled,
+    seed_qoder_defaults, QODER_DEFAULT_ENABLED,
+};
 
-pub use mutations::{add_custom, add_mapping, remove_custom, remove_mapping, set_capabilities, set_state};
+pub use mutations::{
+    add_custom, add_mapping, remove_custom, remove_mapping, set_capabilities, set_state,
+};
 
 pub const KEY_MODEL_RULES: &str = "modelRules";
 
@@ -185,7 +190,10 @@ pub struct RuleEntry {
 
 impl RuleEntry {
     fn new(provider: Option<&str>, id: &str) -> Self {
-        Self { provider: provider.map(str::to_string), id: id.to_string() }
+        Self {
+            provider: provider.map(str::to_string),
+            id: id.to_string(),
+        }
     }
 
     fn to_value(&self) -> Value {
@@ -199,7 +207,10 @@ impl RuleEntry {
     /// None（全局条目）或与目标一致。
     fn matches(&self, provider: &str, id: &str) -> bool {
         self.id.eq_ignore_ascii_case(id)
-            && self.provider.as_deref().map_or(true, |p| p.eq_ignore_ascii_case(provider))
+            && self
+                .provider
+                .as_deref()
+                .is_none_or(|p| p.eq_ignore_ascii_case(provider))
     }
 }
 
@@ -328,7 +339,11 @@ fn entries_from(value: Option<&Value>) -> Vec<RuleEntry> {
                     }
                     // 新形态：{provider, id}
                     Value::Object(object) => {
-                        let id = object.get("id").and_then(Value::as_str).map(str::trim).unwrap_or("");
+                        let id = object
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .unwrap_or("");
                         if id.is_empty() {
                             return None;
                         }
@@ -397,7 +412,11 @@ fn capabilities_from(value: Option<&Value>) -> Vec<CapabilityOverride> {
                 .iter()
                 .filter_map(|item| {
                     let object = item.as_object()?;
-                    let id = object.get("id").and_then(Value::as_str).map(str::trim).unwrap_or("");
+                    let id = object
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .unwrap_or("");
                     let provider = object
                         .get("provider")
                         .and_then(Value::as_str)
@@ -498,7 +517,7 @@ impl ModelRules {
             // `hidden` 不再写出（机制已移除，见模块头）：整份替换落盘时，
             // 配置里残留的 hidden 名单就此消失 —— 一次性清理的实现方式。
             "mappings": self.mappings.iter().map(Mapping::to_value).collect::<Vec<_>>(),
-            // `custom` 必须在这里写出：本函数是**整份替换**（`save` → 
+            // `custom` 必须在这里写出：本函数是**整份替换**（`save` →
             // `config::update_raw_field`），漏掉哪个键，任何一次写规则
             // （启停 / 加映射 / 删映射 / 四个种子）都会把那个键的数据整份抹掉。
             "custom": self.custom.iter().map(CustomModel::to_value).collect::<Vec<_>>(),
@@ -523,15 +542,28 @@ impl ModelRules {
         let matches = |m: &&Mapping| {
             m.alias.eq_ignore_ascii_case(alias) && m.target.eq_ignore_ascii_case(target)
         };
-        self.mappings.iter().filter(matches)
-            .find(|m| m.provider.as_deref().is_some_and(|owner| owner.eq_ignore_ascii_case(provider)))
-            .or_else(|| self.mappings.iter().filter(matches).find(|m| m.provider.is_none()))
+        self.mappings
+            .iter()
+            .filter(matches)
+            .find(|m| {
+                m.provider
+                    .as_deref()
+                    .is_some_and(|owner| owner.eq_ignore_ascii_case(provider))
+            })
+            .or_else(|| {
+                self.mappings
+                    .iter()
+                    .filter(matches)
+                    .find(|m| m.provider.is_none())
+            })
     }
 
     /// disabled 只控制原始 ID 的默认绑定，不能连带关闭其他别名。
     pub fn default_enabled(&self, provider: &str, id: &str) -> bool {
         !self.is_disabled(provider, id)
-            && self.binding(provider, id, id).map_or(true, |mapping| mapping.enabled)
+            && self
+                .binding(provider, id, id)
+                .is_none_or(|mapping| mapping.enabled)
     }
 
     pub fn is_blocked(&self, provider: &str, id: &str) -> bool {
@@ -556,7 +588,9 @@ impl ModelRules {
 
     /// 该对外名是否已存在任何映射条目（种子防抢占判断用）。
     pub fn has_alias(&self, alias: &str) -> bool {
-        self.mappings.iter().any(|m| m.alias.eq_ignore_ascii_case(alias))
+        self.mappings
+            .iter()
+            .any(|m| m.alias.eq_ignore_ascii_case(alias))
     }
 
     /// 某条映射的对外名：target 归属 `provider`（None = 旧版全局条目）。
@@ -573,7 +607,11 @@ impl ModelRules {
         self.mappings
             .iter()
             .filter(|m| m.target.eq_ignore_ascii_case(target))
-            .filter(|m| m.provider.as_deref().map_or(true, |p| p.eq_ignore_ascii_case(provider)))
+            .filter(|m| {
+                m.provider
+                    .as_deref()
+                    .is_none_or(|p| p.eq_ignore_ascii_case(provider))
+            })
             .map(|m| m.alias.as_str())
             .collect()
     }
@@ -594,7 +632,7 @@ impl ModelRules {
         for m in &self.mappings {
             if m.enabled
                 && m.target.eq_ignore_ascii_case(target)
-                && !out.iter().any(|a| m.alias.eq_ignore_ascii_case(*a))
+                && !out.iter().any(|a| m.alias.eq_ignore_ascii_case(a))
             {
                 out.push(m.alias.as_str());
             }
@@ -625,7 +663,11 @@ impl ModelRules {
     /// 那批标记对 Qoder 不构成「已种」的证据。
     fn is_seeded(&self, provider: &str, id: &str) -> bool {
         let key = format!("{provider}:{id}");
-        if self.seeded.iter().any(|item| item.eq_ignore_ascii_case(&key)) {
+        if self
+            .seeded
+            .iter()
+            .any(|item| item.eq_ignore_ascii_case(&key))
+        {
             return true;
         }
         if !matches!(provider, "workbuddy" | "raccoon") {
@@ -728,7 +770,10 @@ pub fn apply_capability_overrides(provider: &str, items: &mut [Value]) {
 /// 消费方：管理页判「来源 = 手动」（`catalog::manage_entries`）、以及 AutoClaw
 /// 的模型路由解析（未知名字不静默回落，见 `autoclaw::models::resolve_model_route`）。
 pub fn is_custom(provider: &str, id: &str) -> bool {
-    shared().custom.iter().any(|item| item.matches(provider, id))
+    shared()
+        .custom
+        .iter()
+        .any(|item| item.matches(provider, id))
 }
 
 /// 某一家当前登记的自定义模型，转成**聚合层认的条目形态**。

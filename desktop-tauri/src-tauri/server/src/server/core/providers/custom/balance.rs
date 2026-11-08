@@ -60,8 +60,8 @@ use crate::server::core::custom_providers::{
     BALANCE_SCHEME_ZHIPU_ZAI,
 };
 use crate::server::core::egress;
-use crate::server::core::proxies::ResolvedProxy;
 use crate::server::core::providers::adapter::usage_not_configured;
+use crate::server::core::proxies::ResolvedProxy;
 use crate::server::errors::GatewayError;
 use crate::server::logging;
 
@@ -404,7 +404,10 @@ async fn query_sensenova(
         jwt = result.access_token;
     }
     let tenant = sensenova_auth::jwt_tenant_id(&jwt).ok_or_else(|| {
-        GatewayError::with_status(502, format!("{label} 的登录票里没有 tenant_id，无法定位账户"))
+        GatewayError::with_status(
+            502,
+            format!("{label} 的登录票里没有 tenant_id，无法定位账户"),
+        )
     })?;
     let account_id_param: String =
         url::form_urlencoded::byte_serialize(tenant.as_bytes()).collect();
@@ -552,14 +555,16 @@ async fn get_json(
             format!("{what}被上游拒绝（HTTP {}）{detail}", response.status),
         ));
     }
-    response.payload.ok_or_else(|| {
-        GatewayError::with_status(502, format!("{what}响应不是有效 JSON"))
-    })
+    response
+        .payload
+        .ok_or_else(|| GatewayError::with_status(502, format!("{what}响应不是有效 JSON")))
 }
 
 /// 上游错误响应里的一句话（`error.message` / `message` / `msg` / `error`）
 fn describe_payload_error(payload: &Option<Value>) -> String {
-    let Some(payload) = payload else { return String::new() };
+    let Some(payload) = payload else {
+        return String::new();
+    };
     let message = payload
         .get("error")
         .and_then(|error| {
@@ -598,10 +603,7 @@ fn bearer(token: &str) -> Vec<(String, String)> {
 
 /// 「上游响应读不出余额」的统一报错（502：是上游那边的问题，不是配置缺失）
 fn invalid_response(label: &str) -> GatewayError {
-    GatewayError::with_status(
-        502,
-        format!("{label} 的余额响应结构异常（读不出余额字段）"),
-    )
+    GatewayError::with_status(502, format!("{label} 的余额响应结构异常（读不出余额字段）"))
 }
 
 /// 空查询配置（记录里没有 `balanceQuery` 键时的读数口径）

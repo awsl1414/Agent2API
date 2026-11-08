@@ -166,7 +166,7 @@ async fn collect_body(
                 // 让它进报表的积分列而不是被当成 token。
                 if let Some(credit) = payload
                     .as_object()
-                    .and_then(|object| super::usage::credit_from_object(object))
+                    .and_then(super::usage::credit_from_object)
                 {
                     telemetry.report_usage(&json!({ "credit": credit }));
                 }

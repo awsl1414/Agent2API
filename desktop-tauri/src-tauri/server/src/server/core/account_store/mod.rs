@@ -90,16 +90,16 @@
 //!   antigravity_accounts.rs Antigravity 账号（单一 provider）：粘贴 Google
 //!                refresh token 添加、刷新回写（比较-再写）、公开形态（只给尾号）
 
-pub(crate) mod account_identity;
 pub mod accio_accounts;
+pub(crate) mod account_identity;
 pub mod antigravity_accounts;
+pub mod atomcode_accounts;
 pub mod autoclaw_accounts;
 pub mod catpaw_accounts;
 pub mod chatglm_accounts;
 pub(crate) mod checkin_state;
 pub mod cline_accounts;
 pub mod codearts_accounts;
-pub mod atomcode_accounts;
 pub mod commandcode_accounts;
 pub mod custom_accounts;
 mod hidden_accounts;
@@ -118,8 +118,8 @@ pub mod qoder_accounts;
 pub mod raccoon_accounts;
 mod read_rows;
 mod read_state;
-pub mod sql;
 mod snapshot;
+pub mod sql;
 pub mod state;
 pub mod store;
 pub mod store_admin;
@@ -153,9 +153,8 @@ pub const MAX_TOKEN_LENGTH: usize = 8192;
 
 /// CatPaw provider id（账号存储内部多处要用；**从注册表推导**，同
 /// [`RACCOON_PROVIDER_ID`] 的口径 —— 注册表改了 id，这个常量跟着变）。
-pub(crate) const CATPAW_PROVIDER_ID: &str = crate::server::core::providers::kind_id(
-    crate::server::core::providers::ProviderKind::CatPaw,
-);
+pub(crate) const CATPAW_PROVIDER_ID: &str =
+    crate::server::core::providers::kind_id(crate::server::core::providers::ProviderKind::CatPaw);
 
 /// AutoClaw provider id（账号存储内部多处要用；**从注册表推导**，同
 /// [`RACCOON_PROVIDER_ID`] 的口径）。
@@ -163,9 +162,8 @@ pub(crate) const CATPAW_PROVIDER_ID: &str = crate::server::core::providers::kind
 /// 这是**国内版**的 id（历史值，不改名 —— 存量账号的落盘契约）；
 /// 国际版见 [`AUTOCLAW_INTL_PROVIDER_ID`]。判「是不是 AutoClaw 系」用
 /// [`is_autoclaw_family`]。
-pub(crate) const AUTOCLAW_PROVIDER_ID: &str = crate::server::core::providers::kind_id(
-    crate::server::core::providers::ProviderKind::AutoClaw,
-);
+pub(crate) const AUTOCLAW_PROVIDER_ID: &str =
+    crate::server::core::providers::kind_id(crate::server::core::providers::ProviderKind::AutoClaw);
 
 /// AutoClaw **国际版** provider id（同 [`AUTOCLAW_PROVIDER_ID`] 的口径）。
 ///
@@ -244,9 +242,8 @@ pub(crate) const OFFICEACE_PROVIDER_ID: &str = crate::server::core::providers::k
 
 /// AtomCode（AtomGit / GitCode）provider id（**从注册表推导**，同
 /// [`LOOMY_PROVIDER_ID`] 的口径）。账号形态见 `atomcode_accounts.rs`。
-pub(crate) const ATOMCODE_PROVIDER_ID: &str = crate::server::core::providers::kind_id(
-    crate::server::core::providers::ProviderKind::Atomcode,
-);
+pub(crate) const ATOMCODE_PROVIDER_ID: &str =
+    crate::server::core::providers::kind_id(crate::server::core::providers::ProviderKind::Atomcode);
 
 /// LobsterAI（网易有道「有道龙虾」）provider id（**从注册表推导**，同
 /// [`LOOMY_PROVIDER_ID`] 的口径）。账号形态见 `lobsterai_accounts.rs`。
@@ -262,9 +259,8 @@ pub(crate) const LOBSTERAI_PROVIDER_ID: &str = crate::server::core::providers::k
 /// （见 `store_view::public_account`），签到范围判定也按它把访客排除
 /// （见 `billing::checkin::supports_checkin`）。插件账号的 `isGuest` 由插件的
 /// `account_view` 提供，不经过这里。
-pub(crate) const CHATGLM_PROVIDER_ID: &str = crate::server::core::providers::kind_id(
-    crate::server::core::providers::ProviderKind::Chatglm,
-);
+pub(crate) const CHATGLM_PROVIDER_ID: &str =
+    crate::server::core::providers::kind_id(crate::server::core::providers::ProviderKind::Chatglm);
 
 /// Cline **免费池** provider id（账号存储内部多处要用；**从注册表推导**，同
 /// [`RACCOON_PROVIDER_ID`] 的口径）。账号形态见 `cline_accounts.rs`。
@@ -349,6 +345,4 @@ pub(crate) fn is_qoder_family(provider_id: &str) -> bool {
 /// —— 那是「这一家的特殊行为」，不是白名单，改动量随新家到来天然增加
 /// （每一家都有自己的一套字段集）。
 pub(crate) const RACCOON_PROVIDER_ID: &str =
-    crate::server::core::providers::kind_id(
-        crate::server::core::providers::ProviderKind::Raccoon,
-    );
+    crate::server::core::providers::kind_id(crate::server::core::providers::ProviderKind::Raccoon);

@@ -2,9 +2,9 @@
 
 use serde_json::Value;
 
-use crate::server::core::{custom_providers, model_rules};
 use crate::server::core::models::model_id;
 use crate::server::core::providers::adapter::adapter_by_id;
+use crate::server::core::{custom_providers, model_rules};
 
 use super::{all_provider_ids, manifest_for_provider};
 
@@ -20,12 +20,17 @@ pub(crate) fn entry_id_in_manifest(manifest: &[Value], requested: &str) -> Optio
         return None;
     }
     // 保留展示名兼容，但必须先匹配原始 ID；返回清单里的实际大小写。
-    manifest.iter().find(|entry| model_id(entry).eq_ignore_ascii_case(requested))
-        .or_else(|| manifest.iter().find(|entry| {
-            entry.get("name")
-                .map(crate::server::core::models::shape_value_text)
-                .is_some_and(|name| name.eq_ignore_ascii_case(requested))
-        }))
+    manifest
+        .iter()
+        .find(|entry| model_id(entry).eq_ignore_ascii_case(requested))
+        .or_else(|| {
+            manifest.iter().find(|entry| {
+                entry
+                    .get("name")
+                    .map(crate::server::core::models::shape_value_text)
+                    .is_some_and(|name| name.eq_ignore_ascii_case(requested))
+            })
+        })
         .map(model_id)
 }
 
@@ -36,21 +41,34 @@ pub(super) fn builtin_target(
     requested: &str,
 ) -> Option<WireTarget> {
     let requested = requested.trim();
-    let exact = manifest.iter()
+    let exact = manifest
+        .iter()
         .find(|entry| model_id(entry).eq_ignore_ascii_case(requested))
         .map(model_id);
-    let mappings: Vec<_> = rules.mappings.iter()
+    let mappings: Vec<_> = rules
+        .mappings
+        .iter()
         .filter(|mapping| mapping.alias.eq_ignore_ascii_case(requested))
-        .filter(|mapping| mapping.provider.as_deref()
-            .map_or(true, |id| id.eq_ignore_ascii_case(provider)))
+        .filter(|mapping| {
+            mapping
+                .provider
+                .as_deref()
+                .is_none_or(|id| id.eq_ignore_ascii_case(provider))
+        })
         .collect();
     let default = exact.or_else(|| {
-        if mappings.is_empty() { entry_id_in_manifest(manifest, requested) } else { None }
+        if mappings.is_empty() {
+            entry_id_in_manifest(manifest, requested)
+        } else {
+            None
+        }
     });
     if let Some(id) = default {
         if rules.default_enabled(provider, &id) {
             return Some(WireTarget {
-                reasoning: rules.binding(provider, &id, &id).and_then(|m| m.reasoning.clone()),
+                reasoning: rules
+                    .binding(provider, &id, &id)
+                    .and_then(|m| m.reasoning.clone()),
                 model: id,
             });
         }
@@ -70,31 +88,45 @@ pub fn providers_for_model(model: &str) -> Vec<String> {
         return Vec::new();
     }
     let rules = model_rules::shared();
-    let manifests: Vec<_> = all_provider_ids().into_iter()
+    let manifests: Vec<_> = all_provider_ids()
+        .into_iter()
         .map(|provider| {
             let manifest = manifest_for_provider(&provider);
             (provider, manifest)
         })
         .collect();
     let exact = manifests.iter().any(|(_, items)| {
-        items.iter().any(|item| model_id(item).eq_ignore_ascii_case(model))
+        items
+            .iter()
+            .any(|item| model_id(item).eq_ignore_ascii_case(model))
     });
-    let mut result: Vec<_> = manifests.into_iter().filter(|(provider, items)| {
-        let declared = if exact {
-            items.iter().any(|item| model_id(item).eq_ignore_ascii_case(model))
-        } else {
-            entry_id_in_manifest(items, model).is_some()
-        };
-        let mapped = rules.mappings.iter().any(|mapping| {
-            mapping.alias.eq_ignore_ascii_case(model)
-                && mapping.provider.as_deref().map_or(true, |owner| owner.eq_ignore_ascii_case(provider))
-                && entry_id_in_manifest(items, &mapping.target).is_some()
-        });
-        declared || mapped
-    }).map(|(provider, _)| provider).collect();
+    let mut result: Vec<_> = manifests
+        .into_iter()
+        .filter(|(provider, items)| {
+            let declared = if exact {
+                items
+                    .iter()
+                    .any(|item| model_id(item).eq_ignore_ascii_case(model))
+            } else {
+                entry_id_in_manifest(items, model).is_some()
+            };
+            let mapped = rules.mappings.iter().any(|mapping| {
+                mapping.alias.eq_ignore_ascii_case(model)
+                    && mapping
+                        .provider
+                        .as_deref()
+                        .is_none_or(|owner| owner.eq_ignore_ascii_case(provider))
+                    && entry_id_in_manifest(items, &mapping.target).is_some()
+            });
+            declared || mapped
+        })
+        .map(|(provider, _)| provider)
+        .collect();
     result.extend(custom_providers::list().into_iter().filter_map(|provider| {
         let models = provider.get("models")?.as_array()?;
-        let declared = models.iter().any(|entry| model_id(entry).eq_ignore_ascii_case(model));
+        let declared = models
+            .iter()
+            .any(|entry| model_id(entry).eq_ignore_ascii_case(model));
         let mapped = provider
             .get("mappings")
             .and_then(Value::as_array)
@@ -106,8 +138,13 @@ pub fn providers_for_model(model: &str) -> Vec<String> {
                         .is_some_and(|alias| alias.eq_ignore_ascii_case(model))
                 })
             });
-        (declared || mapped)
-            .then(|| provider.get("id").and_then(Value::as_str).unwrap_or("").to_string())
+        (declared || mapped).then(|| {
+            provider
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        })
     }));
     result
 }
@@ -115,9 +152,12 @@ pub fn providers_for_model(model: &str) -> Vec<String> {
 /// 只返回有开启绑定的提供商，不把关闭的 ID 回落给默认提供商。
 pub fn forwarding_providers(model: &str) -> Vec<String> {
     let rules = model_rules::shared();
-    let mut result: Vec<_> = all_provider_ids().into_iter().filter(|provider| {
-        builtin_target(&rules, provider, &manifest_for_provider(provider), model).is_some()
-    }).collect();
+    let mut result: Vec<_> = all_provider_ids()
+        .into_iter()
+        .filter(|provider| {
+            builtin_target(&rules, provider, &manifest_for_provider(provider), model).is_some()
+        })
+        .collect();
     result.extend(custom_providers::carriers_of_model(model));
     result
 }
@@ -143,15 +183,27 @@ pub fn model_blocked_everywhere(model: &str) -> bool {
     !providers_for_model(model).is_empty()
 }
 
-pub fn wire_target_for_provider(model: &str, provider_id: &str, _account: Option<&Value>) -> WireTarget {
+pub fn wire_target_for_provider(
+    model: &str,
+    provider_id: &str,
+    _account: Option<&Value>,
+) -> WireTarget {
     let requested = model.trim();
     // 自定义提供商在自己的转发模块解析一次，避免把别名提前改写后丢失其等级绑定。
     let resolved = if custom_providers::is_custom_provider_id(provider_id) {
         None
     } else {
-        builtin_target(&model_rules::shared(), provider_id, &manifest_for_provider(provider_id), requested)
+        builtin_target(
+            &model_rules::shared(),
+            provider_id,
+            &manifest_for_provider(provider_id),
+            requested,
+        )
     };
-    resolved.unwrap_or_else(|| WireTarget { model: requested.to_string(), reasoning: None })
+    resolved.unwrap_or_else(|| WireTarget {
+        model: requested.to_string(),
+        reasoning: None,
+    })
 }
 
 pub fn default_model_catalog() -> Vec<Value> {
@@ -162,9 +214,12 @@ pub fn default_model_catalog() -> Vec<Value> {
     }) {
         for entry in manifest_for_provider(&provider) {
             let id = model_id(&entry);
-            if !id.is_empty() && !super::super::images::model_is_image(&entry)
+            if !id.is_empty()
+                && !super::super::images::model_is_image(&entry)
                 && rules.default_enabled(&provider, &id)
-                && !result.iter().any(|item| model_id(item).eq_ignore_ascii_case(&id))
+                && !result
+                    .iter()
+                    .any(|item| model_id(item).eq_ignore_ascii_case(&id))
             {
                 result.push(entry);
             }

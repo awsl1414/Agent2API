@@ -47,13 +47,13 @@ mod management;
 mod model_sync;
 pub mod operations;
 mod ownership;
-mod runtime;
-mod packages;
 mod pack_view;
+mod packages;
 mod process;
 mod registry;
 mod rpc;
 pub(crate) mod rpc_cache;
+mod runtime;
 pub mod schedules;
 pub mod settings;
 mod stream;
@@ -87,17 +87,19 @@ pub use bootstrap::{
     reload as reload_host, set_loopback_port, spawn as spawn_bootstrap, start as bootstrap_host,
     StoreCallbacks,
 };
+pub(crate) use compatibility::provider_error as provider_compatibility_error;
 pub use install::{
     install_zip, list_packs, resolve_ui_file, set_pack_enabled, set_provider_enabled, uninstall,
     InstalledPack, PackProviderSummary, PackRegistry, PackSummary, PackUiSummary,
 };
-pub use registry::{install as install_provider, installed_ids, lookup, lookup_ready, remove, clear};
-pub use registry::{serves as serves_provider};
-pub use rpc::{HostOptions, RpcAdapter};
-pub(crate) use rpc_cache::meta as model_catalog_meta;
 pub use management::snapshot as management_snapshot;
 pub(crate) use packages::prepare as prepare_pack;
-pub(crate) use compatibility::provider_error as provider_compatibility_error;
+pub use registry::serves as serves_provider;
+pub use registry::{
+    clear, install as install_provider, installed_ids, lookup, lookup_ready, remove,
+};
+pub use rpc::{HostOptions, RpcAdapter};
+pub(crate) use rpc_cache::meta as model_catalog_meta;
 
 /// 当前平台的目标三元组（界面提示「下载哪个平台的包」用）。
 pub fn host_target() -> String {
@@ -172,8 +174,11 @@ use tokio::sync::{oneshot, Mutex};
 use crate::server::logging;
 
 pub use ownership::ProviderCategory;
-pub use runtime::{current, detach, host_for_pack, host_for_provider, install, provider_category, provider_pack, shutdown_all};
 use runtime::provider_info;
+pub use runtime::{
+    current, detach, host_for_pack, host_for_provider, install, provider_category, provider_pack,
+    shutdown_all,
+};
 
 /// 当前已加载的 provider 申报了哪些**管理面板**（去重）。
 ///
@@ -265,8 +270,7 @@ pub fn checkin_features() -> serde_json::Map<String, serde_json::Value> {
 /// 所以这里把两种 `InvalidData` 一并归入。真正的区分在协议层，网关不必
 /// 复制那份知识。
 fn is_frame_too_large(error: &std::io::Error) -> bool {
-    error.kind() == std::io::ErrorKind::InvalidData
-        && error.to_string().contains("帧超过")
+    error.kind() == std::io::ErrorKind::InvalidData && error.to_string().contains("帧超过")
 }
 
 /// 宿主状态（给界面显示）。
@@ -415,13 +419,17 @@ impl Host {
     }
 
     pub(crate) fn ready(&self) -> bool {
-        self.ready.load(Ordering::Acquire) && self.running.load(Ordering::Acquire)
+        self.ready.load(Ordering::Acquire)
+            && self.running.load(Ordering::Acquire)
             && !self.closing.load(Ordering::Acquire)
     }
 
     /// 当前状态（给界面）。
     pub fn status(&self) -> HostStatus {
-        let _state = self.lifecycle.lock().unwrap_or_else(|error| error.into_inner());
+        let _state = self
+            .lifecycle
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let providers = self
             .providers
             .lock()
@@ -437,7 +445,6 @@ impl Host {
             last_error: self.last_error.lock().ok().and_then(|e| e.clone()),
         }
     }
-
 
     /// 唤醒一个等待中的调用。
     ///
@@ -462,7 +469,11 @@ impl Host {
             let _ = stream.tx.send(StreamEvent::Done(outcome));
             return;
         }
-        let waiter = self.pending.lock().ok().and_then(|mut map| map.remove(&frame.id));
+        let waiter = self
+            .pending
+            .lock()
+            .ok()
+            .and_then(|mut map| map.remove(&frame.id));
         if let Some(call) = waiter {
             let _ = call.tx.send(outcome);
         }
@@ -478,7 +489,11 @@ impl Host {
             Some("log") => {
                 let level = frame.level.unwrap_or_else(|| "info".to_string());
                 let message = frame.message.unwrap_or_default();
-                self.callbacks.log_context(level, message, frame.params.unwrap_or(serde_json::Value::Null));
+                self.callbacks.log_context(
+                    level,
+                    message,
+                    frame.params.unwrap_or(serde_json::Value::Null),
+                );
             }
             Some("head") => self.deliver_head(frame),
             Some("chunk") => self.deliver_chunk(frame),
@@ -509,13 +524,19 @@ impl Host {
         };
         if let Some(state) = guard.get(&frame.id).filter(|state| !state.closed) {
             // 插件重复发 head 是协议违规，消费者侧按「只认第一条」处理
-            let _ = state.tx.send(StreamEvent::Head(proto::StreamHead { status, headers, upstream }));
+            let _ = state.tx.send(StreamEvent::Head(proto::StreamHead {
+                status,
+                headers,
+                upstream,
+            }));
         }
     }
 
     /// 投递 `chunk`（一段上游字节）。
     fn deliver_chunk(&self, frame: proto::Frame) {
-        let Some(data) = frame.data.as_deref() else { return };
+        let Some(data) = frame.data.as_deref() else {
+            return;
+        };
         let bytes = match proto::decode_chunk(data) {
             Ok(bytes) => bytes,
             Err(e) => {
@@ -554,7 +575,9 @@ impl Host {
         params: serde_json::Value,
         timeout: Duration,
     ) -> Result<serde_json::Value, String> {
-        self.call_coded(method, params, timeout).await.map_err(|error| error.message)
+        self.call_coded(method, params, timeout)
+            .await
+            .map_err(|error| error.message)
     }
 
     /// 与 [`Self::call`] 同一件事，但**保留插件的错误分类**（`WireError.code`）。
@@ -570,22 +593,41 @@ impl Host {
         params: serde_json::Value,
         timeout: Duration,
     ) -> Result<serde_json::Value, proto::WireError> {
-        let lease = if matches!(method, proto::methods::gateway::INIT | proto::methods::gateway::SHUTDOWN | proto::methods::gateway::ABORT) {
+        let lease = if matches!(
+            method,
+            proto::methods::gateway::INIT
+                | proto::methods::gateway::SHUTDOWN
+                | proto::methods::gateway::ABORT
+        ) {
             None
         } else {
-            Some(self.activity.acquire().ok_or_else(|| proto::WireError::with_code(
-                "插件正在切换或已关闭", "plugin_updating",
-            ))?)
+            Some(self.activity.acquire().ok_or_else(|| {
+                proto::WireError::with_code("插件正在切换或已关闭", "plugin_updating")
+            })?)
         };
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         let run = {
-            let _state = self.lifecycle.lock().unwrap_or_else(|error| error.into_inner());
-            let run = self.current_run().filter(|run| self.is_current_run(run)
-                && self.running.load(Ordering::Acquire) && !run.failed.load(Ordering::Acquire)
-                && (!run.is_expected_exit() || method == proto::methods::gateway::SHUTDOWN))
-                .ok_or_else(|| proto::WireError::with_code("插件进程不可用", proto::WireError::INTERNAL))?;
-            self.pending.lock().map_err(|_| proto::WireError::with_code("回调表被污染", proto::WireError::INTERNAL))?
+            let _state = self
+                .lifecycle
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let run = self
+                .current_run()
+                .filter(|run| {
+                    self.is_current_run(run)
+                        && self.running.load(Ordering::Acquire)
+                        && !run.failed.load(Ordering::Acquire)
+                        && (!run.is_expected_exit() || method == proto::methods::gateway::SHUTDOWN)
+                })
+                .ok_or_else(|| {
+                    proto::WireError::with_code("插件进程不可用", proto::WireError::INTERNAL)
+                })?;
+            self.pending
+                .lock()
+                .map_err(|_| {
+                    proto::WireError::with_code("回调表被污染", proto::WireError::INTERNAL)
+                })?
                 .insert(id, PendingCall { tx, _lease: lease });
             run
         };
@@ -625,7 +667,9 @@ impl Host {
             Err(_) => {
                 // 超时只结束网关等待；插件未回终态前保留租约，不把未知执行结果当空闲。
                 if let Ok(mut map) = self.pending.lock() {
-                    if map.get(&id).is_some_and(|call| call._lease.is_none()) { map.remove(&id); }
+                    if map.get(&id).is_some_and(|call| call._lease.is_none()) {
+                        map.remove(&id);
+                    }
                 }
                 Err(proto::WireError::with_code(
                     format!("插件调用超时（{method}）"),
@@ -641,10 +685,16 @@ impl Host {
         self.write_for_run(frame, run).await
     }
 
-    async fn write_for_run(&self, frame: proto::Frame, run: Arc<process::ProcessRun>) -> std::io::Result<()> {
+    async fn write_for_run(
+        &self,
+        frame: proto::Frame,
+        run: Arc<process::ProcessRun>,
+    ) -> std::io::Result<()> {
         let stdin = {
             let guard = self.inner.lock().await;
-            let inner = guard.as_ref().filter(|inner| Arc::ptr_eq(&inner.run, &run))
+            let inner = guard
+                .as_ref()
+                .filter(|inner| Arc::ptr_eq(&inner.run, &run))
                 .ok_or_else(process::disconnected)?;
             inner.stdin.clone()
         };
@@ -655,9 +705,10 @@ impl Host {
                 return Err(process::disconnected());
             }
             proto::write_frame(&mut *stdin, &frame).await
-        }).await.map_err(|error| std::io::Error::other(format!("插件写入任务未完成：{error}")))?
+        })
+        .await
+        .map_err(|error| std::io::Error::other(format!("插件写入任务未完成：{error}")))?
     }
-
 
     /// 发起流式调用；head、chunk 和最终应答共用专属通道，保持帧顺序。
     pub(crate) async fn open_stream(
@@ -665,24 +716,47 @@ impl Host {
         method: &str,
         params: serde_json::Value,
     ) -> Result<StreamCall, String> {
-        let lease = self.activity.acquire().ok_or_else(|| "插件正在切换或已关闭".to_string())?;
+        let lease = self
+            .activity
+            .acquire()
+            .ok_or_else(|| "插件正在切换或已关闭".to_string())?;
         self.ensure().await?;
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let run = {
-            let _state = self.lifecycle.lock().unwrap_or_else(|error| error.into_inner());
-            let run = self.current_run().filter(|run| self.is_current_run(run) && self.ready()
-                && !run.failed.load(Ordering::Acquire) && !run.is_expected_exit())
+            let _state = self
+                .lifecycle
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            let run = self
+                .current_run()
+                .filter(|run| {
+                    self.is_current_run(run)
+                        && self.ready()
+                        && !run.failed.load(Ordering::Acquire)
+                        && !run.is_expected_exit()
+                })
                 .ok_or_else(|| "插件进程不可用".to_string())?;
-            self.streams.lock().map_err(|_| "流式表被污染".to_string())?
-                .insert(id, StreamState { tx: event_tx, _lease: lease, closed: false });
+            self.streams
+                .lock()
+                .map_err(|_| "流式表被污染".to_string())?
+                .insert(
+                    id,
+                    StreamState {
+                        tx: event_tx,
+                        _lease: lease,
+                        closed: false,
+                    },
+                );
             run
         };
 
         let (written, write_result) = oneshot::channel();
         let mut opening = activity::OpeningStream {
-            host: self.clone(), id: Some(id), written: Some(write_result),
+            host: self.clone(),
+            id: Some(id),
+            written: Some(write_result),
         };
         let frame = proto::Frame {
             id,
@@ -695,8 +769,10 @@ impl Host {
             let result = host.write_for_run(frame, run).await;
             let _ = written.send(result.is_ok());
             result
-        }).await.map_err(|error| std::io::Error::other(format!("插件写入任务中断：{error}")))
-            .and_then(|result| result);
+        })
+        .await
+        .map_err(|error| std::io::Error::other(format!("插件写入任务中断：{error}")))
+        .and_then(|result| result);
         if let Err(e) = write {
             if let Ok(mut guard) = self.streams.lock() {
                 guard.remove(&id);
@@ -705,12 +781,17 @@ impl Host {
             // 超限时把「这是本地问题、重试没用」写进文案 —— 调用方据此展示，
             // 不再额外引入一个只在这一处生效的错误类型。
             if is_frame_too_large(&e) {
-                return Err(format!("写插件失败: {e}（请求体过大，换账号或重试都不会成功）"));
+                return Err(format!(
+                    "写插件失败: {e}（请求体过大，换账号或重试都不会成功）"
+                ));
             }
             return Err(format!("写插件失败: {e}"));
         }
         opening.id = None;
-        Ok(StreamCall { id, events: event_rx })
+        Ok(StreamCall {
+            id,
+            events: event_rx,
+        })
     }
 
     /// 消费端结束不代表插件已完成；登记与租约由终态应答或进程退出释放。
@@ -726,11 +807,13 @@ impl Host {
 
     /// 取消一条在途的流式调用。
     pub async fn abort(&self, id: i64) {
-        let _ = self.call_coded(
-            proto::methods::gateway::ABORT,
-            serde_json::json!({ "id": id }),
-            Duration::from_secs(10),
-        ).await;
+        let _ = self
+            .call_coded(
+                proto::methods::gateway::ABORT,
+                serde_json::json!({ "id": id }),
+                Duration::from_secs(10),
+            )
+            .await;
     }
 
     /// 归还背压额度。

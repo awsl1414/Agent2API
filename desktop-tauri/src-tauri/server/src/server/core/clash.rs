@@ -187,7 +187,10 @@ pub fn read_clash_verge_config() -> ClashSnapshot {
     // 脏项（缺 proxy / 端口非法 / 非映射）一律跳过，而不是让整个快照失败 ——
     // 一个坏项不该让其它可用出口从下拉里消失。
     let mut listeners: Vec<ClashListener> = Vec::new();
-    if let Some(items) = verge.get("verge_mixed_listeners").and_then(Yaml::as_sequence) {
+    if let Some(items) = verge
+        .get("verge_mixed_listeners")
+        .and_then(Yaml::as_sequence)
+    {
         for item in items {
             let Some(mapping) = item.as_mapping() else {
                 continue;
@@ -218,7 +221,11 @@ pub fn read_clash_verge_config() -> ClashSnapshot {
             };
             let profile_uid = {
                 let text = yaml_text(mapping.get("profile_uid"));
-                if text.is_empty() { None } else { Some(text) }
+                if text.is_empty() {
+                    None
+                } else {
+                    Some(text)
+                }
             };
             listeners.push(ClashListener {
                 uid,
@@ -236,7 +243,11 @@ pub fn read_clash_verge_config() -> ClashSnapshot {
     // 前端据此在下拉项上标注「（其他订阅，可能未生效）」
     let current_profile_uid = read_yaml(&dir.join("profiles.yaml")).and_then(|profiles| {
         let current = yaml_text(profiles.get("current"));
-        if current.is_empty() { None } else { Some(current) }
+        if current.is_empty() {
+            None
+        } else {
+            Some(current)
+        }
     });
 
     ClashSnapshot {

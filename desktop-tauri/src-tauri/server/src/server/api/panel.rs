@@ -30,7 +30,7 @@ use crate::server::http::{ok_json, parse_body};
 use crate::server::logging;
 use crate::server::ServerState;
 
-fn body_str<'a>(payload: &'a serde_json::Value, field: &str) -> String {
+fn body_str(payload: &serde_json::Value, field: &str) -> String {
     payload
         .get(field)
         .and_then(serde_json::Value::as_str)
@@ -120,10 +120,7 @@ fn probe_is_currently_valid(received: &[String]) -> bool {
     }
 }
 
-fn tokens_in_body(
-    headers: &HeaderMap,
-    query: &std::collections::HashMap<String, String>,
-) -> bool {
+fn tokens_in_body(headers: &HeaderMap, query: &std::collections::HashMap<String, String>) -> bool {
     // 显式标记（前端探测到 cookie 走不通后自己要求的），走**两条通道**：
     // 自定义请求头 + URL 参数 —— 有的中转剥自定义请求头，query 剥不掉
     // （登录请求能到服务器，它的 query 就完整）。
@@ -146,7 +143,10 @@ fn tokens_in_body(
 }
 
 /// 判定依据的可读形态（登录日志用）：标记走了哪条通道。
-fn marker_source(headers: &HeaderMap, query: &std::collections::HashMap<String, String>) -> &'static str {
+fn marker_source(
+    headers: &HeaderMap,
+    query: &std::collections::HashMap<String, String>,
+) -> &'static str {
     if headers
         .get(TOKEN_BODY_MODE)
         .and_then(|value| value.to_str().ok())
@@ -310,7 +310,10 @@ pub async fn panel_setup(
                 "[Security]",
                 &format!("✅ 管理员「{username}」注册完成（{}）", addr.ip()),
             );
-            issue_response(access::IssuedSession::new_session(), tokens_in_body(&headers, &query))
+            issue_response(
+                access::IssuedSession::new_session(),
+                tokens_in_body(&headers, &query),
+            )
         }
         Ok(false) => management_error(409, "管理员账号已存在，无需重复注册"),
         Err(reason) => {
@@ -505,7 +508,12 @@ mod tokens_in_body_tests {
 
     /// 会话 cookie 的上行文本：一枚装两段（与 `access::issue_cookie` 同形）。
     fn session_cookie_of(session: &access::IssuedSession) -> String {
-        format!("{}={}.{}", access::ACCESS_COOKIE, session.access_token, session.refresh_token)
+        format!(
+            "{}={}.{}",
+            access::ACCESS_COOKIE,
+            session.access_token,
+            session.refresh_token
+        )
     }
 
     /// 从一条 `Set-Cookie` 里取出会话 cookie 的值（去掉属性段）。
@@ -544,10 +552,8 @@ mod tokens_in_body_tests {
 
         // 同名多条（罐里留着上一轮的残本）：期望值在其中就算对得上，
         // 与 `access::cookie_values` 的全量口径一致
-        let repeated = headers_with(&[(
-            "cookie",
-            format!("{PROBE}=old-a; {PROBE}=fresh-a").as_str(),
-        )]);
+        let repeated =
+            headers_with(&[("cookie", format!("{PROBE}=old-a; {PROBE}=fresh-a").as_str())]);
         assert!(!tokens_in_body(&repeated, &HashMap::new()));
     }
 
@@ -571,10 +577,7 @@ mod tokens_in_body_tests {
 
         // 显式标记**优先于**「探针说通道完好」：前端明确要求走响应体时，
         // 即便探针对得上也把令牌放进去（两侧客户端都认，功能无损）。
-        let headers = headers_with(&[
-            ("x-panel-auth-mode", "body"),
-            ("cookie", pair.as_str()),
-        ]);
+        let headers = headers_with(&[("x-panel-auth-mode", "body"), ("cookie", pair.as_str())]);
         assert!(tokens_in_body(&headers, &HashMap::new()));
         // 参数标记：头被剥了也认
         let headers = headers_with(&[("cookie", pair.as_str())]);
@@ -710,10 +713,7 @@ mod tokens_in_body_tests {
         let rotated = cookie_value_of(&set_cookies[0]).expect("Set-Cookie 里应有新的会话对");
         let marked = format!("{PROBE}=direct-a; {}={rotated}", access::ACCESS_COOKIE);
         let response = panel_refresh(
-            headers_with(&[
-                ("cookie", marked.as_str()),
-                ("x-panel-auth-mode", "body"),
-            ]),
+            headers_with(&[("cookie", marked.as_str()), ("x-panel-auth-mode", "body")]),
             Query(HashMap::new()),
         )
         .await;

@@ -26,9 +26,8 @@ pub trait GatewayCallbacks: Send + Sync + 'static {
         account: String,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<
-                    Output = Result<serde_json::Value, proto::WireError>,
-                > + Send
+            dyn std::future::Future<Output = Result<serde_json::Value, proto::WireError>>
+                + Send
                 + '_,
         >,
     >;
@@ -38,9 +37,8 @@ pub trait GatewayCallbacks: Send + Sync + 'static {
         provider: String,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<
-                    Output = Result<serde_json::Value, proto::WireError>,
-                > + Send
+            dyn std::future::Future<Output = Result<serde_json::Value, proto::WireError>>
+                + Send
                 + '_,
         >,
     >;
@@ -52,9 +50,8 @@ pub trait GatewayCallbacks: Send + Sync + 'static {
         secret: serde_json::Value,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<
-                    Output = Result<serde_json::Value, proto::WireError>,
-                > + Send
+            dyn std::future::Future<Output = Result<serde_json::Value, proto::WireError>>
+                + Send
                 + '_,
         >,
     >;
@@ -66,7 +63,11 @@ pub trait GatewayCallbacks: Send + Sync + 'static {
         secret: serde_json::Value,
         _public: serde_json::Value,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<serde_json::Value, proto::WireError>> + Send + '_>,
+        Box<
+            dyn std::future::Future<Output = Result<serde_json::Value, proto::WireError>>
+                + Send
+                + '_,
+        >,
     > {
         self.store_update(account, expect, secret)
     }
@@ -86,9 +87,8 @@ pub trait GatewayCallbacks: Send + Sync + 'static {
         kind: String,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<
-                    Output = Result<serde_json::Value, proto::WireError>,
-                > + Send
+            dyn std::future::Future<Output = Result<serde_json::Value, proto::WireError>>
+                + Send
                 + '_,
         >,
     >;
@@ -108,9 +108,8 @@ pub trait GatewayCallbacks: Send + Sync + 'static {
         key: String,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<
-                    Output = Result<serde_json::Value, proto::WireError>,
-                > + Send
+            dyn std::future::Future<Output = Result<serde_json::Value, proto::WireError>>
+                + Send
                 + '_,
         >,
     >;
@@ -137,53 +136,86 @@ impl Host {
     /// 授权只来自当前 Host 的声明与网关授予的包范围，不能信任请求里的 owner。
     /// 锁只用于同步读取，绝不持 providers 锁跨 store 回调或 await。
     fn authorize_callback_provider(&self, provider: &str) -> Result<(), proto::WireError> {
-        let declared = !provider.is_empty() && self.providers.lock().ok()
-            .is_some_and(|providers| providers.iter().any(|info| info.id.as_str() == provider));
+        let declared =
+            !provider.is_empty()
+                && self.providers.lock().ok().is_some_and(|providers| {
+                    providers.iter().any(|info| info.id.as_str() == provider)
+                });
         let current_owner = runtime::host_for_provider(provider);
-        if !declared || !self.callbacks.provider_allowed(provider)
+        if !declared
+            || !self.callbacks.provider_allowed(provider)
             || current_owner.is_some_and(|host| !std::ptr::eq(host.as_ref(), self))
         {
             return Err(proto::WireError::with_code(
-                "提供商不属于当前插件包", CALLBACK_FORBIDDEN,
+                "提供商不属于当前插件包",
+                CALLBACK_FORBIDDEN,
             ));
         }
         Ok(())
     }
 
     /// account 的归属必须由账号库顶层确认；secret/provider 参数都不是授权事实。
-    fn authorize_callback_account(&self, account: &str, provider: Option<&str>) -> Result<(), proto::WireError> {
+    fn authorize_callback_account(
+        &self,
+        account: &str,
+        provider: Option<&str>,
+    ) -> Result<(), proto::WireError> {
         if account.is_empty() {
-            return Err(proto::WireError::with_code("账号不存在", proto::WireError::NOT_FOUND));
+            return Err(proto::WireError::with_code(
+                "账号不存在",
+                proto::WireError::NOT_FOUND,
+            ));
         }
-        let actual = self.callbacks.account_provider(account)
+        let actual = self
+            .callbacks
+            .account_provider(account)
             .filter(|provider| !provider.is_empty())
-            .ok_or_else(|| proto::WireError::with_code("账号不存在", proto::WireError::NOT_FOUND))?;
+            .ok_or_else(|| {
+                proto::WireError::with_code("账号不存在", proto::WireError::NOT_FOUND)
+            })?;
         self.authorize_callback_provider(&actual)?;
         if provider.is_some_and(|requested| requested != actual) {
             return Err(proto::WireError::with_code(
-                "账号不属于请求的提供商", CALLBACK_FORBIDDEN,
+                "账号不属于请求的提供商",
+                CALLBACK_FORBIDDEN,
             ));
         }
         Ok(())
     }
 
     pub(super) async fn serve_callback(&self, frame: proto::Frame, run: Arc<ProcessRun>) {
-        if !self.is_current_run(&run) || run.failed.load(Ordering::Acquire) { return; }
+        if !self.is_current_run(&run) || run.failed.load(Ordering::Acquire) {
+            return;
+        }
         let lease = self.activity.acquire();
         if lease.is_none() && !run.is_expected_exit() {
-            let _ = self.write_for_run(proto::Frame {
-                id: frame.id,
-                error: Some(proto::WireError::with_code("插件正在切换", "plugin_updating")),
-                ..Default::default()
-            }, run).await;
+            let _ = self
+                .write_for_run(
+                    proto::Frame {
+                        id: frame.id,
+                        error: Some(proto::WireError::with_code(
+                            "插件正在切换",
+                            "plugin_updating",
+                        )),
+                        ..Default::default()
+                    },
+                    run,
+                )
+                .await;
             return;
         }
         let _lease = lease;
-        let Some(method) = frame.method.clone() else { return };
+        let Some(method) = frame.method.clone() else {
+            return;
+        };
         let id = frame.id;
         let params = frame.params.unwrap_or(serde_json::Value::Null);
         let text = |key: &str| {
-            params.get(key).and_then(serde_json::Value::as_str).unwrap_or("").to_string()
+            params
+                .get(key)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("")
+                .to_string()
         };
         let value = |key: &str| params.get(key).cloned().unwrap_or(serde_json::Value::Null);
 
@@ -192,8 +224,11 @@ impl Host {
                 let provider = text("provider");
                 let account = text("account");
                 self.authorize_callback_provider(&provider).and_then(|()| {
-                    if account.is_empty() { Ok(()) }
-                    else { self.authorize_callback_account(&account, Some(&provider)) }
+                    if account.is_empty() {
+                        Ok(())
+                    } else {
+                        self.authorize_callback_account(&account, Some(&provider))
+                    }
                 })
             }
             proto::methods::plugin::STORE_LIST
@@ -211,18 +246,34 @@ impl Host {
             _ => Ok(()),
         };
         if let Err(error) = authorization {
-            let _ = self.write_for_run(proto::Frame { id, error: Some(error), ..Default::default() }, run).await;
+            let _ = self
+                .write_for_run(
+                    proto::Frame {
+                        id,
+                        error: Some(error),
+                        ..Default::default()
+                    },
+                    run,
+                )
+                .await;
             return;
         }
         let outcome: Result<serde_json::Value, proto::WireError> = match method.as_str() {
             "transport.capabilities" => Ok(serde_json::json!({ "multipart": true })),
             proto::methods::plugin::STORE_GET => {
-                self.callbacks.store_get(text("provider"), text("account")).await
+                self.callbacks
+                    .store_get(text("provider"), text("account"))
+                    .await
             }
             proto::methods::plugin::STORE_LIST => self.callbacks.store_list(text("provider")).await,
             proto::methods::plugin::STORE_UPDATE => {
                 self.callbacks
-                    .store_update_with_public(text("account"), value("expect"), value("secret"), value("public"))
+                    .store_update_with_public(
+                        text("account"),
+                        value("expect"),
+                        value("secret"),
+                        value("public"),
+                    )
                     .await
             }
             proto::methods::plugin::STORE_MARK_LIMITED => {
@@ -233,33 +284,42 @@ impl Host {
                     .map(|()| serde_json::Value::Null)
             }
             proto::methods::plugin::STORE_LEDGER_GET => {
-                self.callbacks.ledger_get(text("account"), text("kind")).await
-            }
-            proto::methods::plugin::STORE_LEDGER_PUT => {
                 self.callbacks
-                    .ledger_put(text("account"), text("kind"), value("value"))
+                    .ledger_get(text("account"), text("kind"))
                     .await
-                    .map(|()| serde_json::Value::Null)
             }
+            proto::methods::plugin::STORE_LEDGER_PUT => self
+                .callbacks
+                .ledger_put(text("account"), text("kind"), value("value"))
+                .await
+                .map(|()| serde_json::Value::Null),
             proto::methods::plugin::SETTINGS_GET => {
-                self.callbacks.settings_get(text("provider"), text("key")).await
-            }
-            proto::methods::plugin::SETTINGS_SET => {
                 self.callbacks
-                    .settings_set(text("provider"), text("key"), value("value"))
+                    .settings_get(text("provider"), text("key"))
                     .await
-                    .map(|()| serde_json::Value::Null)
             }
+            proto::methods::plugin::SETTINGS_SET => self
+                .callbacks
+                .settings_set(text("provider"), text("key"), value("value"))
+                .await
+                .map(|()| serde_json::Value::Null),
             proto::methods::plugin::LOG => {
-                self.callbacks.log_context(text("level"), text("message"), value("context"));
+                self.callbacks
+                    .log_context(text("level"), text("message"), value("context"));
                 Ok(serde_json::Value::Null)
             }
             proto::methods::plugin::NOTIFY => {
                 let payload = value("payload");
                 if text("kind") == "models_changed" {
-                    let provider = payload.get("provider").and_then(serde_json::Value::as_str).unwrap_or("");
+                    let provider = payload
+                        .get("provider")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("");
                     let owner = runtime::host_for_provider(provider);
-                    if !owner.as_ref().is_some_and(|host| std::ptr::eq(host.as_ref(), self)) {
+                    if !owner
+                        .as_ref()
+                        .is_some_and(|host| std::ptr::eq(host.as_ref(), self))
+                    {
                         Err(proto::WireError::with_code(
                             "模型通知不属于当前插件进程",
                             proto::WireError::UNSUPPORTED,
@@ -281,8 +341,16 @@ impl Host {
 
         // 插件重启后会复用回调 ID，应答只能写回发起它的那一代进程。
         let frame = match outcome {
-            Ok(result) => proto::Frame { id, result: Some(result), ..Default::default() },
-            Err(error) => proto::Frame { id, error: Some(error), ..Default::default() },
+            Ok(result) => proto::Frame {
+                id,
+                result: Some(result),
+                ..Default::default()
+            },
+            Err(error) => proto::Frame {
+                id,
+                error: Some(error),
+                ..Default::default()
+            },
         };
         let _ = self.write_for_run(frame, run).await;
     }

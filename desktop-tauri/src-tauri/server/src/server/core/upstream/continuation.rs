@@ -71,16 +71,16 @@ use std::sync::Arc;
 
 use axum::http::HeaderMap;
 use bytes::Bytes;
-use futures::StreamExt;
 use futures::stream::Stream;
-use serde_json::{Value, json};
+use futures::StreamExt;
+use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::server::config;
 use crate::server::core::key_scope::KeyScope;
-use crate::server::core::upstream::{ForwardOutcome, ForwardRequest, UpstreamService, usage};
 use crate::server::core::upstream::refusal;
+use crate::server::core::upstream::{usage, ForwardOutcome, ForwardRequest, UpstreamService};
 use crate::server::logging;
 
 /// 长度别名表：上游声明「输出预算用尽」的全部写法（参考实现的
@@ -104,9 +104,7 @@ const LENGTH_FINISH_ALIASES: &[&str] = &[
 ///   - `//` 是「以 `/` 结尾」的子集（末尾两个斜杠时末字符也是斜杠），合并；
 ///   - `\.\.\.$`（省略号）单独按 `ends_with("...")` 判 —— **单个句点不算截断**，
 ///     正常句子以 `.` 收尾是常态，这条是集合与省略号分开的唯一理由。
-const DANGLING_ENDING_CHARS: &[char] = &[
-    ',', '|', '｜', '\\', '/', '#', '-', '–', '—', ':', '：',
-];
+const DANGLING_ENDING_CHARS: &[char] = &[',', '|', '｜', '\\', '/', '#', '-', '–', '—', ':', '：'];
 
 /// 句末符号集合（参考实现的 `_SENTENCE_END_RE` 字符类逐字对应）。
 ///
@@ -194,11 +192,7 @@ pub fn looks_truncated(parts: &TurnParts) -> bool {
         return false;
     }
     // 2. 上游自己说「预算用尽」
-    if parts
-        .finish
-        .as_deref()
-        .is_some_and(|finish| is_length_finish(finish))
-    {
+    if parts.finish.as_deref().is_some_and(is_length_finish) {
         return true;
     }
     let body = parts.text.as_str();
@@ -366,17 +360,19 @@ fn verdict_of(
 /// 与「第一个正数」的口径只有一份（`usage::extract_usage`），这里再造一份就等于
 /// 允许两边的字段认知分叉。
 pub fn sum_tokens(rounds: &[usage::UsageTokens]) -> usage::UsageTokens {
-    rounds.iter().fold(usage::UsageTokens::default(), |mut acc, round| {
-        acc.prompt += round.prompt;
-        acc.completion += round.completion;
-        acc.total += round.total;
-        acc.cache_read += round.cache_read;
-        acc.credit = match (acc.credit, round.credit) {
-            (None, None) => None,
-            (left, right) => Some(left.unwrap_or(0.0) + right.unwrap_or(0.0)),
-        };
-        acc
-    })
+    rounds
+        .iter()
+        .fold(usage::UsageTokens::default(), |mut acc, round| {
+            acc.prompt += round.prompt;
+            acc.completion += round.completion;
+            acc.total += round.total;
+            acc.cache_read += round.cache_read;
+            acc.credit = match (acc.credit, round.credit) {
+                (None, None) => None,
+                (left, right) => Some(left.unwrap_or(0.0) + right.unwrap_or(0.0)),
+            };
+            acc
+        })
 }
 
 /// 合并后的 token 数 → 一份规范 OpenAI 形状的 usage 对象。
@@ -436,8 +432,14 @@ fn last_chars(text: &str, n: usize) -> String {
 /// 参考实现举的那个例子 `{a: [1, 2}` 仍然抓到（`}` 对不上 `[` 被跳过，
 /// 走到结束时 `{` 与 `[` 都还开着）。
 fn unbalanced_brackets(tail: &str) -> bool {
-    let opens = tail.chars().filter(|c| matches!(c, '[' | '{' | '(')).count();
-    let closes = tail.chars().filter(|c| matches!(c, ']' | '}' | ')')).count();
+    let opens = tail
+        .chars()
+        .filter(|c| matches!(c, '[' | '{' | '('))
+        .count();
+    let closes = tail
+        .chars()
+        .filter(|c| matches!(c, ']' | '}' | ')'))
+        .count();
     if opens > closes + 2 {
         return true;
     }
@@ -445,12 +447,11 @@ fn unbalanced_brackets(tail: &str) -> bool {
     for c in tail.chars() {
         match c {
             '[' | '{' | '(' => stack.push(c),
-            ')' | ']' | '}' => {
+            ')' | ']' | '}'
                 // 配对成功才弹栈；对不上（含空栈）按散文噪声跳过，理由见函数头
-                if matching_opener(c).is_some_and(|opener| stack.last() == Some(&opener)) {
+                if matching_opener(c).is_some_and(|opener| stack.last() == Some(&opener)) => {
                     stack.pop();
                 }
-            }
             _ => {}
         }
     }
@@ -749,7 +750,11 @@ impl Continuation {
             texts.push(parts.text.clone());
             reasonings.push(parts.reasoning.clone());
             tokens.push(tokens_of_completion(&body));
-            if repeat || !looks_truncated(&verdict) || rounds >= self.max_rounds || self.telemetry.is_cancelled() {
+            if repeat
+                || !looks_truncated(&verdict)
+                || rounds >= self.max_rounds
+                || self.telemetry.is_cancelled()
+            {
                 break;
             }
             // 没有 messages 数组就改不动（入口校验过，走到这里按不续处理）
@@ -761,7 +766,8 @@ impl Continuation {
                 Ok(ForwardOutcome::Completion { body: next }) => {
                     // 轮次边界与流式同一句、同一落点（同样受「首次为准」限制，
                     // 说明见 `stream` 里那条注释）
-                    self.telemetry.note_attempt_notice("自动续写轮（上一轮疑似被截断）");
+                    self.telemetry
+                        .note_attempt_notice("自动续写轮（上一轮疑似被截断）");
                     body = next;
                 }
                 // 续写轮回的不是非流式体 / 转发失败：`body` 保持上一轮那份，
@@ -913,7 +919,11 @@ impl Continuation {
                     // 注意只判「两者都空」：正文空但有思考是判据第 3 条要续的正例。
                     && !(parts.text.trim().is_empty() && parts.reasoning.trim().is_empty());
                 if want_more
-                    && append_continuation(&mut working, &parts.text, looks_reasoning_only(&verdict))
+                    && append_continuation(
+                        &mut working,
+                        &parts.text,
+                        looks_reasoning_only(&verdict),
+                    )
                 {
                     rounds += 1;
                     match forward_round_with(
@@ -969,7 +979,10 @@ impl Continuation {
     }
 
     /// 发一轮续写请求（与首轮的差别只有 `body` 与 `dedupe_key`）。
-    async fn forward_round(&self, body: Value) -> Result<ForwardOutcome, crate::server::errors::GatewayError> {
+    async fn forward_round(
+        &self,
+        body: Value,
+    ) -> Result<ForwardOutcome, crate::server::errors::GatewayError> {
         forward_round_with(
             &self.service,
             self.stream,
@@ -999,11 +1012,26 @@ async fn forward_round_with(
     allowed_providers: Option<KeyScope>,
     mut body: Value,
 ) -> Result<ForwardOutcome, crate::server::errors::GatewayError> {
-    if body.get("_wb_route_group_id").and_then(Value::as_str).is_some() {
+    if body
+        .get("_wb_route_group_id")
+        .and_then(Value::as_str)
+        .is_some()
+    {
         let snapshot = telemetry.snapshot();
-        let candidate = snapshot.route.as_ref().and_then(|route| route.get("pickedCandidate")).and_then(Value::as_str).unwrap_or("");
-        if candidate.is_empty() || snapshot.account_id.is_empty() || snapshot.upstream_model.is_empty() {
-            return Err(crate::server::errors::GatewayError::with_status(503, "路由组自动续写缺少原模型与账号，已停止续写"));
+        let candidate = snapshot
+            .route
+            .as_ref()
+            .and_then(|route| route.get("pickedCandidate"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if candidate.is_empty()
+            || snapshot.account_id.is_empty()
+            || snapshot.upstream_model.is_empty()
+        {
+            return Err(crate::server::errors::GatewayError::with_status(
+                503,
+                "路由组自动续写缺少原模型与账号，已停止续写",
+            ));
         }
         body["_wb_route_continue"] = json!({ "candidateId": candidate, "accountId": snapshot.account_id, "model": snapshot.upstream_model });
     }
@@ -1069,7 +1097,10 @@ mod truncation_criteria {
     fn tool_call_turns_are_never_continued() {
         let mut with_calls = parts("我把文件读完之后", "", Some("length"));
         with_calls.has_tool_calls = true;
-        assert!(!looks_truncated(&with_calls), "工具轮的执行权在客户端，不许续写");
+        assert!(
+            !looks_truncated(&with_calls),
+            "工具轮的执行权在客户端，不许续写"
+        );
         assert!(
             looks_truncated(&parts("我把文件读完之后", "", Some("length"))),
             "同样的正文没有 tool_calls 时应当点亮（否则上面那条断言是空跑）"
@@ -1083,21 +1114,30 @@ mod truncation_criteria {
     fn every_length_alias_counts_as_truncation() {
         for alias in LENGTH_FINISH_ALIASES {
             assert!(
-                is_length_finish(alias)
-                    && looks_truncated(&parts("就这样", "", Some(alias))),
+                is_length_finish(alias) && looks_truncated(&parts("就这样", "", Some(alias))),
                 "length 别名没认出来: {alias}"
             );
         }
         assert!(is_length_finish("LENGTH"), "大小写不敏感");
         assert!(!is_length_finish("tool_calls"));
-        assert!(!is_length_finish("content_filter"), "拒答归 refusal 管，不是截断");
+        assert!(
+            !is_length_finish("content_filter"),
+            "拒答归 refusal 管，不是截断"
+        );
     }
 
     /// 判据 3：正文空 + 有思考要续；两者都空**不续**（那是既有空答复兜底链的活）。
     #[test]
     fn empty_visible_text_depends_on_the_reasoning_channel() {
-        assert!(looks_truncated(&parts("", "先分析题目，再考虑边界情况。", None)));
-        assert!(!looks_truncated(&parts("   ", "", None)), "两个通道都空：不归本模块管");
+        assert!(looks_truncated(&parts(
+            "",
+            "先分析题目，再考虑边界情况。",
+            None
+        )));
+        assert!(
+            !looks_truncated(&parts("   ", "", None)),
+            "两个通道都空：不归本模块管"
+        );
         // 正文空 + 有思考 + finish 是 content_filter：**仍然判截断**。
         // 这条不是疏漏，是分工：拒答在转发层由 `refusal` 门控拦下（它看的是
         // 上游声明的 finish 集合），能走到续写的都是门控放过的那批 —— 本模块
@@ -1108,9 +1148,17 @@ mod truncation_criteria {
     /// 判据 4：代码围栏数量为奇数。
     #[test]
     fn an_unclosed_code_fence_is_hard_evidence() {
-        assert!(looks_truncated(&parts("看这段：\n```python\ndef f():\n    return 1", "", None)));
+        assert!(looks_truncated(&parts(
+            "看这段：\n```python\ndef f():\n    return 1",
+            "",
+            None
+        )));
         assert!(
-            !looks_truncated(&parts("看这段：\n```python\ndef f():\n    return 1\n```", "", None)),
+            !looks_truncated(&parts(
+                "看这段：\n```python\ndef f():\n    return 1\n```",
+                "",
+                None
+            )),
             "闭合的围栏不该点亮"
         );
     }
@@ -1122,8 +1170,14 @@ mod truncation_criteria {
     /// （抄参考实现就会抓到，见 `unbalanced_brackets` 函数头的偏离说明）。
     #[test]
     fn bracket_checks_end_with_an_open_group_not_with_a_stray_closer() {
-        assert!(!looks_truncated(&parts("先跑 (npm test) 再提交", "", None)), "配对完整：写完了");
-        assert!(looks_truncated(&parts("返回 {a: [1, 2}", "", None)), "仍未闭合必须抓到");
+        assert!(
+            !looks_truncated(&parts("先跑 (npm test) 再提交", "", None)),
+            "配对完整：写完了"
+        );
+        assert!(
+            looks_truncated(&parts("返回 {a: [1, 2}", "", None)),
+            "仍未闭合必须抓到"
+        );
         assert!(looks_truncated(&parts("调用 compute(a, b", "", None)));
         // 落单闭合符：整篇是「写完的一句中文」，只是括号不成对
         assert!(
@@ -1147,7 +1201,10 @@ mod truncation_criteria {
             "结果是 :",
             "表格单元 ｜",
         ] {
-            assert!(looks_truncated(&parts(text, "", None)), "悬挂尾部没抓到: {text:?}");
+            assert!(
+                looks_truncated(&parts(text, "", None)),
+                "悬挂尾部没抓到: {text:?}"
+            );
         }
         assert!(
             !looks_truncated(&parts("结果是 42.", "", None)),
@@ -1163,7 +1220,10 @@ mod truncation_criteria {
     #[test]
     fn a_long_think_with_a_stopped_fragment_needs_one_more_round() {
         let thinking = "分".to_string().repeat(FRAGMENT_REASONING_MIN_CHARS);
-        assert!(looks_truncated(&parts("好的", &thinking, None)), "整轮烧在思考里");
+        assert!(
+            looks_truncated(&parts("好的", &thinking, None)),
+            "整轮烧在思考里"
+        );
         assert!(
             !looks_truncated(&parts(&"好的，".repeat(20), &thinking, None)),
             "正文超过上限就不该走这条判据"
@@ -1186,19 +1246,18 @@ mod truncation_criteria {
     /// **第一轮点亮、第二轮的整体必须熄灭**。
     #[test]
     fn the_verdict_reads_the_stitched_answer_not_the_last_round() {
-        let first = parts("示例代码：\n```python\ndef solve():\n    return 42\n", "", Some("stop"));
+        let first = parts(
+            "示例代码：\n```python\ndef solve():\n    return 42\n",
+            "",
+            Some("stop"),
+        );
         assert!(looks_truncated(&first), "第一轮留着没闭合的围栏：该续");
         let second = parts("```\n上面的函数返回 42。", "", Some("stop"));
         assert!(
             looks_truncated(&second),
             "本轮单独看仍是半截（这正是旧判据多点一次火的地方）"
         );
-        let stitched = verdict_of(
-            &(first.text.clone() + &second.text),
-            "",
-            false,
-            &second,
-        );
+        let stitched = verdict_of(&(first.text.clone() + &second.text), "", false, &second);
         assert!(
             !looks_truncated(&stitched),
             "拼接后那道围栏已经闭合：整段答案是写完的，不许再打一轮"
@@ -1241,7 +1300,10 @@ mod truncation_criteria {
         let messages = body["messages"].as_array().cloned().unwrap_or_default();
         assert_eq!(3, messages.len());
         assert_eq!("assistant", messages[1]["role"]);
-        assert_eq!("床前明月光，", messages[1]["content"], "回放用原文，不许 trim");
+        assert_eq!(
+            "床前明月光，", messages[1]["content"],
+            "回放用原文，不许 trim"
+        );
         assert_eq!("user", messages[2]["role"]);
         assert_eq!(CONTINUE_INSTRUCTION, messages[2]["content"]);
     }
@@ -1283,7 +1345,10 @@ mod truncation_criteria {
         );
         let with_calls = json!({"choices": [{"message": {"tool_calls": [{"id": "1"}]}}]});
         assert!(parts_of_completion(&with_calls).unwrap().has_tool_calls);
-        assert!(parts_of_completion(&json!({"choices": []})).is_none(), "没有 choice 就判不了");
+        assert!(
+            parts_of_completion(&json!({"choices": []})).is_none(),
+            "没有 choice 就判不了"
+        );
     }
 
     fn frame(payload: Value) -> Bytes {
@@ -1295,15 +1360,23 @@ mod truncation_criteria {
     fn the_stream_accumulator_reads_downstream_frames() {
         let mut acc = TurnAccumulator::default();
         assert!(!acc.push_frame(&frame(json!({"choices": [{"delta": {"content": "前半"}}]}))));
-        assert!(!acc.push_frame(&frame(json!({"choices": [{"delta": {"content": "，后半"}}]}))));
-        assert!(!acc.push_frame(&frame(json!({"choices": [{"delta": {"reasoning_content": "思考"}}]}))));
-        assert!(!acc.push_frame(&frame(json!({"choices": [{"delta": {"tool_calls": [{"index": 0}]}}]}))));
+        assert!(!acc.push_frame(&frame(
+            json!({"choices": [{"delta": {"content": "，后半"}}]})
+        )));
+        assert!(!acc.push_frame(&frame(
+            json!({"choices": [{"delta": {"reasoning_content": "思考"}}]})
+        )));
+        assert!(!acc.push_frame(&frame(
+            json!({"choices": [{"delta": {"tool_calls": [{"index": 0}]}}]})
+        )));
         assert_eq!("前半，后半", acc.parts().text, "逐帧拼接");
         assert_eq!("思考", acc.parts().reasoning);
         assert!(acc.parts().has_tool_calls);
         assert!(!acc.saw_error());
         // 终帧：返回 true（调用侧据此压住不发）
-        assert!(acc.push_frame(&frame(json!({"choices": [{"delta": {}, "finish_reason": "length"}]}))));
+        assert!(acc.push_frame(&frame(
+            json!({"choices": [{"delta": {}, "finish_reason": "length"}]})
+        )));
         assert_eq!(Some("length".to_string()), acc.parts().finish);
         assert!(acc.push_frame(&Bytes::from_static(b"data: [DONE]\n\n")));
         assert!(acc.saw_done());
@@ -1313,15 +1386,23 @@ mod truncation_criteria {
     #[test]
     fn error_comment_and_unparsable_frames_are_classified() {
         let mut acc = TurnAccumulator::default();
-        assert!(acc.push_frame(&frame(json!({"error": {"message": "上游断了", "type": "proxy_error"}}))));
+        assert!(acc.push_frame(&frame(
+            json!({"error": {"message": "上游断了", "type": "proxy_error"}})
+        )));
         assert!(acc.saw_error(), "错误帧必须让调用侧别再续写");
         assert!(!acc.saw_done());
 
         let mut noisy = TurnAccumulator::default();
         assert!(!noisy.push_frame(&Bytes::from_static(b": keepalive\n\n")));
         assert!(!noisy.push_frame(&Bytes::from_static(b"data: not json\n\n")));
-        assert!(!noisy.push_frame(&frame(json!({"choices": [{"delta": {"content": "A"}}], "x": 1}))));
-        assert_eq!("A", noisy.parts().text, "坏帧只被跳过，不许把已攒的正文弄脏");
+        assert!(!noisy.push_frame(&frame(
+            json!({"choices": [{"delta": {"content": "A"}}], "x": 1})
+        )));
+        assert_eq!(
+            "A",
+            noisy.parts().text,
+            "坏帧只被跳过，不许把已攒的正文弄脏"
+        );
     }
 
     /// usage：本轮取最后一份，跨轮求和，且合并值还能被 `extract_usage` 读回来。
@@ -1331,23 +1412,44 @@ mod truncation_criteria {
     #[test]
     fn usage_is_last_wins_per_round_and_summed_across_rounds() {
         let mut acc = TurnAccumulator::default();
-        acc.push_frame(&frame(json!({"choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 2}})));
+        acc.push_frame(&frame(
+            json!({"choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 2}}),
+        ));
         acc.push_frame(&frame(json!({"choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 9, "total_tokens": 19}})));
         let round = acc.tokens();
         assert_eq!(9, round.completion, "同一轮里后到的 usage 是最终值");
 
         let rounds = [
-            usage::UsageTokens { prompt: 10, completion: 9, total: 19, cache_read: 4, credit: Some(0.25) },
-            usage::UsageTokens { prompt: 20, completion: 5, total: 25, cache_read: 0, credit: Some(0.5) },
+            usage::UsageTokens {
+                prompt: 10,
+                completion: 9,
+                total: 19,
+                cache_read: 4,
+                credit: Some(0.25),
+            },
+            usage::UsageTokens {
+                prompt: 20,
+                completion: 5,
+                total: 25,
+                cache_read: 0,
+                credit: Some(0.5),
+            },
         ];
         let merged = sum_tokens(&rounds);
-        assert_eq!(30, merged.prompt, "每轮的 prompt 都含全部历史，真实成本按轮求和");
+        assert_eq!(
+            30, merged.prompt,
+            "每轮的 prompt 都含全部历史，真实成本按轮求和"
+        );
         assert_eq!(14, merged.completion);
         assert_eq!(44, merged.total);
         assert_eq!(4, merged.cache_read);
         assert_eq!(Some(0.75), merged.credit, "积分也是逐轮扣的，跨轮按和计");
         let json = usage_json(&merged);
-        assert_eq!(merged, usage::extract_usage(&json).unwrap(), "合并值必须能被提取侧读回来");
+        assert_eq!(
+            merged,
+            usage::extract_usage(&json).unwrap(),
+            "合并值必须能被提取侧读回来"
+        );
     }
 
     /// 拼接不留分隔符：上游被腰斩处没有换行，插字符会改坏代码块与 markdown。

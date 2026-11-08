@@ -23,7 +23,8 @@ fn read_raw() -> Value {
     db.with(|conn| {
         conn.query_row("SELECT value FROM kv WHERE key = ?1", [KV_KEY], |row| {
             row.get::<_, String>(0)
-        }).ok()
+        })
+        .ok()
     })
     .flatten()
     .and_then(|text| serde_json::from_str::<Value>(&text).ok())
@@ -35,7 +36,8 @@ fn write_raw(value: &Value) -> Result<(), String> {
     let Some(db) = DB.get().and_then(Option::as_ref) else {
         return Err("设置数据库不可用".to_string());
     };
-    let text = serde_json::to_string(value).map_err(|error| format!("编码代理设置失败: {error}"))?;
+    let text =
+        serde_json::to_string(value).map_err(|error| format!("编码代理设置失败: {error}"))?;
     db.with(|conn| {
         conn.execute(
             "INSERT INTO kv (key, value) VALUES (?1, ?2)
@@ -51,8 +53,12 @@ fn write_raw(value: &Value) -> Result<(), String> {
 }
 
 pub fn test_url() -> Option<String> {
-    let text = read_raw().get("testUrl").and_then(Value::as_str)
-        .unwrap_or("").trim().to_string();
+    let text = read_raw()
+        .get("testUrl")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
     (!text.is_empty()).then_some(text)
 }
 
@@ -69,7 +75,10 @@ pub fn save(input: &Value) -> Result<Value, String> {
     }
     let mut next = read_raw();
     if let Some(value) = input.get("testUrl") {
-        let text = value.as_str().ok_or_else(|| "测试网址必须是字符串".to_string())?.trim();
+        let text = value
+            .as_str()
+            .ok_or_else(|| "测试网址必须是字符串".to_string())?
+            .trim();
         if !text.is_empty() {
             let url = url::Url::parse(text).map_err(|_| "测试网址无效".to_string())?;
             if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {

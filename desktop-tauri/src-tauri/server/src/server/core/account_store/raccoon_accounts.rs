@@ -41,9 +41,7 @@ impl AccountStore {
     ///
     /// `tokenExpiresAt` 兼容旧数据直接搬过来的 `tokenExpiresAt` 键名。
     pub fn to_raccoon_public_account(&self, record: &StoredAccount) -> Value {
-        let proxy = crate::server::core::proxies::describe_account_proxy(Some(
-            &record.proxy(),
-        ));
+        let proxy = crate::server::core::proxies::describe_account_proxy(Some(&record.proxy()));
         let stored_tail = record
             .get("tokenTail")
             .and_then(Value::as_str)
@@ -57,7 +55,11 @@ impl AccountStore {
                 } else {
                     token_tail_of(&token)
                 },
-                if expires_at > 0.0 { Some(expires_at) } else { stored_expires },
+                if expires_at > 0.0 {
+                    Some(expires_at)
+                } else {
+                    stored_expires
+                },
                 !refresh_token.is_empty(),
             ),
             None => (

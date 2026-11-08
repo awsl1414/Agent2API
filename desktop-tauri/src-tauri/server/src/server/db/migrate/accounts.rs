@@ -100,7 +100,10 @@ pub(super) fn import_accounts(conn: &Connection, dir: &Path) -> Option<LegacyOut
         Err(error) => {
             logging::console_line(
                 "[Storage]",
-                &format!("❌ 账号迁移失败：{} 不是合法 JSON（{error}）", path.display()),
+                &format!(
+                    "❌ 账号迁移失败：{} 不是合法 JSON（{error}）",
+                    path.display()
+                ),
             );
             return None;
         }

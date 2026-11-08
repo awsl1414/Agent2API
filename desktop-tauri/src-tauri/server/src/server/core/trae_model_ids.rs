@@ -387,11 +387,9 @@ fn rewrite_names(
 ) {
     for item in items.iter_mut() {
         if let Some(text) = item.as_str() {
-            if let Some(base) = external_base(text, mapping, bases).or_else(|| {
-                suffix_fallback
-                    .then(|| legacy_name(text))
-                    .flatten()
-            }) {
+            if let Some(base) = external_base(text, mapping, bases)
+                .or_else(|| suffix_fallback.then(|| legacy_name(text)).flatten())
+            {
                 *item = Value::String(base);
             }
         }

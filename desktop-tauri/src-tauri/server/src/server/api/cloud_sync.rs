@@ -175,12 +175,7 @@ fn parse_save_input(payload: &Value) -> Result<settings::SaveInput, String> {
             .unwrap_or_default()
             .to_string()
     };
-    let flag = |key: &str| {
-        object
-            .get(key)
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-    };
+    let flag = |key: &str| object.get(key).and_then(Value::as_bool).unwrap_or(false);
     Ok(settings::SaveInput {
         provider: {
             let provider = text("provider");

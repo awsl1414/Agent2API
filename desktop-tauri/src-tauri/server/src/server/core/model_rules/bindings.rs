@@ -81,7 +81,7 @@ impl Catalog {
                 && mapping
                     .provider
                     .as_deref()
-                    .map_or(true, |owner| owner.eq_ignore_ascii_case(provider))
+                    .is_none_or(|owner| owner.eq_ignore_ascii_case(provider))
         });
         candidates
             .clone()
@@ -130,7 +130,7 @@ impl ModelRules {
                     && mapping
                         .provider
                         .as_deref()
-                        .map_or(true, |owner| owner.eq_ignore_ascii_case(provider))
+                        .is_none_or(|owner| owner.eq_ignore_ascii_case(provider))
             })
             .filter_map(|mapping| self.binding(provider, &mapping.alias, &mapping.target))
             .filter(|mapping| mapping.enabled)
@@ -235,7 +235,7 @@ pub(super) fn put_binding(
             reasoning: inherited
                 .as_ref()
                 .and_then(|mapping| mapping.reasoning.clone()),
-            enabled: inherited.as_ref().map_or(true, |mapping| mapping.enabled),
+            enabled: inherited.as_ref().is_none_or(|mapping| mapping.enabled),
         });
         let Some(mapping) = rules.mappings.last_mut() else {
             return;
@@ -289,7 +289,7 @@ pub(super) fn enable_exclusive(
                 && mapping
                     .provider
                     .as_deref()
-                    .map_or(true, |owner| owner.eq_ignore_ascii_case(provider))
+                    .is_none_or(|owner| owner.eq_ignore_ascii_case(provider))
         })
         .map(|mapping| mapping.target.clone())
         .collect::<Vec<_>>();
@@ -333,7 +333,7 @@ pub(super) fn normalize_name(
                 && mapping
                     .provider
                     .as_deref()
-                    .map_or(true, |owner| owner.eq_ignore_ascii_case(provider))
+                    .is_none_or(|owner| owner.eq_ignore_ascii_case(provider))
         })
         .map(|mapping| mapping.target.clone())
         .collect::<Vec<_>>();

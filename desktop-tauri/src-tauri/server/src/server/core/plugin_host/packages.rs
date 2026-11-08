@@ -40,8 +40,9 @@ pub(super) fn ensure_entry_executable(path: &Path) -> Result<(), String> {
 
         let mode = metadata.permissions().mode();
         if mode & 0o100 == 0 {
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode | 0o100))
-                .map_err(|error| format!("设置插件入口执行权限失败（{}）：{error}", path.display()))?;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode | 0o100)).map_err(
+                |error| format!("设置插件入口执行权限失败（{}）：{error}", path.display()),
+            )?;
             let updated = std::fs::metadata(path)
                 .map_err(|error| format!("读取插件入口权限失败（{}）：{error}", path.display()))?;
             if updated.permissions().mode() & 0o100 == 0 {
@@ -136,21 +137,39 @@ pub fn prepare(
 }
 
 impl PreparedPack {
-    pub fn id(&self) -> &str { &self.manifest.id }
+    pub fn id(&self) -> &str {
+        &self.manifest.id
+    }
 
     pub(super) fn record(&self, registry: &PackRegistry) -> InstalledPack {
-        let previous = registry.packs.iter().find(|pack| pack.id == self.manifest.id);
-        let providers = self.manifest.providers.iter().map(|provider| {
-            let id = provider.id.0.clone();
-            let enabled = previous.and_then(|pack| pack.providers.get(&id)).copied()
-                .or_else(|| super::ownership::migrated_enabled(registry, &self.manifest.id, &id))
-                .unwrap_or(provider.default_enabled);
-            (id, enabled)
-        }).collect();
+        let previous = registry
+            .packs
+            .iter()
+            .find(|pack| pack.id == self.manifest.id);
+        let providers = self
+            .manifest
+            .providers
+            .iter()
+            .map(|provider| {
+                let id = provider.id.0.clone();
+                let enabled = previous
+                    .and_then(|pack| pack.providers.get(&id))
+                    .copied()
+                    .or_else(|| {
+                        super::ownership::migrated_enabled(registry, &self.manifest.id, &id)
+                    })
+                    .unwrap_or(provider.default_enabled);
+                (id, enabled)
+            })
+            .collect();
         InstalledPack {
-            id: self.manifest.id.clone(), version: self.manifest.version.clone(),
-            enabled: previous.map(|pack| pack.enabled).unwrap_or(true), providers,
-            entry: self.entry.clone(), sha256: self.sha256.clone(), signed: self.signed,
+            id: self.manifest.id.clone(),
+            version: self.manifest.version.clone(),
+            enabled: previous.map(|pack| pack.enabled).unwrap_or(true),
+            providers,
+            entry: self.entry.clone(),
+            sha256: self.sha256.clone(),
+            signed: self.signed,
             installed_at: crate::server::logging::now_ms(),
             manifest_providers: self.manifest.providers.clone(),
         }
@@ -160,7 +179,9 @@ impl PreparedPack {
         let transaction = self.install_pending()?;
         let id = transaction.id.clone();
         transaction.commit();
-        install::list_packs().into_iter().find(|pack| pack.id == id)
+        install::list_packs()
+            .into_iter()
+            .find(|pack| pack.id == id)
             .ok_or_else(|| "安装后读不到注册表条目".to_string())
     }
 
@@ -188,7 +209,10 @@ impl PreparedPack {
         if let Err(error) = install::move_dir_retrying(&self.staging, &version_dir) {
             if replaced {
                 install::move_dir_retrying(&backup, &version_dir).map_err(|restore| {
-                    format!("落盘失败：{error}；恢复旧文件失败：{restore}；备份保留在 {}", backup.display())
+                    format!(
+                        "落盘失败：{error}；恢复旧文件失败：{restore}；备份保留在 {}",
+                        backup.display()
+                    )
                 })?;
             }
             return Err(format!("落盘失败：{error}"));
@@ -198,17 +222,23 @@ impl PreparedPack {
             None => registry.packs.push(record),
         }
         if let Err(error) = registry.save() {
-            install::remove_dir_retrying(&version_dir)
-                .map_err(|restore| format!("保存插件登记失败：{error}；移除新文件失败：{restore}；旧备份已保留"))?;
+            install::remove_dir_retrying(&version_dir).map_err(|restore| {
+                format!("保存插件登记失败：{error}；移除新文件失败：{restore}；旧备份已保留")
+            })?;
             if replaced {
                 install::move_dir_retrying(&backup, &version_dir).map_err(|restore| {
-                    format!("保存插件登记失败：{error}；恢复旧文件失败：{restore}；备份保留在 {}", backup.display())
+                    format!(
+                        "保存插件登记失败：{error}；恢复旧文件失败：{restore}；备份保留在 {}",
+                        backup.display()
+                    )
                 })?;
             }
             return Err(error);
         }
         Ok(InstalledTransaction {
-            id: self.manifest.id.clone(), previous_registry, version_dir,
+            id: self.manifest.id.clone(),
+            previous_registry,
+            version_dir,
             backup: replaced.then_some(backup),
         })
     }
@@ -225,7 +255,10 @@ impl InstalledTransaction {
     pub fn commit(self) {
         if let Some(backup) = self.backup {
             if let Err(error) = install::remove_dir_retrying(&backup) {
-                crate::server::logging::log("[Plugin]", &format!("插件更新成功，但临时备份清理失败：{error}"));
+                crate::server::logging::log(
+                    "[Plugin]",
+                    &format!("插件更新成功，但临时备份清理失败：{error}"),
+                );
             }
         }
     }
@@ -237,18 +270,24 @@ impl InstalledTransaction {
         // last_error 与事件日志承载。
         let keep_new_files = keep_new_files && self.backup.is_none();
         if !keep_new_files {
-            install::remove_dir_retrying(&self.version_dir)
-                .map_err(|error| format!("移除未能启动的插件文件失败，旧版本备份已保留：{error}"))?;
+            install::remove_dir_retrying(&self.version_dir).map_err(|error| {
+                format!("移除未能启动的插件文件失败，旧版本备份已保留：{error}")
+            })?;
         } else {
-            crate::server::logging::log("[Plugin]", &format!(
-                "插件启动失败源于运行环境，版本目录现场保留在 {}（登记已回滚，可诊断后重装）",
-                self.version_dir.display(),
-            ));
+            crate::server::logging::log(
+                "[Plugin]",
+                &format!(
+                    "插件启动失败源于运行环境，版本目录现场保留在 {}（登记已回滚，可诊断后重装）",
+                    self.version_dir.display(),
+                ),
+            );
         };
         if let Some(backup) = self.backup {
             install::move_dir_retrying(&backup, &self.version_dir)
                 .map_err(|error| format!("恢复插件文件失败，旧版本备份已保留：{error}"))?;
         }
-        self.previous_registry.save().map_err(|error| format!("恢复插件登记失败：{error}"))
+        self.previous_registry
+            .save()
+            .map_err(|error| format!("恢复插件登记失败：{error}"))
     }
 }

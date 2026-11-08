@@ -78,7 +78,10 @@ pub async fn put_routing(State(_state): State<ServerState>, body: Bytes) -> Resp
         if !known.contains(&text) {
             return errors::management_error(
                 400,
-                format!("未知的会话粘性档位「{text}」（只支持 {}）", known.join(" / ")),
+                format!(
+                    "未知的会话粘性档位「{text}」（只支持 {}）",
+                    known.join(" / ")
+                ),
             );
         }
         patch.sticky = Some(config::StickyMode::from_id(text));
@@ -182,8 +185,15 @@ pub(crate) fn queue_json(state: &ServerState, model: Option<String>) -> Value {
     queue_for_accounts(state, model, &accounts)
 }
 
-pub(crate) fn queue_for_accounts(state: &ServerState, model: Option<String>, accounts: &[Value]) -> Value {
-    if let Some(group) = model.as_deref().and_then(|model| config::routing_profiles().group_for_model(model).cloned()) {
+pub(crate) fn queue_for_accounts(
+    state: &ServerState,
+    model: Option<String>,
+    accounts: &[Value],
+) -> Value {
+    if let Some(group) = model
+        .as_deref()
+        .and_then(|model| config::routing_profiles().group_for_model(model).cloned())
+    {
         return super::routing_groups::group_queue(state, group);
     }
     let snapshot = config::current();
@@ -194,18 +204,27 @@ pub(crate) fn queue_for_accounts(state: &ServerState, model: Option<String>, acc
         None => Vec::new(),
     };
     let scoped: Vec<Value> = match model.as_deref() {
-        Some(_) => accounts.iter()
+        Some(_) => accounts
+            .iter()
             .filter(|account| providers.contains(&routing::provider_of(account).to_string()))
-            .cloned().collect(),
+            .cloned()
+            .collect(),
         None => accounts.to_vec(),
     };
-    let scoped = crate::server::core::routing_scope::apply_accounts(
-        &scoped, model.as_deref().unwrap_or(""),
-    );
-    let routable: Vec<Value> = scoped.iter()
-        .filter(|account| !crate::server::core::providers::readiness::gated(routing::provider_of(account)))
-        .cloned().collect();
-    let scoped = if routable.is_empty() { scoped } else { routable };
+    let scoped =
+        crate::server::core::routing_scope::apply_accounts(&scoped, model.as_deref().unwrap_or(""));
+    let routable: Vec<Value> = scoped
+        .iter()
+        .filter(|account| {
+            !crate::server::core::providers::readiness::gated(routing::provider_of(account))
+        })
+        .cloned()
+        .collect();
+    let scoped = if routable.is_empty() {
+        scoped
+    } else {
+        routable
+    };
     let now = crate::server::logging::now_ms();
     let counts: HashMap<String, usize> = state
         .upstream()
@@ -220,9 +239,15 @@ pub(crate) fn queue_for_accounts(state: &ServerState, model: Option<String>, acc
     let limiter_counts = crate::server::core::limiter::counter::facts();
     let limiter_blocked: HashSet<String> = scoped
         .iter()
-        .filter(|account| crate::server::core::limiter::evaluate::blocked(
-            account, &keys.for_account(account), &facts, &limiter_counts, now,
-        ))
+        .filter(|account| {
+            crate::server::core::limiter::evaluate::blocked(
+                account,
+                &keys.for_account(account),
+                &facts,
+                &limiter_counts,
+                now,
+            )
+        })
         .filter_map(|account| routing::account_id(account).map(str::to_string))
         .collect();
     let settings = config::routing_settings_for_model(model.as_deref().unwrap_or(""));

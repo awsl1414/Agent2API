@@ -1,6 +1,8 @@
 use crate::server::core::upstream::usage;
 use crate::server::logging;
-use crate::server::request_stats::{AttemptDetail, LimiterEvent, NewRequestEntry, RetryEvent, SensitiveHit};
+use crate::server::request_stats::{
+    AttemptDetail, LimiterEvent, NewRequestEntry, RetryEvent, SensitiveHit,
+};
 
 use super::pipeline::{truncate_chars, RecordContext, ERROR_SUMMARY_CHARS};
 
@@ -21,11 +23,15 @@ pub(super) fn stored_attempt_details(list: &[usage::AttemptDetail]) -> Vec<Attem
             finished_at: item.finished_at,
             status: item.status,
             error: item.error.clone(),
-            retries: item.retries.iter().map(|retry| RetryEvent {
-                reason: retry.reason.clone(),
-                status: retry.status,
-                delay_ms: retry.delay_ms,
-            }).collect(),
+            retries: item
+                .retries
+                .iter()
+                .map(|retry| RetryEvent {
+                    reason: retry.reason.clone(),
+                    status: retry.status,
+                    delay_ms: retry.delay_ms,
+                })
+                .collect(),
             notice: item.notice.clone(),
             body_bytes: item.body_bytes,
         })
@@ -33,10 +39,12 @@ pub(super) fn stored_attempt_details(list: &[usage::AttemptDetail]) -> Vec<Attem
 }
 
 pub(super) fn stored_sensitive_hits(list: &[usage::SensitiveHit]) -> Vec<SensitiveHit> {
-    list.iter().map(|hit| SensitiveHit {
-        word: hit.word.clone(),
-        count: hit.count,
-    }).collect()
+    list.iter()
+        .map(|hit| SensitiveHit {
+            word: hit.word.clone(),
+            count: hit.count,
+        })
+        .collect()
 }
 
 pub fn record_entry(context: &RecordContext, fallback_error: Option<String>) {
@@ -47,10 +55,14 @@ fn persist(context: &RecordContext, fallback_error: Option<String>) {
     let mut snapshot = context.telemetry.snapshot();
     let finished_at = logging::now_ms();
     let duration_ms = finished_at - context.started_at;
-    let first_response_ms = snapshot.first_response_at.map(|at| (at - context.started_at).max(0));
+    let first_response_ms = snapshot
+        .first_response_at
+        .map(|at| (at - context.started_at).max(0));
     let error = snapshot.error.clone().or(fallback_error).map(|text| {
-        if context.raw_request.is_some() || context.raw_response.is_some()
-            || context.telemetry.capture().is_some() || crate::server::core::debug_traffic::enabled()
+        if context.raw_request.is_some()
+            || context.raw_response.is_some()
+            || context.telemetry.capture().is_some()
+            || crate::server::core::debug_traffic::enabled()
         {
             text
         } else {
@@ -87,7 +99,11 @@ fn persist(context: &RecordContext, fallback_error: Option<String>) {
     // 限额沿用上游实际消耗，不能改用失败清零后的报表读数。
     let account = entry.account_id.clone();
     let request = entry.id.clone();
-    let model = if entry.upstream_model.is_empty() { entry.model.clone() } else { entry.upstream_model.clone() };
+    let model = if entry.upstream_model.is_empty() {
+        entry.model.clone()
+    } else {
+        entry.upstream_model.clone()
+    };
     let limiter_event = (snapshot.attempts > 0).then_some(LimiterEvent {
         account: &account,
         request: &request,

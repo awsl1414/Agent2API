@@ -70,7 +70,10 @@ pub struct CancelToken {
 
 impl CancelToken {
     fn new() -> Self {
-        Self { flag: AtomicBool::new(false), notify: Notify::new() }
+        Self {
+            flag: AtomicBool::new(false),
+            notify: Notify::new(),
+        }
     }
 
     /// 置位并唤醒所有等待者（幂等；与 `InFlight::finish` 同一手法）

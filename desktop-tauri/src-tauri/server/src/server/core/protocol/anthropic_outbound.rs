@@ -30,13 +30,13 @@ use std::collections::BTreeMap;
 
 use serde_json::{json, Map, Value};
 
+use super::anthropic::{parse_json_object, tool_result_parts, ToolResultParts, DEFAULT_MAX_TOKENS};
+use super::responses::ConvertError;
 use super::{
     chat_frame, content_parts, content_text, is_truthy, json_text, native_tool, random_id,
     string_field, string_value, SseLineBuffer, FIELD_CACHE_CONTROL, FIELD_IS_ERROR,
-    FIELD_THINKING_BYPASS, FIELD_THINKING_BLOCKS,
+    FIELD_THINKING_BLOCKS, FIELD_THINKING_BYPASS,
 };
-use super::anthropic::{parse_json_object, tool_result_parts, DEFAULT_MAX_TOKENS, ToolResultParts};
-use super::responses::ConvertError;
 use crate::server::core::model_rules;
 
 // ─── 请求：Chat → Anthropic ─────────────────────────────────
@@ -81,8 +81,9 @@ pub fn anthropic_request_from_chat(chat: &Value, model: &str) -> Result<Value, C
             let text = content_text(message.get("content").unwrap_or(&Value::Null));
             if !text.trim().is_empty() {
                 system.push(text);
-                if let Some(cache) =
-                    message.get(FIELD_CACHE_CONTROL).filter(|value| value.is_object())
+                if let Some(cache) = message
+                    .get(FIELD_CACHE_CONTROL)
+                    .filter(|value| value.is_object())
                 {
                     system_cache = Some(cache.clone());
                 }
@@ -93,7 +94,11 @@ pub fn anthropic_request_from_chat(chat: &Value, model: &str) -> Result<Value, C
         if blocks.is_empty() {
             continue;
         }
-        let target_role = if role == "assistant" { "assistant" } else { "user" };
+        let target_role = if role == "assistant" {
+            "assistant"
+        } else {
+            "user"
+        };
         append_merged(&mut messages, target_role, blocks);
     }
 
@@ -136,7 +141,10 @@ pub fn anthropic_request_from_chat(chat: &Value, model: &str) -> Result<Value, C
     // 是否安全随 thinking 一起回填：原请求能通过入口校验，说明客户端本来就是
     // 按这家的要求写的。
     let mut thinking: Option<i64> = None;
-    if let Some(stored) = chat.get(FIELD_THINKING_BYPASS).filter(|value| value.is_object()) {
+    if let Some(stored) = chat
+        .get(FIELD_THINKING_BYPASS)
+        .filter(|value| value.is_object())
+    {
         if let Some(original) = stored.get("thinking").filter(|value| value.is_object()) {
             // enabled 且带 budget 时仍要守 budget < max_tokens；adaptive 没有
             // budget，不强抬。
@@ -166,7 +174,11 @@ pub fn anthropic_request_from_chat(chat: &Value, model: &str) -> Result<Value, C
     }
     let mut max_tokens = ["max_tokens", "max_completion_tokens"]
         .iter()
-        .find_map(|key| chat.get(*key).and_then(Value::as_i64).filter(|value| *value > 0))
+        .find_map(|key| {
+            chat.get(*key)
+                .and_then(Value::as_i64)
+                .filter(|value| *value > 0)
+        })
         .unwrap_or(DEFAULT_MAX_TOKENS);
     if let Some(budget) = thinking {
         // Anthropic 要求 budget_tokens < max_tokens；不够就抬到 budget 之上
@@ -175,7 +187,10 @@ pub fn anthropic_request_from_chat(chat: &Value, model: &str) -> Result<Value, C
         }
     }
     out.insert("max_tokens".to_string(), Value::from(max_tokens));
-    if let Some(stored) = chat.get(FIELD_THINKING_BYPASS).filter(|value| value.is_object()) {
+    if let Some(stored) = chat
+        .get(FIELD_THINKING_BYPASS)
+        .filter(|value| value.is_object())
+    {
         // 原样回填：thinking 与 output_config 都回（只回暂存里非空的那几个）；
         // temperature/top_p 的省略规则按回填后的 thinking.type 判定。
         let restored_type = stored.pointer("/thinking/type").and_then(Value::as_str);
@@ -240,10 +255,16 @@ pub fn anthropic_request_from_chat(chat: &Value, model: &str) -> Result<Value, C
         }
     }
     if !natives.is_empty() || choice_reason.is_some() {
-        let dropped = native_tool::Downgrade { tools: natives, choice: choice_reason };
+        let dropped = native_tool::Downgrade {
+            tools: natives,
+            choice: choice_reason,
+        };
         crate::server::logging::log(
             "[Anthropic]",
-            &dropped.describe(None, Some("目标上游按 anthropic 协议收，只认 anthropic 来源的原生声明")),
+            &dropped.describe(
+                None,
+                Some("目标上游按 anthropic 协议收，只认 anthropic 来源的原生声明"),
+            ),
         );
     }
     Ok(Value::Object(out))
@@ -282,7 +303,9 @@ fn anthropic_blocks_of(message: &Value, role: &str) -> Vec<Value> {
         // `anthropic::convert_message`）—— OpenAI 形出口没有这个概念，
         // 那条路径随 strip 剥离，只有这里能把它带回去
         let is_error = message.get(FIELD_IS_ERROR).and_then(Value::as_bool) == Some(true);
-        let cache = message.get(FIELD_CACHE_CONTROL).filter(|value| value.is_object());
+        let cache = message
+            .get(FIELD_CACHE_CONTROL)
+            .filter(|value| value.is_object());
         let mut block = json!({
             "type": "tool_result",
             "tool_use_id": string_field(message, "tool_call_id"),
@@ -383,7 +406,10 @@ fn anthropic_blocks_of(message: &Value, role: &str) -> Vec<Value> {
     // 消息级缓存断点 → 落回最后一个可挂载的块。Anthropic 不允许把
     // cache_control 挂在 thinking 块上，跳过；没有可挂的块时整段放弃
     // （给上游发一个非法位置的断点只会换来 400）
-    if let Some(cache) = message.get(FIELD_CACHE_CONTROL).filter(|value| value.is_object()) {
+    if let Some(cache) = message
+        .get(FIELD_CACHE_CONTROL)
+        .filter(|value| value.is_object())
+    {
         for block in blocks.iter_mut().rev() {
             let kind = string_field(block, "type");
             let mountable = matches!(kind.as_str(), "text" | "tool_use" | "tool_result" | "image");
@@ -485,7 +511,10 @@ fn tool_to_anthropic(tool: &Value, natives: &mut Vec<Value>) -> Option<Value> {
     out.insert("input_schema".to_string(), normalize_input_schema(schema));
     // 工具定义上的缓存断点随内部暂存字段恢复（工具清单大而稳定，是
     // Anthropic 提示缓存收益最高的一段；入口侧见 `anthropic::tool_to_chat`）
-    if let Some(cache) = tool.get(FIELD_CACHE_CONTROL).filter(|value| value.is_object()) {
+    if let Some(cache) = tool
+        .get(FIELD_CACHE_CONTROL)
+        .filter(|value| value.is_object())
+    {
         out.insert("cache_control".to_string(), cache.clone());
     }
     Some(Value::Object(out))
@@ -500,7 +529,8 @@ fn normalize_input_schema(schema: &Value) -> Value {
     }
     let mut out = schema.as_object().cloned().unwrap_or_default();
     out.insert("type".to_string(), Value::String("object".to_string()));
-    out.entry("properties".to_string()).or_insert_with(|| json!({}));
+    out.entry("properties".to_string())
+        .or_insert_with(|| json!({}));
     Value::Object(out)
 }
 
@@ -517,7 +547,10 @@ fn tool_choice_to_anthropic(choice: &Value) -> Value {
         };
     }
     let name = {
-        let nested = choice.pointer("/function/name").map(string_value).unwrap_or_default();
+        let nested = choice
+            .pointer("/function/name")
+            .map(string_value)
+            .unwrap_or_default();
         if nested.is_empty() {
             string_field(choice, "name")
         } else {
@@ -658,7 +691,10 @@ impl ChatFromAnthropicStream {
                 {
                     self.id = id.to_string();
                 }
-                if let Some(usage) = event.pointer("/message/usage").filter(|usage| usage.is_object()) {
+                if let Some(usage) = event
+                    .pointer("/message/usage")
+                    .filter(|usage| usage.is_object())
+                {
                     self.absorb_usage(usage);
                 }
                 self.start()
@@ -692,7 +728,9 @@ impl ChatFromAnthropicStream {
                 if let Some(map) = block.get("input").and_then(Value::as_object) {
                     if !map.is_empty() {
                         self.tools.insert(index, true);
-                        out.push(self.arguments_frame(index, &json_text(&Value::Object(map.clone()))));
+                        out.push(
+                            self.arguments_frame(index, &json_text(&Value::Object(map.clone()))),
+                        );
                     }
                 }
                 out
@@ -877,7 +915,11 @@ impl ChatFromAnthropicStream {
         let message = match error {
             Some(error) => {
                 let text = string_field(error, "message");
-                if text.is_empty() { string_value(error) } else { text }
+                if text.is_empty() {
+                    string_value(error)
+                } else {
+                    text
+                }
             }
             None => string_value(event),
         };
@@ -1049,8 +1091,12 @@ mod tests {
 
         let mut stream = ChatFromAnthropicStream::new("glm-5.3");
         let frames = futures::stream::iter(stream.finish().into_iter().map(Ok));
-        let result =
-            aggregate_frame_stream(Box::pin(frames), Arc::new(RequestTelemetry::new()), FramePolicy::default()).await;
+        let result = aggregate_frame_stream(
+            Box::pin(frames),
+            Arc::new(RequestTelemetry::new()),
+            FramePolicy::default(),
+        )
+        .await;
         match result {
             Err(error) => {
                 assert_eq!(error.status_code, 502);

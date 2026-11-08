@@ -76,8 +76,12 @@ impl LoginTaskState {
     pub fn to_wait_response(&self) -> Value {
         if !self.done {
             let mut response = json!({ "pending": true });
-            if let Some(instructions) = &self.instructions { response["instructions"] = json!(instructions); }
-            if let Some(hint) = &self.hint { response["hint"] = json!(hint); }
+            if let Some(instructions) = &self.instructions {
+                response["instructions"] = json!(instructions);
+            }
+            if let Some(hint) = &self.hint {
+                response["hint"] = json!(hint);
+            }
             return response;
         }
         if let Some(error) = &self.error {
@@ -151,7 +155,11 @@ impl LoginTaskHandle {
 
     pub(crate) fn adapter(&self) -> Option<Arc<dyn ProviderAdapter>> {
         self.context.as_ref().and_then(|context| {
-            context.adapter.lock().unwrap_or_else(|error| error.into_inner()).clone()
+            context
+                .adapter
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .clone()
         })
     }
 
@@ -162,52 +170,88 @@ impl LoginTaskHandle {
     }
 
     pub(crate) async fn cancel_provider_flow_locked(&self, flow: &str) {
-        let Some(adapter) = self.adapter() else { return };
+        let Some(adapter) = self.adapter() else {
+            return;
+        };
         if let Err(error) = adapter.login_cancel_async(flow).await {
             if error.status_code != 404 {
                 // 501 也要可诊断：清理接口缺失不能假装已经释放提供商侧 flow。
                 // 不回显错误载荷：插件可能把暂存凭证拼在文案里。
-                logging::log("[Login]", &format!("{} 的登录流程清理未确认，请更新提供商或重新发起登录", adapter.provider_id()));
+                logging::log(
+                    "[Login]",
+                    &format!(
+                        "{} 的登录流程清理未确认，请更新提供商或重新发起登录",
+                        adapter.provider_id()
+                    ),
+                );
             }
         }
         if let Some(context) = &self.context {
-            context.adapter.lock().unwrap_or_else(|error| error.into_inner()).take();
+            context
+                .adapter
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .take();
         }
     }
 
     /// 代理配置用既有单行写路保存；旧插件的 secret.proxy 出口快照同写。
     /// 保存成功才允许发布 Done；失败不回显代理或 secret 本体。
     fn persist_proxy(&self, account_id: &str) -> Result<(), GatewayError> {
-        let Some(context) = &self.context else { return Ok(()) };
-        let Some(proxy) = &context.proxy else { return Ok(()) };
+        let Some(context) = &self.context else {
+            return Ok(());
+        };
+        let Some(proxy) = &context.proxy else {
+            return Ok(());
+        };
         let builtin = crate::server::core::providers::availability::BUILTIN_SUBSCRIPTION_IDS
             .contains(&context.provider);
         // 本体 secret 是纯凭证，不混入代理（否则 identityStamp/CAS 会漂移）。
         // 原插件保留 secret.proxy 快照；配置与快照同一行原子保存。
-        let saved = context.store.with_lock(|guard| {
-            context.store.with_conn_mut(guard, |conn| {
-                let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-                let Some(mut record) = crate::server::core::account_store::sql::load_by_id(&tx, account_id)? else {
-                    return Ok(Err(GatewayError::with_status(500, "登录账号不存在，未能保存登录代理")));
-                };
-                if record.provider() != context.provider {
-                    return Ok(Err(GatewayError::with_status(500, "登录账号归属不匹配，未能保存登录代理")));
-                }
-                if !builtin {
-                    let mut secret = record.get("pluginSecret").cloned().unwrap_or(Value::Null);
-                    let Some(fields) = secret.as_object_mut() else {
-                        return Ok(Err(GatewayError::with_status(500, "登录账号凭证不支持保存代理出口，请更新提供商后重试")));
+        let saved = context
+            .store
+            .with_lock(|guard| {
+                context.store.with_conn_mut(guard, |conn| {
+                    let tx =
+                        conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+                    let Some(mut record) =
+                        crate::server::core::account_store::sql::load_by_id(&tx, account_id)?
+                    else {
+                        return Ok(Err(GatewayError::with_status(
+                            500,
+                            "登录账号不存在，未能保存登录代理",
+                        )));
                     };
-                    fields.insert("proxy".to_string(), proxy.resolved.clone());
-                    record.set("pluginSecret", secret);
-                }
-                record.set_proxy(proxy.config.clone());
-                record.set_updated_at(logging::now_ms());
-                crate::server::core::account_store::sql::update_in_place(&tx, &record)?;
-                tx.commit()?;
-                Ok(Ok(()))
+                    if record.provider() != context.provider {
+                        return Ok(Err(GatewayError::with_status(
+                            500,
+                            "登录账号归属不匹配，未能保存登录代理",
+                        )));
+                    }
+                    if !builtin {
+                        let mut secret = record.get("pluginSecret").cloned().unwrap_or(Value::Null);
+                        let Some(fields) = secret.as_object_mut() else {
+                            return Ok(Err(GatewayError::with_status(
+                                500,
+                                "登录账号凭证不支持保存代理出口，请更新提供商后重试",
+                            )));
+                        };
+                        fields.insert("proxy".to_string(), proxy.resolved.clone());
+                        record.set("pluginSecret", secret);
+                    }
+                    record.set_proxy(proxy.config.clone());
+                    record.set_updated_at(logging::now_ms());
+                    crate::server::core::account_store::sql::update_in_place(&tx, &record)?;
+                    tx.commit()?;
+                    Ok(Ok(()))
+                })
             })
-        }).map_err(|error| GatewayError::with_status(error.status_code, "保存登录代理配置与出口失败，请重新发起"))?;
+            .map_err(|error| {
+                GatewayError::with_status(
+                    error.status_code,
+                    "保存登录代理配置与出口失败，请重新发起",
+                )
+            })?;
         saved
     }
 }
@@ -230,7 +274,10 @@ struct TaskTable {
 impl LoginTasks {
     pub fn new() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(TaskTable { by_state: HashMap::new(), next_ticket: 1 })),
+            inner: Arc::new(Mutex::new(TaskTable {
+                by_state: HashMap::new(),
+                next_ticket: 1,
+            })),
         }
     }
 
@@ -246,10 +293,12 @@ impl LoginTasks {
     /// 下次任何一次取任务都会把它扫掉。
     fn sweep(table: &mut TaskTable) {
         let now = logging::now_ms();
-        table.by_state.retain(|_, handle| match handle.lock().finished_at {
-            Some(finished) => now - finished < TASK_RETENTION_MS,
-            None => true,
-        });
+        table
+            .by_state
+            .retain(|_, handle| match handle.lock().finished_at {
+                Some(finished) => now - finished < TASK_RETENTION_MS,
+                None => true,
+            });
     }
 
     pub fn get(&self, state: &str) -> Option<LoginTaskHandle> {
@@ -304,9 +353,7 @@ impl LoginTasks {
             let mut table = self.lock();
             // 按 state 或按句柄（state 未入表时用 ticket 兜底，两者必居其一）
             let ticket = handle.ticket();
-            table
-                .by_state
-                .retain(|_, item| item.ticket() != ticket);
+            table.by_state.retain(|_, item| item.ticket() != ticket);
         }
         logging::log("[Login]", "登录任务已取消（用户放弃等待）");
         true
@@ -353,14 +400,20 @@ impl LoginService {
     /// 取消一次登录：先清本体任务，再通知对应适配器释放插件侧会话与端口。
     /// 保留同步签名（已有调用方无需改动），HTTP 入口用 cancel_async 等清理完成。
     pub fn cancel(&self, state: &str) -> bool {
-        let Some(handle) = self.cancel_task(state) else { return false };
+        let Some(handle) = self.cancel_task(state) else {
+            return false;
+        };
         let flow = state.to_string();
-        crate::spawn_task(async move { handle.cancel_provider_flow(&flow).await; });
+        crate::spawn_task(async move {
+            handle.cancel_provider_flow(&flow).await;
+        });
         true
     }
 
     pub async fn cancel_async(&self, state: &str) -> bool {
-        let Some(handle) = self.cancel_task(state) else { return false };
+        let Some(handle) = self.cancel_task(state) else {
+            return false;
+        };
         handle.cancel_provider_flow(state).await;
         true
     }
@@ -371,20 +424,22 @@ impl LoginService {
     }
 
     /// OAuth 明确失败：保留可读终态供 /wait 读取，清理仍使用启动 flow 的实例。
-    pub(crate) async fn reject_login_callback(
-        &self,
-        state: &str,
-        error: &str,
-    ) -> GatewayError {
+    pub(crate) async fn reject_login_callback(&self, state: &str, error: &str) -> GatewayError {
         let Some(handle) = self.tasks.get(state.trim()) else {
             return GatewayError::with_status(404, "登录任务不存在或已过期，请重新发起网页登录");
         };
         let message = oauth_callback_error_message(error);
         {
             let mut task = handle.lock();
-            if task.canceled { return GatewayError::bad_request("登录已取消，请重新发起"); }
+            if task.canceled {
+                return GatewayError::bad_request("登录已取消，请重新发起");
+            }
             if task.done {
-                return GatewayError::bad_request(task.error.clone().unwrap_or_else(|| "登录任务已结束".to_string()));
+                return GatewayError::bad_request(
+                    task.error
+                        .clone()
+                        .unwrap_or_else(|| "登录任务已结束".to_string()),
+                );
             }
             // 先落定终态再等操作锁，正在 await 的 poll 不得用迟到 Done 覆盖拒绝授权。
             mark_task_error(&mut task, message);
@@ -398,11 +453,7 @@ impl LoginService {
     /// `edition` 是落盘值的字符串（`cn` / `intl`）。**只有 WorkBuddy 系有版本
     /// 概念**，别家传空串即可 —— 这个字段会原样回给前端，界面按「空串 = 不显示
     /// 版本标签」处理。
-    pub(crate) fn new_handle_for_provider(
-        &self,
-        edition: &str,
-        provider: &str,
-    ) -> LoginTaskHandle {
+    pub(crate) fn new_handle_for_provider(&self, edition: &str, provider: &str) -> LoginTaskHandle {
         let ticket = {
             let mut guard = self.tasks.lock();
             LoginTasks::next_ticket(&mut guard)
@@ -438,8 +489,10 @@ impl LoginService {
     ) -> LoginTaskHandle {
         let mut handle = self.new_handle_for_provider(edition, adapter.provider_id());
         handle.context = Some(Arc::new(LoginTaskContext {
-            provider: adapter.provider_id(), adapter: Mutex::new(Some(adapter)),
-            store: self.store.clone(), proxy,
+            provider: adapter.provider_id(),
+            adapter: Mutex::new(Some(adapter)),
+            store: self.store.clone(),
+            proxy,
         }));
         handle
     }
@@ -479,7 +532,10 @@ impl LoginService {
             task.auth_url = Some(auth_url);
         });
         self.tasks.register(&state, handle.clone());
-        logging::log("[Login]", &format!("发起{label}网页登录（等待浏览器回调…）"));
+        logging::log(
+            "[Login]",
+            &format!("发起{label}网页登录（等待浏览器回调…）"),
+        );
         Ok(handle)
     }
 
@@ -515,7 +571,10 @@ impl LoginService {
     ) -> Result<String, GatewayError> {
         let state = state.trim();
         if state.is_empty() {
-            return Err(GatewayError::with_status(400, "缺少 state，无法确认这次回调归属"));
+            return Err(GatewayError::with_status(
+                400,
+                "缺少 state，无法确认这次回调归属",
+            ));
         }
         let Some(handle) = self.tasks.get(state) else {
             return Err(GatewayError::with_status(
@@ -534,7 +593,10 @@ impl LoginService {
                 None => Ok(String::new()),
             };
         }
-        if task.provider != crate::server::core::providers::kind_id(crate::server::core::providers::ProviderKind::OrcaTerm)
+        if task.provider
+            != crate::server::core::providers::kind_id(
+                crate::server::core::providers::ProviderKind::OrcaTerm,
+            )
         {
             return Err(GatewayError::with_status(
                 400,
@@ -548,14 +610,19 @@ impl LoginService {
         let provider = "orcaterm";
         // 已绑定的运行时任务固定原实例；旧强类型任务只走原来的内置实例，
         // 不按当前插件注册表重新查找 owner。
-        let adapter = handle.adapter().unwrap_or_else(|| ProviderKind::OrcaTerm.into());
+        let adapter = handle
+            .adapter()
+            .unwrap_or_else(|| ProviderKind::OrcaTerm.into());
         let input = agent2api_provider_protocol::NormalizeInput {
             provider: provider.to_string(),
             source: agent2api_provider_protocol::NormalizeSource::Manual {
                 payload: json!({ "accessToken": token }),
             },
             name: None,
-            proxy: handle.context.as_ref().and_then(|context| context.proxy.as_ref())
+            proxy: handle
+                .context
+                .as_ref()
+                .and_then(|context| context.proxy.as_ref())
                 .and_then(|proxy| serde_json::from_value(proxy.resolved.clone()).ok()),
         };
         let normalized = adapter.normalize_account(&self.store, input).await?;
@@ -627,7 +694,10 @@ impl LoginService {
     ) -> Result<LoginCallbackSubmission, GatewayError> {
         let state = state.trim();
         if state.is_empty() {
-            return Err(GatewayError::with_status(400, "缺少 state，无法确认这次回调归属"));
+            return Err(GatewayError::with_status(
+                400,
+                "缺少 state，无法确认这次回调归属",
+            ));
         }
         let Some(handle) = self.tasks.get(state) else {
             return Err(GatewayError::with_status(
@@ -637,7 +707,8 @@ impl LoginService {
         };
         let parsed_callback = url::Url::parse(callback_url).ok();
         if let Some(error) = parsed_callback.as_ref().and_then(|url| {
-            url.query_pairs().find(|(key, value)| key == "error" && !value.trim().is_empty())
+            url.query_pairs()
+                .find(|(key, value)| key == "error" && !value.trim().is_empty())
                 .map(|(_, error)| error.into_owned())
         }) {
             // 只解析用于判断，完整 URL 的百分号/加号及裸 code 原值不做重写。
@@ -660,17 +731,27 @@ impl LoginService {
         // 运行时适配器（插件或本体订阅）先尝试不落库的 callback-poll API。
         // 空 URL / 动态 id 均不决定成功；只有这里的 Done 可以进入落库路径。
         if let Some(adapter) = &plugin_adapter {
-            let code = parsed_callback.as_ref().and_then(|url| {
-                url.query_pairs().find(|(key, _)| key == "code" || key == "authorization_code")
-                    .map(|(_, value)| value.into_owned())
-            }).unwrap_or_else(|| callback_url.to_string());
+            let code = parsed_callback
+                .as_ref()
+                .and_then(|url| {
+                    url.query_pairs()
+                        .find(|(key, _)| key == "code" || key == "authorization_code")
+                        .map(|(_, value)| value.into_owned())
+                })
+                .unwrap_or_else(|| callback_url.to_string());
             let callback = agent2api_provider_protocol::LoginCallback {
-                flow: state.to_string(), code, url: callback_url.to_string(),
+                flow: state.to_string(),
+                code,
+                url: callback_url.to_string(),
             };
-            let poll = adapter.login_callback_poll_async(&self.store, callback).await;
+            let poll = adapter
+                .login_callback_poll_async(&self.store, callback)
+                .await;
             // 取消 / 另一 consumer 完成于 await 期间，不接受迟到的回调结果。
             let current = handle.snapshot();
-            if current.canceled { return Err(GatewayError::bad_request("登录已取消")); }
+            if current.canceled {
+                return Err(GatewayError::bad_request("登录已取消"));
+            }
             if current.done {
                 return match current.error {
                     Some(error) => Err(GatewayError::bad_request(error)),
@@ -681,9 +762,14 @@ impl LoginService {
                 Ok(Some(agent2api_provider_protocol::LoginPoll::Done { account })) => {
                     let outcome = match persist_plugin_login(&handle, adapter.as_ref(), &account) {
                         Ok(Some(id)) => Ok(LoginCallbackSubmission::Completed(id)),
-                        Ok(None) if handle.snapshot().canceled => Err(GatewayError::bad_request("登录已取消")),
+                        Ok(None) if handle.snapshot().canceled => {
+                            Err(GatewayError::bad_request("登录已取消"))
+                        }
                         Ok(None) => Ok(LoginCallbackSubmission::Completed(String::new())),
-                        Err(error) => { finish_task_error(&handle, &error.message); Err(error) }
+                        Err(error) => {
+                            finish_task_error(&handle, &error.message);
+                            Err(error)
+                        }
                     };
                     handle.cancel_provider_flow_locked(state).await;
                     return outcome;
@@ -699,7 +785,10 @@ impl LoginService {
                     });
                     if start_polling {
                         crate::server::api::session::spawn_plugin_login_poll(
-                            handle.clone(), state.to_string(), 1_000, task.provider.clone(),
+                            handle.clone(),
+                            state.to_string(),
+                            1_000,
+                            task.provider.clone(),
                         );
                     }
                     return Ok(LoginCallbackSubmission::Accepted);
@@ -719,18 +808,25 @@ impl LoginService {
         }
         if let Some(adapter) = plugin_adapter {
             // 旧 String API 同样传完整 URL，且仍使用启动时的实例。
-            let result = adapter.exchange_login_code(&self.store, callback_url, state).await;
+            let result = adapter
+                .exchange_login_code(&self.store, callback_url, state)
+                .await;
             let current = handle.snapshot();
-            if current.canceled { return Err(GatewayError::bad_request("登录已取消")); }
+            if current.canceled {
+                return Err(GatewayError::bad_request("登录已取消"));
+            }
             let outcome = match result {
-                Ok(account_id) => {
-                    match finish_adapter_login(&handle, &account_id) {
-                        Ok(true) => Ok(LoginCallbackSubmission::Completed(account_id)),
-                        Ok(false) if handle.snapshot().canceled => Err(GatewayError::bad_request("登录已取消")),
-                        Ok(false) => Ok(LoginCallbackSubmission::Completed(String::new())),
-                        Err(error) => { finish_task_error(&handle, &error.message); Err(error) }
+                Ok(account_id) => match finish_adapter_login(&handle, &account_id) {
+                    Ok(true) => Ok(LoginCallbackSubmission::Completed(account_id)),
+                    Ok(false) if handle.snapshot().canceled => {
+                        Err(GatewayError::bad_request("登录已取消"))
                     }
-                }
+                    Ok(false) => Ok(LoginCallbackSubmission::Completed(String::new())),
+                    Err(error) => {
+                        finish_task_error(&handle, &error.message);
+                        Err(error)
+                    }
+                },
                 Err(error) => {
                     finish_task_error(&handle, &error.message);
                     let task = handle.snapshot();
@@ -741,7 +837,10 @@ impl LoginService {
             return outcome;
         }
         let Some(kind) = kind_from_id(&task.provider) else {
-            return Err(GatewayError::with_status(500, "登录任务未绑定提供商执行体，请重新发起"));
+            return Err(GatewayError::with_status(
+                500,
+                "登录任务未绑定提供商执行体，请重新发起",
+            ));
         };
         // Accio 的回调已随实现搬到插件：插件自绑 loopback 端口收回调、自己换码
         // （`accio::login`），网关这边走「轮询型」那条通用链（`login_poll`）。
@@ -758,21 +857,25 @@ impl LoginService {
         //
         // `state` 用请求体里那个（任务表的键），回调串里的 state 只用于逐字比对。
         if kind == ProviderKind::LobsterAi {
-            let parsed = url::Url::parse(callback_url).map_err(|_| {
-                GatewayError::with_status(400, "LobsterAI 登录回调地址无效")
-            })?;
+            let parsed = url::Url::parse(callback_url)
+                .map_err(|_| GatewayError::with_status(400, "LobsterAI 登录回调地址无效"))?;
             let params: std::collections::HashMap<String, String> = parsed
                 .query_pairs()
                 .map(|(key, value)| (key.into_owned(), value.into_owned()))
                 .collect();
             if let Some(error) = params.get("error").filter(|value| !value.trim().is_empty()) {
                 finish_task_error(&handle, oauth_callback_error_message(error));
-                return Err(GatewayError::bad_request(oauth_callback_error_message(error)));
+                return Err(GatewayError::bad_request(oauth_callback_error_message(
+                    error,
+                )));
             }
             let callback_state = params.get("state").map(String::as_str).unwrap_or("");
             let code = params.get("code").map(String::as_str).unwrap_or("");
             if callback_state.trim() != state {
-                return Err(GatewayError::with_status(400, "回调地址与当前 LobsterAI 登录任务不匹配"));
+                return Err(GatewayError::with_status(
+                    400,
+                    "回调地址与当前 LobsterAI 登录任务不匹配",
+                ));
             }
             return match self.finish_lobsterai_login(code, state).await {
                 Ok(account_id) => Ok(LoginCallbackSubmission::Completed(account_id)),
@@ -789,21 +892,25 @@ impl LoginService {
         //      到不了容器内的 loopback 端口时）。
         // 两条入口的收尾完全一致：state 与任务逐字比对 → 适配器换码落账号。
         if kind == ProviderKind::Antigravity {
-            let parsed = url::Url::parse(callback_url).map_err(|_| {
-                GatewayError::with_status(400, "Antigravity 登录回调地址无效")
-            })?;
+            let parsed = url::Url::parse(callback_url)
+                .map_err(|_| GatewayError::with_status(400, "Antigravity 登录回调地址无效"))?;
             let params: std::collections::HashMap<String, String> = parsed
                 .query_pairs()
                 .map(|(key, value)| (key.into_owned(), value.into_owned()))
                 .collect();
             if let Some(error) = params.get("error").filter(|value| !value.trim().is_empty()) {
                 finish_task_error(&handle, oauth_callback_error_message(error));
-                return Err(GatewayError::bad_request(oauth_callback_error_message(error)));
+                return Err(GatewayError::bad_request(oauth_callback_error_message(
+                    error,
+                )));
             }
             let callback_state = params.get("state").map(String::as_str).unwrap_or("");
             let code = params.get("code").map(String::as_str).unwrap_or("");
             if callback_state.trim() != state {
-                return Err(GatewayError::with_status(400, "回调地址与当前 Antigravity 登录任务不匹配"));
+                return Err(GatewayError::with_status(
+                    400,
+                    "回调地址与当前 Antigravity 登录任务不匹配",
+                ));
             }
             return match adapter_for(kind)
                 .exchange_login_code(&self.store, code, state)
@@ -897,11 +1004,20 @@ fn oauth_callback_error_message(error: &str) -> &'static str {
 /// 输入/option.value 不走这里，凭证必须逐字传给适配器。
 pub(crate) fn login_text(text: &str) -> String {
     let mut in_tag = false;
-    text.chars().filter(|ch| {
-        if *ch == '<' { in_tag = true; return false; }
-        if *ch == '>' { in_tag = false; return false; }
-        !in_tag && (!ch.is_control() || matches!(*ch, '\n' | '\r' | '\t'))
-    }).take(16_384).collect()
+    text.chars()
+        .filter(|ch| {
+            if *ch == '<' {
+                in_tag = true;
+                return false;
+            }
+            if *ch == '>' {
+                in_tag = false;
+                return false;
+            }
+            !in_tag && (!ch.is_control() || matches!(*ch, '\n' | '\r' | '\t'))
+        })
+        .take(16_384)
+        .collect()
 }
 
 /// 原子落定 Done：与取消使用同一任务锁，防止 RPC 返回后取消却仍落库，
@@ -913,19 +1029,30 @@ pub(crate) fn persist_plugin_login(
     account: &agent2api_provider_protocol::NormalizedAccount,
 ) -> Result<Option<String>, GatewayError> {
     let mut task = handle.lock();
-    if task.canceled { return Ok(None); }
+    if task.canceled {
+        return Ok(None);
+    }
     if task.done {
         return match &task.error {
             Some(error) => Err(GatewayError::bad_request(error)),
             None => Ok(None),
         };
     }
-    if handle.adapter().is_some_and(|owner| !std::ptr::eq(owner.as_ref(), adapter)) {
-        return Err(GatewayError::with_status(500, "登录流程执行体不匹配，已拒绝保存账号"));
+    if handle
+        .adapter()
+        .is_some_and(|owner| !std::ptr::eq(owner.as_ref(), adapter))
+    {
+        return Err(GatewayError::with_status(
+            500,
+            "登录流程执行体不匹配，已拒绝保存账号",
+        ));
     }
     let account_id = match adapter.persist_login_account(account) {
         Ok(id) => id,
-        Err(error) => { mark_task_error(&mut task, &error.message); return Err(error); }
+        Err(error) => {
+            mark_task_error(&mut task, &error.message);
+            return Err(error);
+        }
     };
     if let Err(error) = handle.persist_proxy(&account_id) {
         mark_task_error(&mut task, &error.message);
@@ -937,7 +1064,9 @@ pub(crate) fn persist_plugin_login(
 
 fn finish_adapter_login(handle: &LoginTaskHandle, account_id: &str) -> Result<bool, GatewayError> {
     let mut task = handle.lock();
-    if task.canceled { return Ok(false); }
+    if task.canceled {
+        return Ok(false);
+    }
     if task.done {
         return match &task.error {
             Some(error) => Err(GatewayError::bad_request(error)),
@@ -966,7 +1095,9 @@ fn mark_adapter_login_done(task: &mut LoginTaskState, account_id: &str) {
 
 pub(crate) fn set_plugin_login_hint(handle: &LoginTaskHandle, hint: Option<&str>) {
     handle.update(|task| {
-        if !task.canceled && !task.done { task.hint = hint.map(login_text); }
+        if !task.canceled && !task.done {
+            task.hint = hint.map(login_text);
+        }
     });
 }
 
@@ -1007,7 +1138,9 @@ fn mark_task_error(task: &mut LoginTaskState, message: &str) {
 /// 标记任务失败（保留 cancel 与否交给调用方判断日志措辞）
 fn finish_task_error(handle: &LoginTaskHandle, message: &str) {
     handle.update(|task| {
-        if task.canceled || task.done { return; }
+        if task.canceled || task.done {
+            return;
+        }
         mark_task_error(task, message);
     });
 }

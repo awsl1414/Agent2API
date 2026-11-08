@@ -1,7 +1,7 @@
 //! 客户端压缩请求识别。只匹配当前请求末尾的完整模板，不搜索历史里的关键词。
 
-use std::borrow::Cow;
 use serde_json::Value;
+use std::borrow::Cow;
 
 pub(crate) mod parameters;
 
@@ -28,48 +28,98 @@ const ZCODE_STRUCTURE: &[&str] = &[
 ];
 
 fn template_matches(text: &str) -> bool {
-    let normalized = if text.contains('\r') { Cow::Owned(text.replace("\r\n", "\n")) } else { Cow::Borrowed(text) };
-    let Some(rest) = normalized.trim().strip_prefix(ZCODE_PREAMBLE) else { return false; };
-    if !rest.starts_with(ZCODE_TASK) || !rest.ends_with(ZCODE_TRAILER) { return false; }
+    let normalized = if text.contains('\r') {
+        Cow::Owned(text.replace("\r\n", "\n"))
+    } else {
+        Cow::Borrowed(text)
+    };
+    let Some(rest) = normalized.trim().strip_prefix(ZCODE_PREAMBLE) else {
+        return false;
+    };
+    if !rest.starts_with(ZCODE_TASK) || !rest.ends_with(ZCODE_TRAILER) {
+        return false;
+    }
     // 固定段必须顺序出现；用户的 Additional Instructions 允许变化，不参与特征选择。
     let mut remaining = rest;
     for marker in ZCODE_STRUCTURE {
-        let Some((_, tail)) = remaining.split_once(marker) else { return false; };
+        let Some((_, tail)) = remaining.split_once(marker) else {
+            return false;
+        };
         remaining = tail;
     }
     true
 }
 
 #[derive(Clone, Copy)]
-pub enum RequestFormat { Chat, Responses, Anthropic }
+pub enum RequestFormat {
+    Chat,
+    Responses,
+    Anthropic,
+}
 
-pub fn client_for_request(client: &str, body: &Value, format: RequestFormat) -> Option<&'static str> {
-    if client != "ZCode" { return None; }
+pub fn client_for_request(
+    client: &str,
+    body: &Value,
+    format: RequestFormat,
+) -> Option<&'static str> {
+    if client != "ZCode" {
+        return None;
+    }
     let settings = crate::server::config::compact_routes::current();
-    if settings.settings.as_ref().is_ok_and(|config| !config.enabled || config.rules.is_empty()) { return None; }
-    let messages = body.get(match format { RequestFormat::Responses => "input", _ => "messages" })?.as_array()?;
+    if settings
+        .settings
+        .as_ref()
+        .is_ok_and(|config| !config.enabled || config.rules.is_empty())
+    {
+        return None;
+    }
+    let messages = body
+        .get(match format {
+            RequestFormat::Responses => "input",
+            _ => "messages",
+        })?
+        .as_array()?;
     let last = messages.last()?;
-    if last.get("role")?.as_str()? != "user" { return None; }
+    if last.get("role")?.as_str()? != "user" {
+        return None;
+    }
     // 前文至少有一次助手响应；孤立粘贴模板不是已发生的会话压缩。
-    if !messages[..messages.len().saturating_sub(1)].iter().any(|message|
-        message.get("role").and_then(Value::as_str) == Some("assistant")
-            || matches!(format, RequestFormat::Responses) && message.get("type").and_then(Value::as_str) == Some("function_call")) { return None; }
+    if !messages[..messages.len().saturating_sub(1)]
+        .iter()
+        .any(|message| {
+            message.get("role").and_then(Value::as_str) == Some("assistant")
+                || matches!(format, RequestFormat::Responses)
+                    && message.get("type").and_then(Value::as_str) == Some("function_call")
+        })
+    {
+        return None;
+    }
     let content = last.get("content")?;
     let matches = if let Some(text) = content.as_str() {
         template_matches(text)
     } else {
         // 必须在协议翻译前读：Anthropic 的连续 user 会合并为内容块，翻成 Chat 后纯文本块会被拼成一个字符串。
         let part = content.as_array()?.last()?;
-        let text_type = match format { RequestFormat::Responses => "input_text", _ => "text" };
-        if part.get("type").and_then(Value::as_str) != Some(text_type) { return None; }
-        part.get("text").and_then(Value::as_str).is_some_and(template_matches)
+        let text_type = match format {
+            RequestFormat::Responses => "input_text",
+            _ => "text",
+        };
+        if part.get("type").and_then(Value::as_str) != Some(text_type) {
+            return None;
+        }
+        part.get("text")
+            .and_then(Value::as_str)
+            .is_some_and(template_matches)
     };
     matches.then_some(crate::server::config::compact_routes::CLIENT_ZCODE)
 }
 
 pub fn mark_routed(body: &mut Value, source: &str, target: &str, client: &str) {
     if let Some(object) = body.as_object_mut() {
-        object.insert(ROUTE_FIELD.into(), serde_json::json!({ "source": source, "target": target, "client": client }));
+        object.insert(
+            ROUTE_FIELD.into(),
+            serde_json::json!({ "source": source, "target": target, "client": client }),
+        );
     }
 }
 

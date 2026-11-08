@@ -104,7 +104,10 @@ pub async fn put_queue(State(_state): State<ServerState>, body: Bytes) -> Respon
         };
         logging::log(
             "[Config]",
-            &format!("排队等待已更新: 最多 {} 次 / 单次 {wait}", settings.max_waits),
+            &format!(
+                "排队等待已更新: 最多 {} 次 / 单次 {wait}",
+                settings.max_waits
+            ),
         );
     }
     ok_json(queue_json(settings))

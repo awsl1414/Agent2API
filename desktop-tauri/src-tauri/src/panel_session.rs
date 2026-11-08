@@ -20,7 +20,9 @@ fn now_ms() -> i64 {
 }
 
 fn ensure_session() -> Result<Session, String> {
-    let mut current = SESSION.lock().map_err(|_| "本机管理会话状态不可用".to_string())?;
+    let mut current = SESSION
+        .lock()
+        .map_err(|_| "本机管理会话状态不可用".to_string())?;
     if crate::startup::phase() == "stopped" {
         return Err("本地网关正在退出，无法建立管理会话".to_string());
     }
@@ -57,19 +59,31 @@ pub fn attach(builder: reqwest::RequestBuilder) -> Result<reqwest::RequestBuilde
 pub fn credential_headers() -> Result<serde_json::Map<String, Value>, String> {
     let session = ensure_session()?;
     let mut headers = serde_json::Map::new();
-    headers.insert("x-panel-token".to_string(), Value::String(session.access_token));
+    headers.insert(
+        "x-panel-token".to_string(),
+        Value::String(session.access_token),
+    );
     Ok(headers)
 }
 
 /// 只在明确的管理鉴权失败后调用；不轮换模型 Key 或网页用户的会话。
 pub fn recover_rejected(headers: &reqwest::header::HeaderMap) -> Result<bool, String> {
-    let rejected = headers.get("x-panel-token").and_then(|value| value.to_str().ok());
-    let Some(rejected) = rejected else { return Ok(false) };
-    let mut current = SESSION.lock().map_err(|_| "本机管理会话状态不可用".to_string())?;
+    let rejected = headers
+        .get("x-panel-token")
+        .and_then(|value| value.to_str().ok());
+    let Some(rejected) = rejected else {
+        return Ok(false);
+    };
+    let mut current = SESSION
+        .lock()
+        .map_err(|_| "本机管理会话状态不可用".to_string())?;
     if crate::startup::phase() == "stopped" {
         return Err("本地网关正在退出，无法恢复管理会话".to_string());
     }
-    if current.as_ref().is_some_and(|session| session.access_token != rejected) {
+    if current
+        .as_ref()
+        .is_some_and(|session| session.access_token != rejected)
+    {
         return Ok(true);
     }
     if access::local_session::valid(rejected) {

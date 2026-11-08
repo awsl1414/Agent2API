@@ -181,7 +181,14 @@ fn parse_rules(value: Option<&Value>) -> Option<Vec<LimiterRule>> {
                     0
                 };
                 let enabled = fields.get("enabled").map(js_truthy).unwrap_or(true);
-                Some(LimiterRule { kind, action, threshold, period, reset, enabled })
+                Some(LimiterRule {
+                    kind,
+                    action,
+                    threshold,
+                    period,
+                    reset,
+                    enabled,
+                })
             })
             .collect(),
     )
@@ -202,7 +209,11 @@ fn parse_rules(value: Option<&Value>) -> Option<Vec<LimiterRule>> {
 /// 未申报时：Cline 免费池无规则，其余 provider 按总余额 < 1 跳过。
 pub fn default_rules(provider: &str) -> Vec<LimiterRule> {
     if let Some(declared) = declared_rules(provider) {
-        if provider != kind_id(ProviderKind::CodeArts) || declared.iter().all(|rule| rule.kind == LimiterKind::Balance) {
+        if provider != kind_id(ProviderKind::CodeArts)
+            || declared
+                .iter()
+                .all(|rule| rule.kind == LimiterKind::Balance)
+        {
             return declared;
         }
     }
@@ -287,7 +298,14 @@ fn derive_from_legacy(fields: &serde_json::Map<String, Value>) -> Vec<LimiterRul
         "disable" => (LimiterKind::Balance, LimiterAction::Disable),
         _ => return Vec::new(),
     };
-    vec![LimiterRule { kind, action, threshold, period: 0, reset: LimiterReset::Fixed, enabled: true }]
+    vec![LimiterRule {
+        kind,
+        action,
+        threshold,
+        period: 0,
+        reset: LimiterReset::Fixed,
+        enabled: true,
+    }]
 }
 
 /// 这条账号的**有效限制规则**：显式 `limiters` 优先，缺失时按旧配置推导。
@@ -360,9 +378,10 @@ pub fn normalize_rules(
             Some(_) => return Err("Token 重置方式必须是「固定周期 / 自然日」之一".to_string()),
         };
         let period = if kind == LimiterKind::Token && reset == LimiterReset::Fixed {
-            let period = fields.get("period").and_then(Value::as_i64).ok_or_else(|| {
-                "Token 规则必须带重置周期（整数秒）".to_string()
-            })?;
+            let period = fields
+                .get("period")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| "Token 规则必须带重置周期（整数秒）".to_string())?;
             if !(MIN_TOKEN_PERIOD_SECONDS..=MAX_TOKEN_PERIOD_SECONDS).contains(&period) {
                 return Err(format!(
                     "Token 重置周期必须是 {} ~ {} 秒（30 分钟 ~ 24 小时）",
@@ -374,7 +393,14 @@ pub fn normalize_rules(
             0
         };
         let enabled = fields.get("enabled").map(js_truthy).unwrap_or(true);
-        rules.push(LimiterRule { kind, action, threshold, period, reset, enabled });
+        rules.push(LimiterRule {
+            kind,
+            action,
+            threshold,
+            period,
+            reset,
+            enabled,
+        });
     }
     Ok(rules)
 }
@@ -385,14 +411,21 @@ pub fn normalize_rules(
 /// `facts` 是 `usage_records::balance_facts()` 的内存读数（判不出 = 放行，
 /// 那条口径不变）。取代旧版按 `lowBalance.mode` 单配置的读法 —— 推导规则
 /// 让旧记录拿到同一个结论。
-pub fn balance_skip_blocked(account: &Value, facts: &HashMap<String, crate::server::core::usage_records::BalanceFact>) -> bool {
-    let Some(id) = account.get("id").and_then(Value::as_str) else { return false };
+pub fn balance_skip_blocked(
+    account: &Value,
+    facts: &HashMap<String, crate::server::core::usage_records::BalanceFact>,
+) -> bool {
+    let Some(id) = account.get("id").and_then(Value::as_str) else {
+        return false;
+    };
     let fact = facts.get(id);
     effective_rules(account).iter().any(|rule| {
         rule.kind == LimiterKind::Balance
             && rule.action == LimiterAction::Skip
             && rule.enabled
-            && fact.is_some_and(|fact| matches!(fact.remaining, Some(remaining) if remaining < rule.threshold))
+            && fact.is_some_and(
+                |fact| matches!(fact.remaining, Some(remaining) if remaining < rule.threshold),
+            )
     })
 }
 
@@ -403,7 +436,9 @@ pub fn balance_disable_threshold(account: &Value) -> Option<f64> {
     effective_rules(account)
         .iter()
         .filter(|rule| {
-            rule.kind == LimiterKind::Balance && rule.action == LimiterAction::Disable && rule.enabled
+            rule.kind == LimiterKind::Balance
+                && rule.action == LimiterAction::Disable
+                && rule.enabled
         })
         .map(|rule| rule.threshold)
         .fold(None, |max: Option<f64>, threshold| {
@@ -468,14 +503,16 @@ pub fn token_skip_blocked(
     facts: &HashMap<(String, i64), TokenFact>,
     now_ms: i64,
 ) -> bool {
-    let Some(id) = account.get("id").and_then(Value::as_str) else { return false };
+    let Some(id) = account.get("id").and_then(Value::as_str) else {
+        return false;
+    };
     effective_rules(account).iter().any(|rule| {
         if rule.kind != LimiterKind::Token || rule.action != LimiterAction::Skip || !rule.enabled {
             return false;
         }
-        let start = kind_window_start(rule_kind(&rule), now_ms);
+        let start = kind_window_start(rule_kind(rule), now_ms);
         let used = facts
-            .get(&(id.to_string(), rule_kind(&rule)))
+            .get(&(id.to_string(), rule_kind(rule)))
             .filter(|fact| fact.window_start == start)
             .map(|fact| fact.used)
             .unwrap_or(0);
@@ -494,7 +531,9 @@ pub fn token_disable_hit(
     let id = account.get("id").and_then(Value::as_str)?;
     let hits: Vec<(LimiterRule, i64)> = effective_rules(account)
         .into_iter()
-        .filter(|rule| rule.kind == LimiterKind::Token && rule.action == LimiterAction::Disable && rule.enabled)
+        .filter(|rule| {
+            rule.kind == LimiterKind::Token && rule.action == LimiterAction::Disable && rule.enabled
+        })
         .filter_map(|rule| {
             let start = kind_window_start(rule_kind(&rule), now_ms);
             let used = facts
@@ -505,8 +544,11 @@ pub fn token_disable_hit(
             (used as f64 >= rule.threshold).then_some((rule, used))
         })
         .collect();
-    hits.into_iter()
-        .min_by(|(a, _), (b, _)| a.threshold.partial_cmp(&b.threshold).unwrap_or(std::cmp::Ordering::Equal))
+    hits.into_iter().min_by(|(a, _), (b, _)| {
+        a.threshold
+            .partial_cmp(&b.threshold)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    })
 }
 
 /// 秒数 → 人能读的周期 / 间隔文案（`每 90 分钟` 这类）：整小时 / 整分钟进位，
@@ -625,7 +667,13 @@ pub fn refresh_token_facts(kinds: &[i64]) {
             rows.filter_map(|item| item.ok()).collect::<Vec<_>>()
         });
         for (account_id, used) in rows.unwrap_or_default() {
-            fresh.insert((account_id, kind), TokenFact { window_start: start, used });
+            fresh.insert(
+                (account_id, kind),
+                TokenFact {
+                    window_start: start,
+                    used,
+                },
+            );
         }
     }
     if let Ok(mut slot) = facts_slot().lock() {
@@ -643,7 +691,9 @@ pub fn note_request_tokens(account_id: &str, tokens: i64, now_ms: i64) {
     if account_id.is_empty() || tokens <= 0 {
         return;
     }
-    let Ok(mut facts) = facts_slot().lock() else { return };
+    let Ok(mut facts) = facts_slot().lock() else {
+        return;
+    };
     let kinds: Vec<i64> = facts
         .keys()
         .filter(|(id, _)| id == account_id)
@@ -666,7 +716,11 @@ pub fn note_request_tokens(account_id: &str, tokens: i64, now_ms: i64) {
 /// 种类一项，`kind` = 固定周期的秒数或 0（自然日）；事实缺 / 旧窗口按 0 算
 /// 但 `windowStart` 恒是**当前**窗口起点，前端的倒计时与「已用多少」因此永远
 /// 是同一窗口的语义）。
-pub fn token_usage_rows(account: &Value, facts: &HashMap<(String, i64), TokenFact>, now_ms: i64) -> Vec<Value> {
+pub fn token_usage_rows(
+    account: &Value,
+    facts: &HashMap<(String, i64), TokenFact>,
+    now_ms: i64,
+) -> Vec<Value> {
     let id = match account.get("id").and_then(Value::as_str) {
         Some(id) if !id.is_empty() => id.to_string(),
         _ => return Vec::new(),

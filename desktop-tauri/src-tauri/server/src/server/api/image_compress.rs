@@ -84,8 +84,11 @@ fn patch_from(object: &Map<String, Value>) -> Result<ImageCompressPatch, String>
         patch.enabled = Some(enabled);
     }
     if let Some(value) = object.get(KEY_IMAGE_COMPRESS_MAX_EDGE) {
-        let Some(number) = int_in_range(value, IMAGE_COMPRESS_MIN_MAX_EDGE, IMAGE_COMPRESS_MAX_MAX_EDGE)
-        else {
+        let Some(number) = int_in_range(
+            value,
+            IMAGE_COMPRESS_MIN_MAX_EDGE,
+            IMAGE_COMPRESS_MAX_MAX_EDGE,
+        ) else {
             return Err(format!(
                 "{KEY_IMAGE_COMPRESS_MAX_EDGE} 必须是 {IMAGE_COMPRESS_MIN_MAX_EDGE}~{IMAGE_COMPRESS_MAX_MAX_EDGE} 的整数"
             ));
@@ -93,8 +96,11 @@ fn patch_from(object: &Map<String, Value>) -> Result<ImageCompressPatch, String>
         patch.max_edge = Some(number);
     }
     if let Some(value) = object.get(KEY_IMAGE_COMPRESS_QUALITY) {
-        let Some(number) = int_in_range(value, IMAGE_COMPRESS_MIN_QUALITY, IMAGE_COMPRESS_MAX_QUALITY)
-        else {
+        let Some(number) = int_in_range(
+            value,
+            IMAGE_COMPRESS_MIN_QUALITY,
+            IMAGE_COMPRESS_MAX_QUALITY,
+        ) else {
             return Err(format!(
                 "{KEY_IMAGE_COMPRESS_QUALITY} 必须是 {IMAGE_COMPRESS_MIN_QUALITY}~{IMAGE_COMPRESS_MAX_QUALITY} 的整数"
             ));
@@ -102,9 +108,11 @@ fn patch_from(object: &Map<String, Value>) -> Result<ImageCompressPatch, String>
         patch.quality = Some(number);
     }
     if let Some(value) = object.get(KEY_IMAGE_COMPRESS_THRESHOLD_KB) {
-        let Some(number) =
-            int_in_range(value, IMAGE_COMPRESS_MIN_THRESHOLD_KB, IMAGE_COMPRESS_MAX_THRESHOLD_KB)
-        else {
+        let Some(number) = int_in_range(
+            value,
+            IMAGE_COMPRESS_MIN_THRESHOLD_KB,
+            IMAGE_COMPRESS_MAX_THRESHOLD_KB,
+        ) else {
             return Err(format!(
                 "{KEY_IMAGE_COMPRESS_THRESHOLD_KB} 必须是 {IMAGE_COMPRESS_MIN_THRESHOLD_KB}~{IMAGE_COMPRESS_MAX_THRESHOLD_KB} 的整数"
             ));

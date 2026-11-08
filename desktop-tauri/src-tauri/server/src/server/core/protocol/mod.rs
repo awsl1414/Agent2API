@@ -48,12 +48,12 @@
 //! release 是 `panic=abort`：本模块零 unwrap/expect/panic，取值一律走 Option 链；
 //! 不做网络、不碰文件、不认识 axum（纯函数 + 状态机，便于单独推演）。
 
+pub mod ai_sdk_ndjson;
 pub mod anthropic;
 pub mod anthropic_outbound;
 pub mod antigravity_signature_cache;
 pub mod antigravity_stream;
 pub mod chatglm_stream;
-pub mod ai_sdk_ndjson;
 pub mod freeform;
 pub mod history;
 pub mod native_tool;
@@ -351,7 +351,9 @@ pub fn strip_internal_fields(body: &Value) -> Cow<'_, Value> {
     let Some(object) = body.as_object() else {
         return Cow::Borrowed(body);
     };
-    let top_dirty = object.keys().any(|key| key.starts_with(INTERNAL_FIELD_PREFIX));
+    let top_dirty = object
+        .keys()
+        .any(|key| key.starts_with(INTERNAL_FIELD_PREFIX));
     let messages_dirty = object
         .get("messages")
         .and_then(Value::as_array)
@@ -380,9 +382,11 @@ pub fn strip_internal_fields(body: &Value) -> Cow<'_, Value> {
 
 /// 一个对象上是否带内部暂存字段
 fn has_internal_fields(value: &Value) -> bool {
-    value
-        .as_object()
-        .is_some_and(|object| object.keys().any(|key| key.starts_with(INTERNAL_FIELD_PREFIX)))
+    value.as_object().is_some_and(|object| {
+        object
+            .keys()
+            .any(|key| key.starts_with(INTERNAL_FIELD_PREFIX))
+    })
 }
 
 /// 原地剥掉一个对象上的内部暂存字段（对象本身存在才调用）

@@ -41,8 +41,8 @@ use windows_sys::Win32::Foundation::{
 };
 #[cfg(windows)]
 use windows_sys::Win32::NetworkManagement::IpHelper::{
-    GetExtendedTcpTable, MIB_TCP6TABLE_OWNER_PID, MIB_TCP6ROW_OWNER_PID, MIB_TCP_STATE_LISTEN,
-    MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID, TCP_TABLE_CLASS, TCP_TABLE_OWNER_PID_LISTENER,
+    GetExtendedTcpTable, MIB_TCP6ROW_OWNER_PID, MIB_TCP6TABLE_OWNER_PID, MIB_TCPROW_OWNER_PID,
+    MIB_TCPTABLE_OWNER_PID, MIB_TCP_STATE_LISTEN, TCP_TABLE_CLASS, TCP_TABLE_OWNER_PID_LISTENER,
 };
 #[cfg(windows)]
 use windows_sys::Win32::Networking::WinSock::{AF_INET, AF_INET6};
@@ -58,8 +58,8 @@ use windows_sys::Win32::System::Threading::{
 
 use crate::gateway::{local_client, proxy_port};
 use crate::port_conflict::{ConflictKind, Occupant, PortConflict, StartupFailure};
-use crate::settings;
 use crate::server;
+use crate::settings;
 use crate::state::AppState;
 
 /// 启动等待上限。
@@ -115,12 +115,11 @@ pub async fn ensure_ready(app: &AppHandle) -> Result<(), StartupFailure> {
     // 「局域网访问」后绑 0.0.0.0，此时免鉴权语义由下面的闸门接管
     // （headless 形态由 agent2api-server 二进制按 AGENT2API_HOST 自行决定）。
     // 数据库迁移和历史回填会阻塞，不能占住处理 IPC 与启动等待的异步线程。
-    let mut state = tauri::async_runtime::spawn_blocking(move || {
-        server::ServerState::bootstrap(port, host)
-    })
-    .await
-    .map_err(|error| StartupFailure::other(format!("网关初始化任务失败: {error}")))?
-    .map_err(StartupFailure::other)?;
+    let mut state =
+        tauri::async_runtime::spawn_blocking(move || server::ServerState::bootstrap(port, host))
+            .await
+            .map_err(|error| StartupFailure::other(format!("网关初始化任务失败: {error}")))?
+            .map_err(StartupFailure::other)?;
 
     // 访问控制与桌面壳使用同一份进程内会话状态。
     server::access::attach_db(state.db().cloned());
@@ -205,8 +204,15 @@ pub async fn ensure_ready(app: &AppHandle) -> Result<(), StartupFailure> {
     let deadline = std::time::Instant::now() + STARTUP_TIMEOUT;
     while std::time::Instant::now() < deadline {
         if is_ready(port).await {
-            let scope = if lan.lan_access { "，局域网访问已开启" } else { "" };
-            server::logging::log("[Server]", &format!("服务已就绪（127.0.0.1:{port}{scope}）"));
+            let scope = if lan.lan_access {
+                "，局域网访问已开启"
+            } else {
+                ""
+            };
+            server::logging::log(
+                "[Server]",
+                &format!("服务已就绪（127.0.0.1:{port}{scope}）"),
+            );
             crate::panel_session::ensure_local_access().map_err(StartupFailure::other)?;
             // 起来了就清掉上一次的失败记录：那条记录描述的是「之前起不来」，
             // 留着会让界面在网关正常运行时仍显示「端口被占用」——
@@ -554,7 +560,8 @@ fn tcp_listener_table(family: u32) -> Option<Vec<u32>> {
     let class: TCP_TABLE_CLASS = TCP_TABLE_OWNER_PID_LISTENER;
     let mut size: u32 = 0;
     // 探大小：null 指针必然失败，只看它回填的 size
-    let probe = unsafe { GetExtendedTcpTable(std::ptr::null_mut(), &mut size, 0, family, class, 0) };
+    let probe =
+        unsafe { GetExtendedTcpTable(std::ptr::null_mut(), &mut size, 0, family, class, 0) };
     if probe != ERROR_INSUFFICIENT_BUFFER || size == 0 {
         return None;
     }
@@ -563,8 +570,16 @@ fn tcp_listener_table(family: u32) -> Option<Vec<u32>> {
     // 第二趟按缓冲区真实字节数报 size（比探测值多出补齐的零头），避免 API
     // 认为缓冲区比实际更大
     let mut capacity = std::mem::size_of_val(buffer.as_slice()) as u32;
-    let filled =
-        unsafe { GetExtendedTcpTable(buffer.as_mut_ptr().cast(), &mut capacity, 0, family, class, 0) };
+    let filled = unsafe {
+        GetExtendedTcpTable(
+            buffer.as_mut_ptr().cast(),
+            &mut capacity,
+            0,
+            family,
+            class,
+            0,
+        )
+    };
     if filled != ERROR_SUCCESS {
         return None;
     }
@@ -604,7 +619,10 @@ async fn health_reports_workbuddy(port: u16) -> bool {
     let Ok(client) = local_client(HEALTH_TIMEOUT) else {
         return false;
     };
-    let Ok(response) = client.get(format!("http://127.0.0.1:{port}/health")).send().await
+    let Ok(response) = client
+        .get(format!("http://127.0.0.1:{port}/health"))
+        .send()
+        .await
     else {
         return false;
     };
@@ -677,15 +695,14 @@ fn cleanup_legacy_resources() {
             continue;
         }
         match std::fs::remove_file(&target) {
-            Ok(()) => {
-                server::logging::log("[Server]", &format!("已清理旧版残留的资源文件（升级迁移）: {name}"))
-            }
-            Err(error) => {
-                server::logging::log(
-                    "[Server]",
-                    &format!("清理旧版残留 {name} 失败（下次启动再试）: {error}"),
-                )
-            }
+            Ok(()) => server::logging::log(
+                "[Server]",
+                &format!("已清理旧版残留的资源文件（升级迁移）: {name}"),
+            ),
+            Err(error) => server::logging::log(
+                "[Server]",
+                &format!("清理旧版残留 {name} 失败（下次启动再试）: {error}"),
+            ),
         }
     }
 }

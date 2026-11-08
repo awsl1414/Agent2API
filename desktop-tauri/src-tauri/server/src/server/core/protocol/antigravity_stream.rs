@@ -53,7 +53,9 @@
 
 use serde_json::{json, Map, Value};
 
-use super::{chat_frame, is_truthy, json_text, random_id, string_field, string_value, SseLineBuffer};
+use super::{
+    chat_frame, is_truthy, json_text, random_id, string_field, string_value, SseLineBuffer,
+};
 
 /// 上游 `finishReason` → chat `finish_reason`（9router
 /// `toOpenAIFinish(reason, "gemini")` 的归一表 + Manager 的
@@ -61,7 +63,9 @@ use super::{chat_frame, is_truthy, json_text, random_id, string_field, string_va
 fn map_finish_reason(raw: &str) -> String {
     match raw.trim().to_ascii_uppercase().as_str() {
         "MAX_TOKENS" => "length".to_string(),
-        "SAFETY" | "RECITATION" | "BLOCKLIST" | "PROHIBITED_CONTENT" => "content_filter".to_string(),
+        "SAFETY" | "RECITATION" | "BLOCKLIST" | "PROHIBITED_CONTENT" => {
+            "content_filter".to_string()
+        }
         _ => "stop".to_string(),
     }
 }
@@ -336,7 +340,11 @@ impl ChatFromAntigravityStream {
             // 签名入服务端缓存（issue #291，见模块头）：多数客户端下一轮不会
             // 回带非标的 `extra_content`，请求侧按这两档键回填
             super::antigravity_signature_cache::remember_call(&self.session, &id, signature);
-            super::antigravity_signature_cache::remember_for_session(&self.session, &name, signature);
+            super::antigravity_signature_cache::remember_for_session(
+                &self.session,
+                &name,
+                signature,
+            );
         }
         let index = self.tool_index;
         self.tool_index += 1;
@@ -429,28 +437,25 @@ impl ChatFromAntigravityStream {
         } else {
             message
         };
-        let code = error
-            .get("code")
-            .and_then(Value::as_i64)
-            .or_else(|| {
-                let text = string_field(error, "code");
-                text.trim().parse::<i64>().ok()
-            });
+        let code = error.get("code").and_then(Value::as_i64).or_else(|| {
+            let text = string_field(error, "code");
+            text.trim().parse::<i64>().ok()
+        });
         // Google 把语义写在 `error.status` 字符串里（规格 §3.2 的分类口径），
         // 数字 code 缺失/越界时按它兜底
         let status = code
             .and_then(|code| u16::try_from(code).ok())
             .filter(|status| (100..=599).contains(status))
-            .unwrap_or_else(|| {
-                match string_field(error, "status").to_ascii_uppercase().as_str() {
+            .unwrap_or_else(
+                || match string_field(error, "status").to_ascii_uppercase().as_str() {
                     "RESOURCE_EXHAUSTED" => 429,
                     "PERMISSION_DENIED" | "UNAUTHENTICATED" => 401,
                     "NOT_FOUND" => 404,
                     "UNAVAILABLE" => 503,
                     "DEADLINE_EXCEEDED" | "INTERNAL" => 502,
                     _ => 502,
-                }
-            });
+                },
+            );
         crate::server::logging::verbose(
             "[Antigravity]",
             &format!(

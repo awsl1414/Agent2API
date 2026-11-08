@@ -127,8 +127,7 @@ pub(super) fn import_config(conn: &Connection, dir: &Path) -> Option<LegacyOutco
         }
     };
     // 逐顶层键搬进 `kv`，并在**同一个事务**里落完成标记（原子性论证见模块头）。
-    let imported = match config::sql::import_conn(conn, &raw, config::sql::KEY_CONFIG_MIGRATED)
-    {
+    let imported = match config::sql::import_conn(conn, &raw, config::sql::KEY_CONFIG_MIGRATED) {
         Ok(count) => count,
         Err(error) => {
             logging::console_line(

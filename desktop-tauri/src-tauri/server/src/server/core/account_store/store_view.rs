@@ -22,7 +22,9 @@ use serde_json::{json, Map, Value};
 
 use crate::server::core::account_store::state::{AccountState, StoredAccount};
 use crate::server::core::account_store::store::{forwards_requests, AccountStore};
-use crate::server::core::account_store::store_util::{js_truthy, max_concurrent_public_for, value_or, value_or_nullish};
+use crate::server::core::account_store::store_util::{
+    js_truthy, max_concurrent_public_for, value_or, value_or_nullish,
+};
 use crate::server::core::custom_providers;
 use crate::server::core::endpoints::{resolve_edition, EditionInfo};
 use crate::server::core::proxies::describe_account_proxy;
@@ -70,10 +72,7 @@ impl AccountStore {
         public.insert("id".to_string(), Value::String(record.id().to_string()));
         // 所属提供商（Agent2API 改造新增字段）：缺失时按 workbuddy 兜底，
         // 保证界面拿到的每条账号都能直接分组，不必自己判断「没有 provider = 老数据」
-        public.insert(
-            "provider".to_string(),
-            Value::String(record.provider()),
-        );
+        public.insert("provider".to_string(), Value::String(record.provider()));
         // name 无兜底：原样透出（含非字符串的脏值），缺失时不出现该键
         if let Some(value) = fields.get("name") {
             public.insert("name".to_string(), value.clone());
@@ -108,12 +107,7 @@ impl AccountStore {
         );
         public.insert(
             "hasRefreshToken".to_string(),
-            Value::Bool(
-                fields
-                    .get("refreshToken")
-                    .map(js_truthy)
-                    .unwrap_or(false),
-            ),
+            Value::Bool(fields.get("refreshToken").map(js_truthy).unwrap_or(false)),
         );
         // 「需要重新登录」标记（issue #215）：上游注销了会话、refresh token 一并
         // 作废时由刷新链路落。界面据此把「刷新失败」显示成「需要重新登录」——
@@ -121,16 +115,14 @@ impl AccountStore {
         // 键恒在（false 表示正常），前端不必判「键缺失」。
         public.insert(
             "needsRelogin".to_string(),
-            Value::Bool(
-                fields
-                    .get("needsRelogin")
-                    .map(js_truthy)
-                    .unwrap_or(false),
-            ),
+            Value::Bool(fields.get("needsRelogin").map(js_truthy).unwrap_or(false)),
         );
         public.insert(
             "needsReloginReason".to_string(),
-            value_or(fields.get("needsReloginReason"), Value::String(String::new())),
+            value_or(
+                fields.get("needsReloginReason"),
+                Value::String(String::new()),
+            ),
         );
         public.insert(
             "prefixPath".to_string(),
@@ -485,8 +477,11 @@ impl AccountStore {
         match shaped {
             Value::Object(mut fields) => {
                 for key in ["upstreamCooldownUntil", "upstreamBlockedReason"] {
-                    if let Some(value) = record.get(key) { fields.insert(key.to_string(), value.clone()); }
-                    else { fields.remove(key); }
+                    if let Some(value) = record.get(key) {
+                        fields.insert(key.to_string(), value.clone());
+                    } else {
+                        fields.remove(key);
+                    }
                 }
                 if !record.has_plugin_secret() {
                     super::plugin_public::credential_fields(record, &mut fields);
@@ -547,9 +542,13 @@ impl AccountStore {
                 // 恒为数字（无记录时 0）而不是缺键：界面按 `Number(...) || 0` 读，
                 // 两种形态都能吃，但恒定的形状让「字段缺失」与「值为 0」不再需要分开判。
                 if super::is_zcode_family(&record.provider()) {
-                    let plan = crate::server::core::providers::zcode::normalize_plan(&record.zcode_plan())
-                        .unwrap_or(crate::server::core::providers::zcode::PLAN_CODING);
-                    fields.insert(crate::server::core::providers::zcode::PLAN_FIELD.to_string(), Value::String(plan.to_string()));
+                    let plan =
+                        crate::server::core::providers::zcode::normalize_plan(&record.zcode_plan())
+                            .unwrap_or(crate::server::core::providers::zcode::PLAN_CODING);
+                    fields.insert(
+                        crate::server::core::providers::zcode::PLAN_FIELD.to_string(),
+                        Value::String(plan.to_string()),
+                    );
                 }
                 for key in ["claimAt", "claimPlanId", "claimPlans"] {
                     if let Some(value) = record.get(key) {
@@ -557,9 +556,16 @@ impl AccountStore {
                     }
                 }
                 fields.insert("checkinAt".to_string(), Value::from(record.checkin_at()));
-                fields.insert("checkedInToday".to_string(), Value::Bool(super::checkin_state::completed(record)));
-                fields.insert("dailyCheckin".to_string(), super::checkin_state::record_status(record)
-                    .cloned().unwrap_or(Value::Null));
+                fields.insert(
+                    "checkedInToday".to_string(),
+                    Value::Bool(super::checkin_state::completed(record)),
+                );
+                fields.insert(
+                    "dailyCheckin".to_string(),
+                    super::checkin_state::record_status(record)
+                        .cloned()
+                        .unwrap_or(Value::Null),
+                );
                 // 成长中心连登天数（WorkBuddy 国内版；签到后回读落库，见
                 // `AccountStore::mark_streak_days`）。恒为数字键（0 = 还没读到过），
                 // 与 checkinAt 同一理由：界面按数字读，不必判「字段缺失」。
@@ -591,7 +597,12 @@ impl AccountStore {
                 );
                 fields.insert(
                     "allowRouteSkip".to_string(),
-                    Value::Bool(record.get("allowRouteSkip").and_then(Value::as_bool).unwrap_or(true)),
+                    Value::Bool(
+                        record
+                            .get("allowRouteSkip")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(true),
+                    ),
                 );
                 // 用户显式设置过备注名（update_account 真正改到 name 时打的标，
                 // 见 apply_patch）。恒为布尔而不是缺键：界面据此决定「备注名赢过
@@ -630,7 +641,9 @@ impl AccountStore {
                 );
                 fields.insert(
                     "limiterGroups".to_string(),
-                    crate::server::core::limiter::types::json_of(&crate::server::core::limiter::effective_groups_in(record.fields())),
+                    crate::server::core::limiter::types::json_of(
+                        &crate::server::core::limiter::effective_groups_in(record.fields()),
+                    ),
                 );
                 // 跨家统一注入的**账号展示名**：与前端 `displayNameOf` 同口径的
                 // 唯一后端实现（规则见本文件底部的 `display_name_of`）。
@@ -640,7 +653,7 @@ impl AccountStore {
                 // 这种两套口径的错位（issue #249）。
                 fields.insert(
                     "displayName".to_string(),
-                    Value::String(display_name_of(&fields, &record.id().to_string())),
+                    Value::String(display_name_of(&fields, record.id())),
                 );
                 // 智谱清言的**访客标记**：签到范围判定
                 // （`billing::checkin::supports_checkin`）与签到中心的「范围外」
@@ -781,7 +794,10 @@ impl AccountStore {
         public.insert("enabled".to_string(), Value::Bool(record.enabled()));
         public.insert("addedAt".to_string(), Value::from(record.added_at()));
         public.insert("updatedAt".to_string(), Value::from(record.updated_at()));
-        public.insert("proxy".to_string(), describe_account_proxy(Some(&record.proxy())));
+        public.insert(
+            "proxy".to_string(),
+            describe_account_proxy(Some(&record.proxy())),
+        );
         // 「可用」= 凭证完整（与各家同一语义，见 `accounts-shared` 的 available 说明）。
         // 自定义账号这一项以前恒 true，于是「没填 Key 也没勾无需鉴权」的账号照样出现在
         // 「模型来源」下拉里（界面按 `available !== false` 过滤，见 models-fetch-modal）
@@ -856,12 +872,17 @@ fn usage_query_public(value: Option<&Value>) -> Value {
 /// 阈值 1；显式配置一律原样尊重 —— 那是用户选过的，缺省不能覆盖它。skip / disable
 /// 档下阈值缺失或非法时回落缺省 1。
 fn low_balance_public(provider: &str, value: Option<&Value>) -> Value {
-    use crate::server::core::usage_records::{default_low_balance, default_low_balance_mode, DEFAULT_LOW_BALANCE_THRESHOLD};
+    use crate::server::core::usage_records::{
+        default_low_balance, default_low_balance_mode, DEFAULT_LOW_BALANCE_THRESHOLD,
+    };
     let default_mode = default_low_balance_mode(provider);
     let Some(fields) = value.and_then(Value::as_object) else {
         return default_low_balance(provider);
     };
-    let mode = fields.get("mode").and_then(Value::as_str).unwrap_or(default_mode);
+    let mode = fields
+        .get("mode")
+        .and_then(Value::as_str)
+        .unwrap_or(default_mode);
     let threshold = fields
         .get("threshold")
         .and_then(Value::as_f64)
@@ -916,11 +937,11 @@ fn display_name_of(public: &Map<String, Value>, id: &str) -> String {
     }
     let nickname = text("nickname");
     let identifier = identifier_key_of(&provider).map(text).unwrap_or_default();
-    let fallback = [nickname, name, identifier]
+
+    [nickname, name, identifier]
         .into_iter()
         .find(|value| !value.is_empty())
-        .unwrap_or_else(|| id.to_string());
-    fallback
+        .unwrap_or_else(|| id.to_string())
 }
 
 /// 各家公开形态上的「账号标识」字段键（与前端能力表 `identifier` 列同一份口径；

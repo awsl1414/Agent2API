@@ -22,8 +22,8 @@
 
 use serde_json::{json, Value};
 
-use crate::server::core::limiter::{self, LimiterKind, LimiterRule};
 use crate::server::core::limiter::types::Metric;
+use crate::server::core::limiter::{self, LimiterKind, LimiterRule};
 use crate::server::core::providers::{kind_id, ProviderKind};
 
 use super::state::StoredAccount;
@@ -36,25 +36,42 @@ pub const CODEARTS_PROVIDER_ID: &str = kind_id(ProviderKind::CodeArts);
 pub(crate) fn migrate_limiters(accounts: &mut [StoredAccount]) -> usize {
     let mut changed = 0;
     for record in accounts {
-        if record.provider() != CODEARTS_PROVIDER_ID { continue; }
+        if record.provider() != CODEARTS_PROVIDER_ID {
+            continue;
+        }
         let mut groups = limiter::effective_groups_in(record.fields());
-        let mut removed = limiter::effective_rules_in(record.fields()).iter().any(|rule| rule.kind == LimiterKind::Token);
+        let mut removed = limiter::effective_rules_in(record.fields())
+            .iter()
+            .any(|rule| rule.kind == LimiterKind::Token);
         for group in &mut groups {
             let before = group.conditions.len();
-            group.conditions.retain(|condition| !matches!(condition.metric, Metric::Tokens | Metric::Requests));
+            group
+                .conditions
+                .retain(|condition| !matches!(condition.metric, Metric::Tokens | Metric::Requests));
             removed |= group.conditions.len() != before;
         }
-        if !removed { continue; }
+        if !removed {
+            continue;
+        }
         groups.retain(|group| !group.conditions.is_empty());
-        let configured_empty = if let Some(groups) = record.get("limiterGroups").and_then(Value::as_array) {
-            groups.is_empty()
-        } else {
-            record.get("limiters").and_then(Value::as_array).is_some_and(Vec::is_empty)
-        };
+        let configured_empty =
+            if let Some(groups) = record.get("limiterGroups").and_then(Value::as_array) {
+                groups.is_empty()
+            } else {
+                record
+                    .get("limiters")
+                    .and_then(Value::as_array)
+                    .is_some_and(Vec::is_empty)
+            };
         if groups.is_empty() && !configured_empty {
-            let rule = LimiterRule { kind: LimiterKind::Balance, action: limiter::LimiterAction::Skip,
+            let rule = LimiterRule {
+                kind: LimiterKind::Balance,
+                action: limiter::LimiterAction::Skip,
                 threshold: crate::server::core::usage_records::DEFAULT_LOW_BALANCE_THRESHOLD,
-                period: 0, reset: limiter::LimiterReset::Fixed, enabled: true };
+                period: 0,
+                reset: limiter::LimiterReset::Fixed,
+                enabled: true,
+            };
             groups = limiter::groups::groups_from_rules(&[rule]);
         }
         for group in &mut groups {
@@ -88,8 +105,19 @@ impl super::AccountStore {
         let available = record.has_token();
         let can_refresh = !record.refresh_token().is_empty();
         let mut public = serde_json::Map::new();
-        for key in ["id", "provider", "name", "userId", "source", "tokenTail", "expiresAt"] {
-            public.insert(key.to_string(), record.get(key).cloned().unwrap_or(Value::Null));
+        for key in [
+            "id",
+            "provider",
+            "name",
+            "userId",
+            "source",
+            "tokenTail",
+            "expiresAt",
+        ] {
+            public.insert(
+                key.to_string(),
+                record.get(key).cloned().unwrap_or(Value::Null),
+            );
         }
         public.insert("edition".to_string(), Value::Null);
         public.insert("editionLabel".to_string(), Value::Null);
@@ -104,7 +132,10 @@ impl super::AccountStore {
         );
         public.insert(
             "rateLimits".to_string(),
-            record.get("rateLimits").cloned().unwrap_or_else(|| json!({})),
+            record
+                .get("rateLimits")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
         );
         public.insert("desktop".to_string(), Value::Bool(false));
         public.insert("available".to_string(), Value::Bool(available));
@@ -120,7 +151,10 @@ impl super::AccountStore {
         // 与布尔状态**，没有任何凭据材料，所以不需要像凭据那样过滤。
         public.insert(
             "welfare".to_string(),
-            record.get("codeartsWelfare").cloned().unwrap_or(Value::Null),
+            record
+                .get("codeartsWelfare")
+                .cloned()
+                .unwrap_or(Value::Null),
         );
         // 账号能路由到哪些模型（转发与广告都按这个判），以及它是不是福利通道
         for (key, source) in [

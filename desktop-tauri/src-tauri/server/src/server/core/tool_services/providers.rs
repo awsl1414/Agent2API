@@ -112,7 +112,12 @@ pub async fn post_json(
             ),
         ));
     }
-    if body.as_ref().and_then(|value| value.get("success")).and_then(Value::as_bool) == Some(false) {
+    if body
+        .as_ref()
+        .and_then(|value| value.get("success"))
+        .and_then(Value::as_bool)
+        == Some(false)
+    {
         let detail = body
             .as_ref()
             .and_then(|value| value.get("error"))
@@ -127,7 +132,11 @@ pub async fn post_json(
 }
 
 fn array_of<'a>(value: &'a Value, key: &str) -> &'a [Value] {
-    value.get(key).and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[])
+    value
+        .get(key)
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
 }
 
 fn nested<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a Value> {
@@ -140,7 +149,11 @@ fn nested<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a Value> {
 
 /* ─── Tavily ───────────────────────────────────────────────── */
 
-async fn tavily_search(api_key: &str, query: &str, timeout: u64) -> Result<Vec<SourceDraft>, SearchError> {
+async fn tavily_search(
+    api_key: &str,
+    query: &str,
+    timeout: u64,
+) -> Result<Vec<SourceDraft>, SearchError> {
     let body = post_json(
         TAVILY_SEARCH,
         json!({
@@ -216,12 +229,18 @@ async fn tavily_fetch(
             message: if reason.is_empty() {
                 "Tavily failed to extract this page".into()
             } else {
-                format!("Tavily failed to extract this page: {}", reason.chars().take(200).collect::<String>())
+                format!(
+                    "Tavily failed to extract this page: {}",
+                    reason.chars().take(200).collect::<String>()
+                )
             },
         });
     }
     if pages.is_empty() && errors.is_empty() {
-        return Err(SearchError::new(SearchErrorCode::NoResults, "The provider returned no readable content"));
+        return Err(SearchError::new(
+            SearchErrorCode::NoResults,
+            "The provider returned no readable content",
+        ));
     }
     Ok((pages, errors))
 }
@@ -239,7 +258,11 @@ fn querit_published_date(item: &Value) -> String {
     if !time.is_finite() || time <= 0.0 {
         return String::new();
     }
-    let millis = if time >= 1_000_000_000_000.0 { time } else { time * 1000.0 };
+    let millis = if time >= 1_000_000_000_000.0 {
+        time
+    } else {
+        time * 1000.0
+    };
     use chrono::{TimeZone, Utc};
     Utc.timestamp_millis_opt(millis as i64)
         .single()
@@ -247,7 +270,11 @@ fn querit_published_date(item: &Value) -> String {
         .unwrap_or_default()
 }
 
-async fn querit_search(api_key: &str, query: &str, timeout: u64) -> Result<Vec<SourceDraft>, SearchError> {
+async fn querit_search(
+    api_key: &str,
+    query: &str,
+    timeout: u64,
+) -> Result<Vec<SourceDraft>, SearchError> {
     let body = post_json(
         QUERIT_SEARCH,
         json!({ "query": query, "count": 10 }),
@@ -295,14 +322,19 @@ async fn querit_fetch(
             .or_else(|| item.get("published_date"))
             .unwrap_or(&Value::Null);
         let effective_url = if requested_url.is_empty() {
-            meta.and_then(|value| value.get("url")).and_then(Value::as_str).unwrap_or("").to_string()
+            meta.and_then(|value| value.get("url"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
         } else {
             requested_url.clone()
         };
         match draft_source(
             display_name("querit"),
             &json!(effective_url),
-            meta.and_then(|value| value.get("title")).or_else(|| item.get("title")).unwrap_or(&Value::Null),
+            meta.and_then(|value| value.get("title"))
+                .or_else(|| item.get("title"))
+                .unwrap_or(&Value::Null),
             item.get("content").unwrap_or(&Value::Null),
             date,
             MAX_FETCHED_CONTENT_LENGTH,
@@ -317,14 +349,21 @@ async fn querit_fetch(
         }
     }
     if pages.is_empty() && errors.is_empty() {
-        return Err(SearchError::new(SearchErrorCode::NoResults, "The provider returned no readable content"));
+        return Err(SearchError::new(
+            SearchErrorCode::NoResults,
+            "The provider returned no readable content",
+        ));
     }
     Ok((pages, errors))
 }
 
 /* ─── Firecrawl ────────────────────────────────────────────── */
 
-async fn firecrawl_search(api_key: &str, query: &str, timeout: u64) -> Result<Vec<SourceDraft>, SearchError> {
+async fn firecrawl_search(
+    api_key: &str,
+    query: &str,
+    timeout: u64,
+) -> Result<Vec<SourceDraft>, SearchError> {
     let body = post_json(
         FIRECRAWL_SEARCH,
         json!({ "query": query, "limit": 10, "sources": ["web"] }),
@@ -350,7 +389,9 @@ async fn firecrawl_search(api_key: &str, query: &str, timeout: u64) -> Result<Ve
             let date = {
                 let direct = text_of(item, "date");
                 if direct.is_empty() {
-                    meta.and_then(|value| value.get("publishedTime")).cloned().unwrap_or(Value::Null)
+                    meta.and_then(|value| value.get("publishedTime"))
+                        .cloned()
+                        .unwrap_or(Value::Null)
                 } else {
                     json!(direct)
                 }
@@ -385,21 +426,29 @@ async fn firecrawl_scrape_one(
         message: error.message,
     })?;
     let data = body.get("data").filter(|value| value.is_object());
-    let meta = data.and_then(|value| value.get("metadata")).filter(|value| value.is_object());
+    let meta = data
+        .and_then(|value| value.get("metadata"))
+        .filter(|value| value.is_object());
     let fetched_url = meta
         .and_then(|value| value.get("sourceURL").or_else(|| value.get("url")))
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .unwrap_or(url);
     let date = meta
-        .and_then(|value| value.get("publishedTime").or_else(|| value.get("publishedDate")))
+        .and_then(|value| {
+            value
+                .get("publishedTime")
+                .or_else(|| value.get("publishedDate"))
+        })
         .cloned()
         .unwrap_or(Value::Null);
     match draft_source(
         display_name("firecrawl"),
         &json!(fetched_url),
-        meta.and_then(|value| value.get("title")).unwrap_or(&Value::Null),
-        data.and_then(|value| value.get("markdown")).unwrap_or(&Value::Null),
+        meta.and_then(|value| value.get("title"))
+            .unwrap_or(&Value::Null),
+        data.and_then(|value| value.get("markdown"))
+            .unwrap_or(&Value::Null),
         &date,
         MAX_FETCHED_CONTENT_LENGTH,
     ) {
@@ -418,7 +467,8 @@ async fn firecrawl_fetch(
     timeout: u64,
 ) -> Result<(Vec<FetchPageDraft>, Vec<FetchErrorItem>), SearchError> {
     let outcomes = futures::future::join_all(
-        urls.iter().map(|url| firecrawl_scrape_one(api_key, url, timeout)),
+        urls.iter()
+            .map(|url| firecrawl_scrape_one(api_key, url, timeout)),
     )
     .await;
     let mut pages = Vec::new();
@@ -430,14 +480,21 @@ async fn firecrawl_fetch(
         }
     }
     if pages.is_empty() && errors.is_empty() {
-        return Err(SearchError::new(SearchErrorCode::NoResults, "The provider returned no readable content"));
+        return Err(SearchError::new(
+            SearchErrorCode::NoResults,
+            "The provider returned no readable content",
+        ));
     }
     Ok((pages, errors))
 }
 
 /* ─── Ollama Web Search ────────────────────────────────────── */
 
-async fn ollama_search(api_key: &str, query: &str, timeout: u64) -> Result<Vec<SourceDraft>, SearchError> {
+async fn ollama_search(
+    api_key: &str,
+    query: &str,
+    timeout: u64,
+) -> Result<Vec<SourceDraft>, SearchError> {
     let body = post_json(
         OLLAMA_SEARCH,
         json!({ "query": query, "max_results": 10 }),
@@ -465,7 +522,11 @@ async fn ollama_search(api_key: &str, query: &str, timeout: u64) -> Result<Vec<S
         .collect())
 }
 
-async fn ollama_fetch_one(api_key: &str, url: &str, timeout: u64) -> Result<FetchPageDraft, FetchErrorItem> {
+async fn ollama_fetch_one(
+    api_key: &str,
+    url: &str,
+    timeout: u64,
+) -> Result<FetchPageDraft, FetchErrorItem> {
     let body = post_json(OLLAMA_FETCH, json!({ "url": url }), api_key, timeout)
         .await
         .map_err(|error| FetchErrorItem {
@@ -501,7 +562,8 @@ async fn ollama_fetch(
     timeout: u64,
 ) -> Result<(Vec<FetchPageDraft>, Vec<FetchErrorItem>), SearchError> {
     let outcomes = futures::future::join_all(
-        urls.iter().map(|url| ollama_fetch_one(api_key, url, timeout)),
+        urls.iter()
+            .map(|url| ollama_fetch_one(api_key, url, timeout)),
     )
     .await;
     let mut pages = Vec::new();
@@ -513,7 +575,10 @@ async fn ollama_fetch(
         }
     }
     if pages.is_empty() && errors.is_empty() {
-        return Err(SearchError::new(SearchErrorCode::NoResults, "The provider returned no readable content"));
+        return Err(SearchError::new(
+            SearchErrorCode::NoResults,
+            "The provider returned no readable content",
+        ));
     }
     Ok((pages, errors))
 }
@@ -531,7 +596,10 @@ pub async fn search(
         "querit" => querit_search(api_key, query, timeout).await,
         "firecrawl" => firecrawl_search(api_key, query, timeout).await,
         "ollama" => ollama_search(api_key, query, timeout).await,
-        _ => Err(SearchError::new(SearchErrorCode::ProviderUnavailable, "Unknown search provider")),
+        _ => Err(SearchError::new(
+            SearchErrorCode::ProviderUnavailable,
+            "Unknown search provider",
+        )),
     }
 }
 
@@ -546,7 +614,10 @@ pub async fn fetch(
         "querit" => querit_fetch(api_key, urls, timeout).await,
         "firecrawl" => firecrawl_fetch(api_key, urls, timeout).await,
         "ollama" => ollama_fetch(api_key, urls, timeout).await,
-        _ => Err(SearchError::new(SearchErrorCode::ProviderUnavailable, "Unknown search provider")),
+        _ => Err(SearchError::new(
+            SearchErrorCode::ProviderUnavailable,
+            "Unknown search provider",
+        )),
     }
 }
 

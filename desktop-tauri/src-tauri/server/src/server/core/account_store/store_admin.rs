@@ -105,26 +105,46 @@ impl AccountStore {
 
     pub fn suspend_upstream_account(&self, id: &str, reason: &str) -> Result<(), String> {
         let guard = self.guard();
-        let mut record = self.record_by_id(&guard, id).ok_or_else(|| "账号不存在".to_string())?;
+        let mut record = self
+            .record_by_id(&guard, id)
+            .ok_or_else(|| "账号不存在".to_string())?;
         record.set_enabled(false);
-        record.set("upstreamBlockedReason", Value::String(truncate_chars(reason, 300)));
+        record.set(
+            "upstreamBlockedReason",
+            Value::String(truncate_chars(reason, 300)),
+        );
         record.set_updated_at(logging::now_ms());
-        self.with_conn(&guard, |conn| sql::update_in_place(conn, &record)).map_err(|error| error.to_string())
+        self.with_conn(&guard, |conn| sql::update_in_place(conn, &record))
+            .map_err(|error| error.to_string())
     }
 
-    pub fn cooldown_upstream_account(&self, id: &str, until: i64, reason: &str) -> Result<(), String> {
+    pub fn cooldown_upstream_account(
+        &self,
+        id: &str,
+        until: i64,
+        reason: &str,
+    ) -> Result<(), String> {
         let guard = self.guard();
-        let mut record = self.record_by_id(&guard, id).ok_or_else(|| "账号不存在".to_string())?;
-        if until <= logging::now_ms() { return Ok(()); }
+        let mut record = self
+            .record_by_id(&guard, id)
+            .ok_or_else(|| "账号不存在".to_string())?;
+        if until <= logging::now_ms() {
+            return Ok(());
+        }
         record.set("upstreamCooldownUntil", Value::from(until));
-        record.set("upstreamBlockedReason", Value::String(truncate_chars(reason, 300)));
+        record.set(
+            "upstreamBlockedReason",
+            Value::String(truncate_chars(reason, 300)),
+        );
         record.set_updated_at(logging::now_ms());
-        self.with_conn(&guard, |conn| sql::update_in_place(conn, &record)).map_err(|error| error.to_string())
+        self.with_conn(&guard, |conn| sql::update_in_place(conn, &record))
+            .map_err(|error| error.to_string())
     }
 
     /// 账号是否被标记为「需要重新登录」（凭证维护据此跳过）。
     pub fn needs_relogin(&self, id: &str) -> bool {
-        self.read_record(id).and_then(|record| record.get("needsRelogin").and_then(Value::as_bool))
+        self.read_record(id)
+            .and_then(|record| record.get("needsRelogin").and_then(Value::as_bool))
             .unwrap_or(false)
     }
 
@@ -326,7 +346,10 @@ impl AccountStore {
     /// 冷却键形态见 `mark_rate_limited`：键在账号记录内，provider 由账号唯一确定。
     pub fn clear_rate_limit(&self, id: &str, model: &str) -> bool {
         if !self.route_account(id).is_some_and(|account| {
-            account.get("rateLimits").and_then(|limits| limits.get(model)).is_some()
+            account
+                .get("rateLimits")
+                .and_then(|limits| limits.get(model))
+                .is_some()
         }) {
             return false;
         }
@@ -368,7 +391,9 @@ impl AccountStore {
         }
         record.remove("rateLimits");
         record.remove("upstreamCooldownUntil");
-        if record.enabled() { record.remove("upstreamBlockedReason"); }
+        if record.enabled() {
+            record.remove("upstreamBlockedReason");
+        }
         record.set_updated_at(logging::now_ms());
         if self
             .with_conn(&_guard, |conn| sql::update_in_place(conn, &record))
@@ -466,7 +491,10 @@ impl AccountStore {
         // ② 锁外判定：这个键在该家是不是真名（判据见函数头）
         let mut plan: Vec<(String, String, Vec<String>)> = Vec::new();
         for account in &accounts {
-            let Some(id) = account.get("id").and_then(Value::as_str).filter(|id| !id.is_empty())
+            let Some(id) = account
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
             else {
                 continue;
             };
@@ -487,9 +515,7 @@ impl AccountStore {
                     }
                     // 键名当请求名问一次：发出去的不是它自己 → 它不是真名
                     let wire = crate::server::core::providers::catalog::wire_target_for_provider(
-                        key,
-                        &provider,
-                        None,
+                        key, &provider, None,
                     )
                     .model;
                     !wire.eq_ignore_ascii_case(key)
@@ -655,10 +681,7 @@ impl AccountStore {
         let Some(mut record) = self.record_by_id(&_guard, id) else {
             return false;
         };
-        let existing = record
-            .fields()
-            .get("streakDays")
-            .and_then(Value::as_i64);
+        let existing = record.fields().get("streakDays").and_then(Value::as_i64);
         if existing == Some(days) {
             return true;
         }
@@ -788,8 +811,7 @@ impl AccountStore {
         // （见 `chatglm_accounts::migrate_nested_tokens`）：首版把令牌写进了嵌套
         // `auth`，而 `has_credentials()` 只读顶层 —— 不抬的话那几条存量记录会一直
         // 被静默过滤掉（模型管理里看不到这一家、余额报「没有可用凭证」）。
-        let chatglm_healed =
-            super::chatglm_accounts::migrate_nested_tokens(&mut state.accounts);
+        let chatglm_healed = super::chatglm_accounts::migrate_nested_tokens(&mut state.accounts);
         if chatglm_healed > 0 {
             logging::log(
                 "[Accounts]",
@@ -864,12 +886,19 @@ impl AccountStore {
                 "[Accounts]",
                 &format!(
                     "🔢 优先级已{}（{} 个账号重新编号，转发顺序保持不变）",
-                    if scope_migrated { "合并为全局一条队列" } else { "去重" },
+                    if scope_migrated {
+                        "合并为全局一条队列"
+                    } else {
+                        "去重"
+                    },
                     assignments.len()
                 ),
             );
         } else if scope_migrated {
-            logging::log("[Accounts]", "🔢 优先级已标记为全局一条队列（号码无需调整）");
+            logging::log(
+                "[Accounts]",
+                "🔢 优先级已标记为全局一条队列（号码无需调整）",
+            );
         }
         json!({
             "providerAdded": provider_added,
@@ -909,14 +938,11 @@ impl AccountStore {
         let _guard = self.guard();
         // 用 `with_conn_mut` 而不是 `with_conn`：整批加密要在一个事务里
         // （见 `sql::encrypt_legacy_rows` 的说明），而事务需要可变的连接借用。
-        match self.with_conn_mut(&_guard, |conn| sql::encrypt_legacy_rows(conn)) {
+        match self.with_conn_mut(&_guard, sql::encrypt_legacy_rows) {
             // 0 条 = 库里没有明文行（全新库 / 已迁过的库），不记日志
             Ok(0) => {}
             Ok(count) => {
-                logging::log(
-                    "[Accounts]",
-                    &format!("🔒 已加密 {count} 个历史账号的凭证"),
-                );
+                logging::log("[Accounts]", &format!("🔒 已加密 {count} 个历史账号的凭证"));
             }
             Err(error) => {
                 // 这条日志必须在 `with_conn_mut` **之外**打：记日志本身要写库
@@ -955,8 +981,12 @@ impl AccountStore {
         for record in state.accounts.iter_mut() {
             // 只处理插件落库形态（有 pluginSecret 或 pluginPublic）：内置记录
             // 的顶层字段本来就是权威，不该被子对象覆盖。
-            let has_plugin_side = record.get("pluginSecret").is_some_and(|value| !value.is_null())
-                || record.get("pluginPublic").is_some_and(|value| !value.is_null());
+            let has_plugin_side = record
+                .get("pluginSecret")
+                .is_some_and(|value| !value.is_null())
+                || record
+                    .get("pluginPublic")
+                    .is_some_and(|value| !value.is_null());
             if !has_plugin_side {
                 continue;
             }
@@ -1128,7 +1158,9 @@ impl AccountStore {
                 .iter()
                 .find(|(id, _)| *id == provider)
                 .map(|(_, rank)| *rank)
-                .unwrap_or_else(|| (provider_index(&provider).unwrap_or(usize::MAX / 2) as u32 + 1) * 10)
+                .unwrap_or_else(|| {
+                    (provider_index(&provider).unwrap_or(usize::MAX / 2) as u32 + 1) * 10
+                })
         };
         let mut sorted = state.accounts.clone();
         if legacy_order {
@@ -1144,7 +1176,10 @@ impl AccountStore {
         // 只回写「确实改变」的账号：原本就没有 priority 字段的账号迁移后依然没有
         // （生效值仍是默认 100），不会凭空多出一批字段
         for assignment in &assignments {
-            if let Some(record) = sorted.iter_mut().find(|record| record.id() == assignment.id) {
+            if let Some(record) = sorted
+                .iter_mut()
+                .find(|record| record.id() == assignment.id)
+            {
                 record.set_priority(assignment.to);
             }
         }
@@ -1171,7 +1206,7 @@ impl AccountStore {
             // 库不可用时不该顺势去写（`add_account` 会返回 500），而「跳过」与
             // 旧实现「读不到文件就当空、于是尝试导入」的差别只在库坏掉时出现 ——
             // 那时整条账号链路都不可用，由别处的 ❌ 日志说明。
-            match self.with_conn(&_guard, |conn| sql::count_all(conn)) {
+            match self.with_conn(&_guard, sql::count_all) {
                 Ok(count) if count == 0 => {}
                 Ok(_) => return None,
                 Err(error) => {
@@ -1233,9 +1268,7 @@ fn rewrite_models_arrays(value: &mut Value, mapping: &HashMap<String, String>) -
                     if let Some(items) = child.as_array_mut() {
                         for item in items.iter_mut() {
                             if let Some(text) = item.as_str() {
-                                if let Some(base) =
-                                    mapping.get(&text.trim().to_ascii_lowercase())
-                                {
+                                if let Some(base) = mapping.get(&text.trim().to_ascii_lowercase()) {
                                     *item = Value::String(base.clone());
                                     changed = true;
                                 }

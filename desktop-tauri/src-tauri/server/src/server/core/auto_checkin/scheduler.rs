@@ -90,7 +90,7 @@ impl AutoCheckin {
             match checkin::run_checkin_selected(
                 &self.store,
                 &self.billing,
-                &[provider.clone()],
+                std::slice::from_ref(&provider),
                 None,
                 &reason,
                 source,

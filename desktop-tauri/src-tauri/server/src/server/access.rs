@@ -157,44 +157,45 @@ fn env_admin() -> Option<&'static (String, String)> {
     // OnceLock<Option<(String, String)>>：首次调用时读入，此后返回静态引用。
     // 密码有两个变量：HASH（已是 bcrypt 哈希）优先；PASSWORD（明文）则
     // 现场 bcrypt::hash 一次 —— 内存与落库从此都只有哈希形态。
-    ENV_ADMIN.get_or_init(|| {
-        let user = std::env::var("AGENT2API_ADMIN_USER")
-            .ok()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty());
-        let from_hash = std::env::var("AGENT2API_ADMIN_PASSWORD_HASH")
-            .ok()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            // 兼容 `htpasswd -nBC` 的整行输出（"user:$2y$…"）：冒号后面是
-            // bcrypt 哈希就只取哈希 —— 部署者把生成命令的输出整行粘进来
-            // 就能用，不必手工剥前缀
-            .map(|value| match value.split_once(':') {
-                Some((_, hash)) if hash.starts_with("$2") => hash.to_string(),
-                _ => value,
-            });
-        let hash = match from_hash {
-            Some(hash) => Some(hash),
-            None => std::env::var("AGENT2API_ADMIN_PASSWORD")
+    ENV_ADMIN
+        .get_or_init(|| {
+            let user = std::env::var("AGENT2API_ADMIN_USER")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
+            let from_hash = std::env::var("AGENT2API_ADMIN_PASSWORD_HASH")
                 .ok()
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty())
-                .and_then(|plain| match bcrypt::hash(plain, 10) {
-                    Ok(hash) => Some(hash),
-                    // bcrypt 拒绝的密码（如超过 72 字节）：报出来，别静默
-                    // 失效让部署者以为账号已预置成功
-                    Err(error) => {
-                        eprintln!("❌ AGENT2API_ADMIN_PASSWORD 无法转成哈希: {error}");
-                        None
-                    }
-                }),
-        };
-        match (user, hash) {
-            (Some(user), Some(hash)) => Some((user, hash)),
-            _ => None,
-        }
-    })
-    .as_ref()
+                // 兼容 `htpasswd -nBC` 的整行输出（"user:$2y$…"）：冒号后面是
+                // bcrypt 哈希就只取哈希 —— 部署者把生成命令的输出整行粘进来
+                // 就能用，不必手工剥前缀
+                .map(|value| match value.split_once(':') {
+                    Some((_, hash)) if hash.starts_with("$2") => hash.to_string(),
+                    _ => value,
+                });
+            let hash = match from_hash {
+                Some(hash) => Some(hash),
+                None => std::env::var("AGENT2API_ADMIN_PASSWORD")
+                    .ok()
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty())
+                    .and_then(|plain| match bcrypt::hash(plain, 10) {
+                        Ok(hash) => Some(hash),
+                        // bcrypt 拒绝的密码（如超过 72 字节）：报出来，别静默
+                        // 失效让部署者以为账号已预置成功
+                        Err(error) => {
+                            eprintln!("❌ AGENT2API_ADMIN_PASSWORD 无法转成哈希: {error}");
+                            None
+                        }
+                    }),
+            };
+            match (user, hash) {
+                (Some(user), Some(hash)) => Some((user, hash)),
+                _ => None,
+            }
+        })
+        .as_ref()
 }
 
 /// 库里的注册记录（`kv` 的 `panelAdmin`：{username, hash}）。
@@ -320,9 +321,11 @@ fn revoke_other_sessions(headers: &HeaderMap) {
             Ok(table) => table,
             Err(poisoned) => poisoned.into_inner(),
         };
-        access_candidates(headers)
-            .iter()
-            .find_map(|token| table.get(&sha256_hex(token)).map(|(session, _)| session.clone()))
+        access_candidates(headers).iter().find_map(|token| {
+            table
+                .get(&sha256_hex(token))
+                .map(|(session, _)| session.clone())
+        })
     };
 
     {
@@ -387,7 +390,8 @@ pub fn sync_env_admin_to_store() {
 }
 
 /// 校验账号密码。bcrypt 哈希兼容 `htpasswd -nBC` 的输出格式。
-fn verify_credentials(username: &str, password: &str, expected: &(String, String)) -> bool {    let user_ok = constant_time_eq(username.as_bytes(), expected.0.as_bytes());
+fn verify_credentials(username: &str, password: &str, expected: &(String, String)) -> bool {
+    let user_ok = constant_time_eq(username.as_bytes(), expected.0.as_bytes());
     let pass_ok = bcrypt::verify(password, &expected.1).unwrap_or(false);
     // 两个都算完再返回，避免「用户名对不对」的时序差异
     user_ok && pass_ok
@@ -512,8 +516,12 @@ pub fn clear_access_tokens() {
 
 /// 启动时把库里的 access 会话载入内存（与 `load_refresh_tokens` 同时调用）。
 pub fn load_access_tokens() {
-    let Some(loaded) = kv_get(KV_ACCESS_KEY) else { return };
-    let Ok(records) = serde_json::from_str::<Vec<AccessRecord>>(&loaded) else { return };
+    let Some(loaded) = kv_get(KV_ACCESS_KEY) else {
+        return;
+    };
+    let Ok(records) = serde_json::from_str::<Vec<AccessRecord>>(&loaded) else {
+        return;
+    };
     let table = access_table_from(records, now_ms());
     match access_tokens().lock() {
         Ok(mut current) => *current = table,
@@ -664,7 +672,11 @@ fn split_session_cookie(value: &str) -> (Option<&str>, Option<&str>) {
             (Some(access), Some(refresh))
         };
     }
-    if value.is_empty() { (None, None) } else { (Some(value), None) }
+    if value.is_empty() {
+        (None, None)
+    } else {
+        (Some(value), None)
+    }
 }
 
 impl IssuedSession {
@@ -1034,14 +1046,12 @@ pub fn revoke_session(headers: &HeaderMap) {
             Ok(table) => table,
             Err(poisoned) => poisoned.into_inner(),
         };
-        target_session = hashes
-            .iter()
-            .find_map(|hash| {
-                table
-                    .iter()
-                    .find(|record| &record.hash == hash)
-                    .map(|record| record.session.clone())
-            });
+        target_session = hashes.iter().find_map(|hash| {
+            table
+                .iter()
+                .find(|record| &record.hash == hash)
+                .map(|record| record.session.clone())
+        });
         if let Some(session) = &target_session {
             table.retain(|record| record.session != *session);
             persist_refresh_tokens(&mut table);
@@ -1082,7 +1092,10 @@ fn revoke_access_of_session(session: &str) {
 /// 同名两条是**实测会出现**的形态，不是理论：中转拼头、或同一主机不同端口/路径
 /// 各存了一份（cookie 按主机算不分端口，fnOS :5666 中转与 :3065 直连共用一份罐）。
 pub fn cookie_values(headers: &HeaderMap, name: &str) -> Vec<String> {
-    let Some(header) = headers.get(axum::http::header::COOKIE).and_then(|v| v.to_str().ok()) else {
+    let Some(header) = headers
+        .get(axum::http::header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+    else {
         return Vec::new();
     };
     cookie_values_from_str(header, name)
@@ -1097,7 +1110,10 @@ pub fn cookie_values(headers: &HeaderMap, name: &str) -> Vec<String> {
 /// （没送到 / 送到但不是这把 / 两条都在却各自过期），值本身是凭据，进日志等于把
 /// 令牌抄到磁盘上，所以这里刻意只出名字。
 pub fn cookie_names(headers: &HeaderMap) -> Vec<String> {
-    let Some(header) = headers.get(axum::http::header::COOKIE).and_then(|v| v.to_str().ok()) else {
+    let Some(header) = headers
+        .get(axum::http::header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+    else {
         return Vec::new();
     };
     let mut names: Vec<String> = header
@@ -1171,9 +1187,10 @@ pub fn record_login_failure(source: IpAddr) {
         Ok(table) => table,
         Err(poisoned) => poisoned.into_inner(),
     };
-    let attempt = table
-        .entry(source)
-        .or_insert(Attempt { failures: 0, locked_until: None });
+    let attempt = table.entry(source).or_insert(Attempt {
+        failures: 0,
+        locked_until: None,
+    });
     attempt.failures += 1;
     if attempt.failures >= LOCKOUT_THRESHOLD {
         attempt.locked_until = Some(Instant::now() + LOCKOUT_DURATION);
@@ -1275,7 +1292,10 @@ mod credential_candidate_tests {
     fn candidates_are_cookie_values_first_then_headers_and_deduplicated() {
         let headers = request(
             "agent2api-panel=acc-a.rt-a; x=1; agent2api-panel=acc-b.rt-b",
-            &[("x-panel-refresh", "from-header"), ("authorization", "Bearer from-bearer")],
+            &[
+                ("x-panel-refresh", "from-header"),
+                ("authorization", "Bearer from-bearer"),
+            ],
         );
         assert_eq!(
             vec![
@@ -1298,10 +1318,20 @@ mod credential_candidate_tests {
         let blanks = request("agent2api-panel=;", &[("x-panel-refresh", "   ")]);
         assert!(refresh_candidates(&blanks).is_empty());
         // 半个配对也是碎片（中转把响应拼歪之后就是这种形状）：两侧都不进候选
-        for broken in ["agent2api-panel=.", "agent2api-panel=acc.", "agent2api-panel=.rt"] {
+        for broken in [
+            "agent2api-panel=.",
+            "agent2api-panel=acc.",
+            "agent2api-panel=.rt",
+        ] {
             let headers = request(broken, &[]);
-            assert!(access_candidates(&headers).is_empty(), "{broken} 不该贡献 access 候选");
-            assert!(refresh_candidates(&headers).is_empty(), "{broken} 不该贡献 refresh 候选");
+            assert!(
+                access_candidates(&headers).is_empty(),
+                "{broken} 不该贡献 access 候选"
+            );
+            assert!(
+                refresh_candidates(&headers).is_empty(),
+                "{broken} 不该贡献 refresh 候选"
+            );
         }
     }
 
@@ -1314,7 +1344,10 @@ mod credential_candidate_tests {
     fn access_candidates_follow_the_same_order() {
         let headers = request(
             "agent2api-panel=cookie-one; agent2api-panel=cookie-two",
-            &[("x-panel-token", "header-one"), ("authorization", "Bearer bearer-one")],
+            &[
+                ("x-panel-token", "header-one"),
+                ("authorization", "Bearer bearer-one"),
+            ],
         );
         assert_eq!(
             vec![
@@ -1333,10 +1366,27 @@ mod credential_candidate_tests {
         let session = IssuedSession::new_session();
         let text = session_cookie(&session);
         // 与签发侧同源：会话 cookie 的文本必须就是 `issue_cookie` 造出来的那条
-        assert_eq!(text, session.session_cookie.split(';').next().unwrap().to_string());
-        assert_eq!(vec![session.access_token.clone()], access_candidates(&request(&text, &[])));
-        assert_eq!(vec![session.refresh_token.clone()], refresh_candidates(&request(&text, &[])));
-        assert!(session_valid(&request(&text, &[])), "一枚 cookie 就该把会话撑起来");
+        assert_eq!(
+            text,
+            session
+                .session_cookie
+                .split(';')
+                .next()
+                .unwrap()
+                .to_string()
+        );
+        assert_eq!(
+            vec![session.access_token.clone()],
+            access_candidates(&request(&text, &[]))
+        );
+        assert_eq!(
+            vec![session.refresh_token.clone()],
+            refresh_candidates(&request(&text, &[]))
+        );
+        assert!(
+            session_valid(&request(&text, &[])),
+            "一枚 cookie 就该把会话撑起来"
+        );
     }
 
     /// 升级过渡：罐里还留着上一版那枚独立 refresh cookie（`agent2api-panel-rt`）时，
@@ -1414,20 +1464,29 @@ mod credential_candidate_tests {
         let stale = random_hex(32);
 
         let stale_first = request(
-            &format!("{ACCESS_COOKIE}={stale}; {ACCESS_COOKIE}={}", session.access_token),
+            &format!(
+                "{ACCESS_COOKIE}={stale}; {ACCESS_COOKIE}={}",
+                session.access_token
+            ),
             &[],
         );
         assert!(session_valid(&stale_first), "第二把同名 cookie 也必须试到");
 
         let live_first = request(
-            &format!("{ACCESS_COOKIE}={}; {ACCESS_COOKIE}={stale}", session.access_token),
+            &format!(
+                "{ACCESS_COOKIE}={}; {ACCESS_COOKIE}={stale}",
+                session.access_token
+            ),
             &[],
         );
         assert!(session_valid(&live_first));
 
         // 两把都是陈的 → 无效（同上，给上一条做对照）
         let both_stale = request(
-            &format!("{ACCESS_COOKIE}={stale}; {ACCESS_COOKIE}={}", random_hex(32)),
+            &format!(
+                "{ACCESS_COOKIE}={stale}; {ACCESS_COOKIE}={}",
+                random_hex(32)
+            ),
             &[],
         );
         assert!(!session_valid(&both_stale));
@@ -1590,15 +1649,19 @@ mod session_lifecycle_tests {
         let issued = IssuedSession::new_session();
         let table = access_tokens().lock().unwrap().clone();
         let dumped = serde_json::to_string(&access_records(&table, now_ms())).unwrap();
-        let reloaded =
-            access_table_from(serde_json::from_str::<Vec<AccessRecord>>(&dumped).unwrap(), now_ms());
+        let reloaded = access_table_from(
+            serde_json::from_str::<Vec<AccessRecord>>(&dumped).unwrap(),
+            now_ms(),
+        );
         assert!(
             reloaded.contains_key(&sha256_hex(&issued.access_token)),
             "载回的表必须按 sha256 认得这把令牌"
         );
         // 内存表换载回的那份后，判定照旧为真（这里不写全局表，避免与并发用例互踩）
         let hash = sha256_hex(&issued.access_token);
-        assert!(reloaded.get(&hash).is_some_and(|(_, expiry)| *expiry > now_ms()));
+        assert!(reloaded
+            .get(&hash)
+            .is_some_and(|(_, expiry)| *expiry > now_ms()));
         assert!(session_valid(&cookie_header(&cookie_value(&issued))));
     }
 
@@ -1610,7 +1673,10 @@ mod session_lifecycle_tests {
             session: "s".to_string(),
             expires_at: now_ms() - 1,
         }];
-        assert!(access_table_from(expired, now_ms()).is_empty(), "过期条目不该被载入");
+        assert!(
+            access_table_from(expired, now_ms()).is_empty(),
+            "过期条目不该被载入"
+        );
     }
 
     /// 落库的只有哈希：整库导出/备份走同一张 kv 表，裸令牌进去等于把可用凭据
@@ -1641,7 +1707,10 @@ mod session_lifecycle_tests {
     fn one_cookie_carries_the_whole_session_and_clearing_targets_it() {
         let issued = IssuedSession::new_session();
         // 一条：名字只有一个，属性段不再夹第二个 cookie
-        let (pair, attributes) = issued.session_cookie.split_once("; ").expect("至少带 Path 属性");
+        let (pair, attributes) = issued
+            .session_cookie
+            .split_once("; ")
+            .expect("至少带 Path 属性");
         assert!(
             pair.contains('.'),
             "会话 cookie 必须是 access.refresh 两段的形状，实得 {pair}"

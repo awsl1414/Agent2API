@@ -78,7 +78,10 @@ pub fn remember_call(session: &str, call_id: &str, signature: &str) {
     if session.is_empty() || call_id.is_empty() || signature.is_empty() {
         return;
     }
-    insert(format!("{CALL_PREFIX}{session}|{call_id}"), signature.to_string());
+    insert(
+        format!("{CALL_PREFIX}{session}|{call_id}"),
+        signature.to_string(),
+    );
 }
 
 /// 记一个「会话 + 函数名 → 签名」（响应侧兜底档；会话键拿不到时不记，
@@ -87,7 +90,10 @@ pub fn remember_for_session(session: &str, name: &str, signature: &str) {
     if session.is_empty() || name.is_empty() || signature.is_empty() {
         return;
     }
-    insert(format!("{SESSION_PREFIX}{session}|{name}"), signature.to_string());
+    insert(
+        format!("{SESSION_PREFIX}{session}|{name}"),
+        signature.to_string(),
+    );
 }
 
 /// 按会话与 call id 取回签名（请求侧回填的主键档）。

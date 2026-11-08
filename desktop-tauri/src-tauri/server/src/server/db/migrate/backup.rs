@@ -65,7 +65,11 @@ pub(super) fn backup_legacy_file(path: &Path) -> Option<PathBuf> {
         Err(error) => {
             logging::console_line(
                 "[Storage]",
-                &format!("⚠️  旧文件改名失败（数据保留在原处）: {} → {} ({error})", path.display(), target.display()),
+                &format!(
+                    "⚠️  旧文件改名失败（数据保留在原处）: {} → {} ({error})",
+                    path.display(),
+                    target.display()
+                ),
             );
             None
         }

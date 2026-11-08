@@ -885,12 +885,15 @@ pub struct QueueSettings {
 impl QueueSettings {
     /// 等待次数预算（负值按 0：读侧已保证范围，这里是防御性的）
     pub fn wait_budget(&self) -> usize {
-        self.max_waits.clamp(QUEUE_MIN_MAX_WAITS, QUEUE_MAX_MAX_WAITS) as usize
+        self.max_waits
+            .clamp(QUEUE_MIN_MAX_WAITS, QUEUE_MAX_MAX_WAITS) as usize
     }
 
     /// 强制单次等待时长（毫秒）；`None` = 跟随上游建议
     pub fn forced_wait_ms(&self) -> Option<u64> {
-        let seconds = self.wait_seconds.clamp(QUEUE_MIN_WAIT_SECONDS, QUEUE_MAX_WAIT_SECONDS);
+        let seconds = self
+            .wait_seconds
+            .clamp(QUEUE_MIN_WAIT_SECONDS, QUEUE_MAX_WAIT_SECONDS);
         if seconds > 0 {
             Some(seconds as u64 * 1000)
         } else {

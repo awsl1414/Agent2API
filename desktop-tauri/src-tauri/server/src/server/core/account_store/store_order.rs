@@ -20,8 +20,8 @@ use std::collections::HashSet;
 use serde_json::{json, Value};
 
 use crate::server::core::account_store::sql;
-use crate::server::core::account_store::store_view::{account_visible, Visibility};
 use crate::server::core::account_store::store::{AccountStore, AccountStoreError};
+use crate::server::core::account_store::store_view::{account_visible, Visibility};
 
 impl AccountStore {
     /// 按给定顺序重排整条全局队列：`ids` 是新队列（从队首到队尾）。
@@ -37,9 +37,12 @@ impl AccountStore {
         let state = self.load(&guard);
 
         let known: HashSet<&str> = state.accounts.iter().map(|record| record.id()).collect();
-        let visible: HashSet<&str> = state.accounts.iter()
+        let visible: HashSet<&str> = state
+            .accounts
+            .iter()
             .filter(|record| account_visible(&record.provider()))
-            .map(|record| record.id()).collect();
+            .map(|record| record.id())
+            .collect();
         let mut seen: HashSet<&str> = HashSet::with_capacity(ids.len());
         for id in ids {
             let id = id.as_str();
@@ -60,17 +63,25 @@ impl AccountStore {
             let mut records: Vec<_> = state.accounts.iter().collect();
             records.sort_by_key(|record| record.order_key());
             let mut replacements = ids.iter();
-            records.into_iter().map(|record| {
-                if visible.contains(record.id()) {
-                    replacements.next().cloned().unwrap_or_else(|| record.id().to_string())
-                } else {
-                    record.id().to_string()
-                }
-            }).collect()
+            records
+                .into_iter()
+                .map(|record| {
+                    if visible.contains(record.id()) {
+                        replacements
+                            .next()
+                            .cloned()
+                            .unwrap_or_else(|| record.id().to_string())
+                    } else {
+                        record.id().to_string()
+                    }
+                })
+                .collect()
         } else {
             return Err(AccountStoreError::bad_request(format!(
                 "队列不完整：可见账号 {} 个，全部账号 {} 个，队列里只有 {} 个",
-                visible.len(), known.len(), seen.len()
+                visible.len(),
+                known.len(),
+                seen.len()
             )));
         };
 

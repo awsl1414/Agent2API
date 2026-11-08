@@ -89,13 +89,18 @@ pub async fn put_metadata(State(_state): State<ServerState>, body: Bytes) -> Res
 /// （未到间隔 / 已在设置里关闭），不是需要调用方解析错误体的异常。
 pub async fn refresh_metadata(State(_state): State<ServerState>) -> Response {
     let row = model_meta::refresh(true, MANUAL_INTERVAL_MINUTES * 60_000).await;
-    let status = row.get("status").and_then(serde_json::Value::as_str).unwrap_or("");
+    let status = row
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
     if status == "failed" {
         logging::log(
             "[Models]",
             &format!(
                 "models.dev 元数据刷新失败：{}",
-                row.get("message").and_then(serde_json::Value::as_str).unwrap_or("未知原因")
+                row.get("message")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("未知原因")
             ),
         );
     }

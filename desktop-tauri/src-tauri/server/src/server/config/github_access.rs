@@ -26,19 +26,27 @@ pub struct GithubMirror {
 
 impl Default for GithubMirror {
     fn default() -> Self {
-        Self { url: String::new(), enabled: true, supports_api: true }
+        Self {
+            url: String::new(),
+            enabled: true,
+            supports_api: true,
+        }
     }
 }
 
 fn default_mirrors() -> Vec<GithubMirror> {
-    [DEFAULT_GITHUB_MIRROR, "https://cdn.gh-proxy.org/", "https://ghproxy.net/"]
-        .into_iter()
-        .map(|url| GithubMirror {
-            url: url.to_string(),
-            supports_api: url != "https://ghproxy.net/",
-            ..GithubMirror::default()
-        })
-        .collect()
+    [
+        DEFAULT_GITHUB_MIRROR,
+        "https://cdn.gh-proxy.org/",
+        "https://ghproxy.net/",
+    ]
+    .into_iter()
+    .map(|url| GithubMirror {
+        url: url.to_string(),
+        supports_api: url != "https://ghproxy.net/",
+        ..GithubMirror::default()
+    })
+    .collect()
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -104,37 +112,55 @@ fn normalize_mirrors(mirrors: Vec<GithubMirror>) -> Result<Vec<GithubMirror>, St
         return Err(format!("最多配置 {MAX_MIRRORS} 个 GitHub 加速源"));
     }
     let mut urls = std::collections::HashSet::new();
-    mirrors.into_iter().map(|mut mirror| {
-        if mirror.url.trim().is_empty() {
-            return Err("GitHub 加速源地址不能为空".to_string());
-        }
-        mirror.url = normalize_mirror(&mirror.url)?;
-        if !urls.insert(mirror.url.clone()) {
-            return Err("GitHub 加速源地址不能重复".to_string());
-        }
-        if url::Url::parse(&mirror.url).is_ok_and(|url| {
-            matches!(url.host_str(), Some("ghproxy.net" | "ghfast.top"))
-        }) {
-            mirror.supports_api = false;
-        }
-        Ok(mirror)
-    }).collect()
+    mirrors
+        .into_iter()
+        .map(|mut mirror| {
+            if mirror.url.trim().is_empty() {
+                return Err("GitHub 加速源地址不能为空".to_string());
+            }
+            mirror.url = normalize_mirror(&mirror.url)?;
+            if !urls.insert(mirror.url.clone()) {
+                return Err("GitHub 加速源地址不能重复".to_string());
+            }
+            if url::Url::parse(&mirror.url)
+                .is_ok_and(|url| matches!(url.host_str(), Some("ghproxy.net" | "ghfast.top")))
+            {
+                mirror.supports_api = false;
+            }
+            Ok(mirror)
+        })
+        .collect()
 }
 
 pub fn github_access() -> GithubAccessSettings {
     let raw = with_raw(|raw| raw.get(KEY_GITHUB_ACCESS).cloned()).flatten();
-    let mode = raw.as_ref().and_then(|value| value.get("mode")).cloned()
-        .and_then(|value| serde_json::from_value(value).ok()).unwrap_or_default();
-    let mirror_url = raw.as_ref().and_then(|value| value.get("mirrorUrl")).and_then(Value::as_str)
-        .and_then(|value| normalize_mirror(value).ok()).unwrap_or_else(|| DEFAULT_GITHUB_MIRROR.to_string());
+    let mode = raw
+        .as_ref()
+        .and_then(|value| value.get("mode"))
+        .cloned()
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_default();
+    let mirror_url = raw
+        .as_ref()
+        .and_then(|value| value.get("mirrorUrl"))
+        .and_then(Value::as_str)
+        .and_then(|value| normalize_mirror(value).ok())
+        .unwrap_or_else(|| DEFAULT_GITHUB_MIRROR.to_string());
     let mirrors = match raw.as_ref().and_then(|value| value.get("mirrors")) {
-        Some(value) => serde_json::from_value::<Vec<GithubMirror>>(value.clone()).unwrap_or_default(),
+        Some(value) => {
+            serde_json::from_value::<Vec<GithubMirror>>(value.clone()).unwrap_or_default()
+        }
         None if mirror_url != DEFAULT_GITHUB_MIRROR => vec![GithubMirror {
-            url: mirror_url.clone(), ..GithubMirror::default()
+            url: mirror_url.clone(),
+            ..GithubMirror::default()
         }],
         None => default_mirrors(),
     };
-    GithubAccessSettings { mode, mirror_url, mirrors: normalize_mirrors(mirrors).unwrap_or_default() }
+    GithubAccessSettings {
+        mode,
+        mirror_url,
+        mirrors: normalize_mirrors(mirrors).unwrap_or_default(),
+    }
 }
 
 pub fn set_github_access(
@@ -153,17 +179,32 @@ pub fn set_github_access(
         if let Some(mirror) = patch.mirror_url {
             next.mirror_url = normalize_mirror(&mirror)?;
         }
-        if !next.mirrors.iter().any(|mirror| mirror.url == next.mirror_url && mirror.enabled) {
-            next.mirror_url = next.mirrors.iter().find(|mirror| mirror.enabled)
-                .map(|mirror| mirror.url.clone()).unwrap_or_else(|| DEFAULT_GITHUB_MIRROR.to_string());
+        if !next
+            .mirrors
+            .iter()
+            .any(|mirror| mirror.url == next.mirror_url && mirror.enabled)
+        {
+            next.mirror_url = next
+                .mirrors
+                .iter()
+                .find(|mirror| mirror.enabled)
+                .map(|mirror| mirror.url.clone())
+                .unwrap_or_else(|| DEFAULT_GITHUB_MIRROR.to_string());
         }
     } else if let Some(mirror) = patch.mirror_url {
         let url = normalize_mirror(&mirror)?;
         if let Some(existing) = next.mirrors.iter_mut().find(|mirror| mirror.url == url) {
             existing.enabled = true;
         } else {
-            let mirror = GithubMirror { url: url.clone(), ..GithubMirror::default() };
-            if let Some(existing) = next.mirrors.iter_mut().find(|mirror| mirror.url == next.mirror_url) {
+            let mirror = GithubMirror {
+                url: url.clone(),
+                ..GithubMirror::default()
+            };
+            if let Some(existing) = next
+                .mirrors
+                .iter_mut()
+                .find(|mirror| mirror.url == next.mirror_url)
+            {
                 *existing = mirror;
             } else {
                 next.mirrors.push(mirror);

@@ -78,10 +78,12 @@ use crate::server::core::account_store::AccountStore;
 use crate::server::core::custom_providers;
 use crate::server::core::model_rules;
 use crate::server::core::protocol::{anthropic_outbound, responses_outbound};
-use crate::server::core::proxies::ResolvedProxy;
 use crate::server::core::providers::custom::emulation;
+use crate::server::core::proxies::ResolvedProxy;
 use crate::server::core::upstream::connections::ConnectionGuard;
-use crate::server::core::upstream::request::{read_upstream_error, send_chat_request, TransportRequest};
+use crate::server::core::upstream::request::{
+    read_upstream_error, send_chat_request, TransportRequest,
+};
 // `FramePolicy::with_rewrite(...)`：自定义家只带 model 回写，保活换行的丢弃
 // 保持关闭 —— 那一项的依据是 WorkBuddy / AutoClaw 两条上游的实测，不能替
 // 用户自配的上游猜。
@@ -135,7 +137,8 @@ pub(crate) async fn forward(
                 400,
                 format!(
                     "自定义提供商「{}」的协议 {other} 无法识别，请检查提供商配置",
-                    custom_providers::label_of(provider_id).unwrap_or_else(|| provider_id.to_string()),
+                    custom_providers::label_of(provider_id)
+                        .unwrap_or_else(|| provider_id.to_string()),
                 ),
             ));
         }
@@ -152,7 +155,9 @@ pub(crate) async fn forward(
     let credential_id = account_id.to_string();
     let credential = crate::server::core::blocking::run(move || {
         credential_store.custom_credential_by_id(&credential_id)
-    }).await?.ok_or_else(|| {
+    })
+    .await?
+    .ok_or_else(|| {
         GatewayError::with_status(503, format!("自定义账号不存在或已被删除: {account_id}"))
     })?;
     // baseUrl：账号覆盖项优先（缺省回落到提供商的配置）。两层都拦过空值，
@@ -257,10 +262,7 @@ pub(crate) async fn forward(
     let api_key = credential.api_key.trim();
     let mut headers = vec![("Content-Type".to_string(), "application/json".to_string())];
     if !api_key.is_empty() {
-        headers.push((
-            "Authorization".to_string(),
-            format!("Bearer {api_key}"),
-        ));
+        headers.push(("Authorization".to_string(), format!("Bearer {api_key}")));
     }
     quirks.apply_emulation_headers(&mut headers, api_key, &outbound, &base_url);
     quirks.apply_to(&mut headers);
@@ -269,9 +271,17 @@ pub(crate) async fn forward(
         "[CustomProvider]",
         &format!(
             "POST {url} model={} stream={stream} account={account_id} 出口={}{}",
-            if requested.is_empty() { "(默认)" } else { &requested },
+            if requested.is_empty() {
+                "(默认)"
+            } else {
+                &requested
+            },
             describe_proxy(proxy.as_ref()),
-            if quirks.emulate_opencode { " 伪装=opencode" } else { "" },
+            if quirks.emulate_opencode {
+                " 伪装=opencode"
+            } else {
+                ""
+            },
         ),
     );
     let transport = TransportRequest {
@@ -398,9 +408,7 @@ impl ProviderQuirks {
             tool_type_custom: provider
                 .get("anthropicToolType")
                 .and_then(Value::as_str)
-                .is_some_and(|text| {
-                    text.eq_ignore_ascii_case(custom_providers::TOOL_TYPE_CUSTOM)
-                }),
+                .is_some_and(|text| text.eq_ignore_ascii_case(custom_providers::TOOL_TYPE_CUSTOM)),
             emulate_opencode: provider
                 .get("clientEmulation")
                 .and_then(Value::as_str)
@@ -415,7 +423,10 @@ impl ProviderQuirks {
     /// 鉴权方式 —— 那是记录持有者的选择，这里只负责如实执行。
     fn apply_to(&self, headers: &mut Vec<(String, String)>) {
         for (key, value) in &self.headers {
-            match headers.iter_mut().find(|(name, _)| name.eq_ignore_ascii_case(key)) {
+            match headers
+                .iter_mut()
+                .find(|(name, _)| name.eq_ignore_ascii_case(key))
+            {
                 Some(slot) => slot.1 = value.clone(),
                 None => headers.push((key.clone(), value.clone())),
             }
@@ -500,8 +511,13 @@ async fn forward_translated(
         .unwrap_or("")
         .trim()
         .to_string();
-    let (mut outbound_chat, rewrite) =
-        rewrite_for_route(body, provider_id, &requested, route_model, matches!(kind, OutboundKind::Anthropic));
+    let (mut outbound_chat, rewrite) = rewrite_for_route(
+        body,
+        provider_id,
+        &requested,
+        route_model,
+        matches!(kind, OutboundKind::Anthropic),
+    );
     // 客户端形态伪装：与 chat 分支同一时机（改写后、翻译前）—— 桩工具要由
     // 转换器一起翻成上游协议的形态（anthropic 的 tools 数组）；Go 面不改请求体
     quirks.apply_emulation_to_body(&mut outbound_chat, base_url);
@@ -523,11 +539,9 @@ async fn forward_translated(
                 base_url.trim_end_matches('/'),
                 quirks.url_suffix
             );
-            let mut payload = responses_outbound::responses_request_from_chat(
-                &outbound_chat,
-                &wire_model,
-            )
-            .map_err(|message| GatewayError::with_status(400, message))?;
+            let mut payload =
+                responses_outbound::responses_request_from_chat(&outbound_chat, &wire_model)
+                    .map_err(|message| GatewayError::with_status(400, message))?;
             // 上游恒以 stream:true 被请求（与 chat 协议同一条策略：流式才是
             // 完整能力，非流式下游由聚合路径收流）—— 转换器输出的 stream 只是
             // chat 体的如实搬运，这里统一覆写，不依赖编排层的注入约定
@@ -553,11 +567,9 @@ async fn forward_translated(
             } else {
                 format!("{base}/v1/messages{}", quirks.url_suffix)
             };
-            let mut payload = anthropic_outbound::anthropic_request_from_chat(
-                &outbound_chat,
-                &wire_model,
-            )
-            .map_err(|message| GatewayError::with_status(400, message))?;
+            let mut payload =
+                anthropic_outbound::anthropic_request_from_chat(&outbound_chat, &wire_model)
+                    .map_err(|message| GatewayError::with_status(400, message))?;
             if let Some(object) = payload.as_object_mut() {
                 object.insert("stream".to_string(), Value::Bool(true));
             }
@@ -568,10 +580,7 @@ async fn forward_translated(
                 if let Some(tools) = payload.get_mut("tools").and_then(Value::as_array_mut) {
                     for tool in tools.iter_mut() {
                         if let Some(object) = tool.as_object_mut() {
-                            object.insert(
-                                "type".to_string(),
-                                Value::String("custom".to_string()),
-                            );
+                            object.insert("type".to_string(), Value::String("custom".to_string()));
                         }
                     }
                 }
@@ -599,7 +608,11 @@ async fn forward_translated(
         &format!(
             "POST {url} protocol={} model={} stream={stream} account={account_id} 出口={}",
             kind.label(),
-            if wire_model.is_empty() { "(默认)" } else { &wire_model },
+            if wire_model.is_empty() {
+                "(默认)"
+            } else {
+                &wire_model
+            },
             describe_proxy(proxy.as_ref()),
         ),
     );
@@ -640,8 +653,12 @@ async fn forward_translated(
     // 上游字节流先过协议翻译（→ 标准 chat SSE），再交给既有消费层：
     // 流式进 ForwardStream（reasoning 合并 / usage 提取 / model 回写），
     // 非流式进聚合器 —— 槽位与连接计数的移交时序与 chat 分支逐字同构
-    let translated =
-        Box::pin(ProtocolTranslateStream::new(kind, &wire_model, response, telemetry));
+    let translated = Box::pin(ProtocolTranslateStream::new(
+        kind,
+        &wire_model,
+        response,
+        telemetry,
+    ));
     if stream {
         Ok(ForwardOutcome::Stream {
             status,
@@ -660,7 +677,9 @@ async fn forward_translated(
             FramePolicy::with_rewrite(rewrite),
         )
         .await?;
-        Ok(ForwardOutcome::Completion { body: aggregated.body })
+        Ok(ForwardOutcome::Completion {
+            body: aggregated.body,
+        })
     }
 }
 
@@ -816,7 +835,12 @@ fn rewrite_for_route(
 ) -> (Value, Option<ModelRewrite>) {
     if let Some(client_model) = route_model {
         // 组内模型已由请求快照选定，不再经同名映射改写。
-        return (body.clone(), Some(ModelRewrite { requested: client_model.to_string() }));
+        return (
+            body.clone(),
+            Some(ModelRewrite {
+                requested: client_model.to_string(),
+            }),
+        );
     }
     rewrite_body(body, provider_id, requested, anthropic_protocol)
 }
@@ -851,7 +875,9 @@ fn rewrite_body(
         // 原生 thinking/output_config（有暂存 = 客户端原话在，注入必须让位）。
         let explicit = outbound.get("reasoning_effort").is_some()
             || outbound.get("reasoning").is_some()
-            || outbound.get(crate::server::core::protocol::FIELD_THINKING_BYPASS).is_some();
+            || outbound
+                .get(crate::server::core::protocol::FIELD_THINKING_BYPASS)
+                .is_some();
         if model_rules::reasoning_is_off(level) {
             logging::verbose(
                 "[CustomProvider]",
@@ -879,14 +905,10 @@ fn rewrite_body(
             };
             logging::verbose(
                 "[CustomProvider]",
-                &format!(
-                    "provider={provider_id} 映射 {requested} 注入思考等级 {label}={level}"
-                ),
+                &format!("provider={provider_id} 映射 {requested} 注入思考等级 {label}={level}"),
             );
             if anthropic_protocol {
-                let entry = object
-                    .entry("output_config")
-                    .or_insert_with(|| json!({}));
+                let entry = object.entry("output_config").or_insert_with(|| json!({}));
                 if let Some(config) = entry.as_object_mut() {
                     config.insert("effort".to_string(), Value::String(level.to_string()));
                 }
@@ -936,10 +958,7 @@ fn classify_custom_error(status: u16, raw: &str, retry_after: Option<&str>) -> G
             }
             GatewayError::with_status(429, message)
         }
-        _ => GatewayError::with_status(
-            i32::from(status),
-            format!("上游返回 {status}: {raw}"),
-        ),
+        _ => GatewayError::with_status(i32::from(status), format!("上游返回 {status}: {raw}")),
     }
 }
 

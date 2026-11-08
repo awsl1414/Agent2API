@@ -65,7 +65,11 @@ pub async fn refresh(manual: bool, interval_ms: i64) -> Value {
         row["message"] = json!("已在设置里关闭 models.dev 模型元数据");
         return row;
     }
-    let backoff = if manual { ManualBackoff::Bypass } else { ManualBackoff::Respect };
+    let backoff = if manual {
+        ManualBackoff::Bypass
+    } else {
+        ManualBackoff::Respect
+    };
     let guard = match task_state::claim(
         &format!("modelRefresh:{SCHEDULE_SCOPE}"),
         interval_ms,
@@ -80,7 +84,11 @@ pub async fn refresh(manual: bool, interval_ms: i64) -> Value {
             // 会与「按钮其实能立刻重试」自相矛盾 —— 与各家目录刷新同一口径，
             // 见 `providers::catalog_refresh::deferred_message` 的说明。
             row["message"] = json!(if state.retry_at > logging::now_ms() || state.running() {
-                if manual { state.waiting_message_bypassing() } else { state.waiting_message() }
+                if manual {
+                    state.waiting_message_bypassing()
+                } else {
+                    state.waiting_message()
+                }
             } else {
                 "沿用缓存，尚未到刷新时间".to_string()
             });
@@ -133,7 +141,10 @@ async fn fetch_json(url: &str) -> Result<Value, String> {
     if !response.status().is_success() {
         return Err(format!("{url} 返回 HTTP {}", response.status().as_u16()));
     }
-    response.json::<Value>().await.map_err(|error| format!("{url} 响应不是合法 JSON：{error}"))
+    response
+        .json::<Value>()
+        .await
+        .map_err(|error| format!("{url} 响应不是合法 JSON：{error}"))
 }
 
 /// 两份官方 JSON → 精简索引（与 `scripts/sync-modelsdev.mjs` 逐字同口径）。
@@ -171,9 +182,11 @@ fn reduce(api: &Value, models: &Value) -> Option<Snapshot> {
     // ② provider 条目的命名档位（lab 家优先，其次 provider id 字典序）
     let mut picks: HashMap<String, (Vec<String>, bool)> = HashMap::new();
     let mut providers: Vec<(&String, &Value)> = api.as_object()?.iter().collect();
-    providers.sort_by(|(left, _), (right, _)| left.cmp(right));
+    providers.sort_by_key(|(left, _)| *left);
     for (provider_id, provider) in providers {
-        let Some(entries) = provider.get("models").and_then(Value::as_object) else { continue };
+        let Some(entries) = provider.get("models").and_then(Value::as_object) else {
+            continue;
+        };
         for entry in entries.values() {
             let canonical = entry
                 .get("canonical_model_id")
@@ -185,7 +198,9 @@ fn reduce(api: &Value, models: &Value) -> Option<Snapshot> {
             if key.is_empty() {
                 continue;
             }
-            let Some(levels) = effort_levels(entry) else { continue };
+            let Some(levels) = effort_levels(entry) else {
+                continue;
+            };
             let is_lab = canonical.split('/').next() == Some(provider_id.as_str());
             match picks.get(&key) {
                 // 实验室自述的那条优先；两条都不是 lab 时按 provider 名序取第一条
@@ -222,7 +237,10 @@ fn is_chat_model(entry: &Value) -> bool {
             return false;
         }
     }
-    match entry.pointer("/modalities/output").and_then(Value::as_array) {
+    match entry
+        .pointer("/modalities/output")
+        .and_then(Value::as_array)
+    {
         Some(output) => output.iter().any(|item| item.as_str() == Some("text")),
         None => true,
     }

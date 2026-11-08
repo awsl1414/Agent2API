@@ -37,13 +37,13 @@ mod search;
 mod skill_package;
 mod vision;
 
+pub use account_search::test_provider;
 pub use bridge::VISION_BRIDGE_SCRIPT;
 pub use install::{
     install_mcp, install_skill, mcp_targets, skill_targets, uninstall_mcp, uninstall_skill,
     InstallOutcome,
 };
 pub use mcp::{dispatch as mcp_dispatch, McpRequestContext, McpServerKind, McpSpec};
-pub use account_search::test_provider;
 pub use search::{batch_items, run_fetch, run_search, SearchError, SearchErrorCode};
 pub use skill_package::{
     build_skill_files, is_skill_variant, recommended_skill_variant, skill_variants, SkillFile,
@@ -82,7 +82,15 @@ pub const PROTOCOLS: [&str; 2] = ["skill", "mcp"];
 /// 密钥型来源同时支持搜索与抓取；账号型来源只支持搜索，默认不选中。
 pub const API_KEY_PROVIDERS: [&str; 4] = ["tavily", "querit", "firecrawl", "ollama"];
 pub const ACCOUNT_PROVIDERS: [&str; 3] = ["workbuddy", "workbuddy-intl", "kiro"];
-pub const SEARCH_PROVIDERS: [&str; 7] = ["tavily", "querit", "firecrawl", "ollama", "workbuddy", "workbuddy-intl", "kiro"];
+pub const SEARCH_PROVIDERS: [&str; 7] = [
+    "tavily",
+    "querit",
+    "firecrawl",
+    "ollama",
+    "workbuddy",
+    "workbuddy-intl",
+    "kiro",
+];
 
 /// 服务固定元数据（文案由前端按 id 映射，后端只回数据）
 pub const WEB_SEARCH_PACKAGE: &str = WEB_SEARCH_SKILL_NAME;
@@ -90,15 +98,14 @@ pub const VISION_PACKAGE: &str = VISION_SERVICE_NAME;
 pub const WEB_SEARCH_VERSION: &str = WEB_SEARCH_SKILL_VERSION;
 pub const VISION_VERSION: &str = VISION_SERVICE_VERSION;
 
-pub const CAPABILITY_COUNTS: [(&str, u32); 2] = [
-    (WEB_SEARCH_SERVICE_ID, 2),
-    (VISION_SERVICE_ID, 1),
-];
+pub const CAPABILITY_COUNTS: [(&str, u32); 2] =
+    [(WEB_SEARCH_SERVICE_ID, 2), (VISION_SERVICE_ID, 1)];
 
 /// 工具执行超时（秒）：同一服务各协议共用；服务端强制上限，装 MCP 时写进客户端
 pub const TIMEOUT_MIN_SECONDS: u64 = 5;
 pub const TIMEOUT_MAX_SECONDS: u64 = 600;
-pub const DEFAULT_TIMEOUTS: [(&str, u64); 2] = [(WEB_SEARCH_SERVICE_ID, 30), (VISION_SERVICE_ID, 60)];
+pub const DEFAULT_TIMEOUTS: [(&str, u64); 2] =
+    [(WEB_SEARCH_SERVICE_ID, 30), (VISION_SERVICE_ID, 60)];
 
 /// 端点路径（写死：改动会影响已接入的客户端）。
 ///
@@ -159,6 +166,7 @@ pub fn version(service: &str) -> &'static str {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
+#[derive(Default)]
 pub struct ProviderConfig {
     /// `enc1:` 信封；空串 = 未配置
     pub encrypted_key: String,
@@ -167,12 +175,6 @@ pub struct ProviderConfig {
     pub account_id: String,
     pub enabled: bool,
     pub updated_at: i64,
-}
-
-impl Default for ProviderConfig {
-    fn default() -> Self {
-        Self { encrypted_key: String::new(), key_hint: String::new(), account_id: String::new(), enabled: false, updated_at: 0 }
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -184,7 +186,13 @@ pub struct Selection {
 
 impl Default for Selection {
     fn default() -> Self {
-        Self { search: API_KEY_PROVIDERS.iter().map(|item| item.to_string()).collect(), fetch: "tavily".into() }
+        Self {
+            search: API_KEY_PROVIDERS
+                .iter()
+                .map(|item| item.to_string())
+                .collect(),
+            fetch: "tavily".into(),
+        }
     }
 }
 
@@ -219,7 +227,9 @@ impl ToolConfig {
         for provider in SEARCH_PROVIDERS {
             self.providers.entry(provider.to_string()).or_default();
         }
-        self.selection.search.retain(|item| is_search_provider(item));
+        self.selection
+            .search
+            .retain(|item| is_search_provider(item));
         if self.selection.search.is_empty() {
             self.selection.search = Selection::default().search;
         }
@@ -243,7 +253,9 @@ fn parse_stored(value: &serde_json::Value) -> ToolConfig {
     if value.is_null() {
         return ToolConfig::default();
     }
-    serde_json::from_value::<ToolConfig>(value.clone()).unwrap_or_default().normalized()
+    serde_json::from_value::<ToolConfig>(value.clone())
+        .unwrap_or_default()
+        .normalized()
 }
 
 /// 在配置锁内做一次读改写：两个页面同时保存时不会互相覆盖（后写者基于前写者的结果）
@@ -382,7 +394,10 @@ pub fn key_hint(value: &str) -> String {
         return format!("{}••••", value.chars().take(4).collect::<String>());
     }
     let head: String = value.chars().take(7).collect();
-    let tail: String = value.chars().skip(value.chars().count().saturating_sub(4)).collect();
+    let tail: String = value
+        .chars()
+        .skip(value.chars().count().saturating_sub(4))
+        .collect();
     format!("{head}••••{tail}")
 }
 
@@ -404,9 +419,14 @@ pub async fn list_providers(store: &AccountStore) -> Value {
         })
     }).collect();
     let account_rows = futures::future::join_all(ACCOUNT_PROVIDERS.iter().map(|provider| {
-        let entry = config_value.providers.get(*provider).cloned().unwrap_or_default();
+        let entry = config_value
+            .providers
+            .get(*provider)
+            .cloned()
+            .unwrap_or_default();
         account_search::provider_row(store, provider, entry)
-    })).await;
+    }))
+    .await;
     rows.extend(account_rows);
     Value::Array(rows)
 }
@@ -438,13 +458,26 @@ pub fn update_provider(
             account_search::validate_account(store, provider, id).map_err(|error| error.message)?;
         }
         let config_value = update(|config_value| {
-            let entry = config_value.providers.entry(provider.to_string()).or_default();
-            if let Some(id) = account_id { entry.account_id = id.to_string(); }
-            if let Some(enabled) = enabled { entry.enabled = enabled; }
+            let entry = config_value
+                .providers
+                .entry(provider.to_string())
+                .or_default();
+            if let Some(id) = account_id {
+                entry.account_id = id.to_string();
+            }
+            if let Some(enabled) = enabled {
+                entry.enabled = enabled;
+            }
             entry.updated_at = crate::server::logging::now_ms();
         })?;
-        let entry = config_value.providers.get(provider).cloned().unwrap_or_default();
-        return Ok(json!({ "success": true, "provider": provider, "account_id": entry.account_id }));
+        let entry = config_value
+            .providers
+            .get(provider)
+            .cloned()
+            .unwrap_or_default();
+        return Ok(
+            json!({ "success": true, "provider": provider, "account_id": entry.account_id }),
+        );
     }
     if account_id.is_some() {
         return Err("该搜索来源使用 API Key，不接受账号绑定".into());
@@ -459,7 +492,10 @@ pub fn update_provider(
         None => None,
     };
     let config_value = update(|config_value| {
-        let entry = config_value.providers.entry(provider.to_string()).or_default();
+        let entry = config_value
+            .providers
+            .entry(provider.to_string())
+            .or_default();
         if let Some((sealed, hint)) = encrypted {
             entry.encrypted_key = sealed;
             entry.key_hint = hint;
@@ -469,7 +505,11 @@ pub fn update_provider(
             entry.enabled = enabled;
         }
     })?;
-    let entry = config_value.providers.get(provider).cloned().unwrap_or_default();
+    let entry = config_value
+        .providers
+        .get(provider)
+        .cloned()
+        .unwrap_or_default();
     Ok(json!({
         "success": true,
         "provider": provider,
@@ -483,7 +523,10 @@ pub fn clear_provider_key(provider: &str) -> bool {
         return false;
     }
     update(|config_value| {
-        let entry = config_value.providers.entry(provider.to_string()).or_default();
+        let entry = config_value
+            .providers
+            .entry(provider.to_string())
+            .or_default();
         entry.encrypted_key.clear();
         entry.key_hint.clear();
         entry.updated_at = crate::server::logging::now_ms();
@@ -501,7 +544,9 @@ fn decrypt_provider_key(entry: &ProviderConfig) -> Option<String> {
         return None;
     }
     let bytes = crypto::open(&entry.encrypted_key, SecretScope::Accounts).ok()?;
-    String::from_utf8(bytes).ok().filter(|value| !value.is_empty())
+    String::from_utf8(bytes)
+        .ok()
+        .filter(|value| !value.is_empty())
 }
 
 pub fn configured_provider(provider: &str) -> bool {

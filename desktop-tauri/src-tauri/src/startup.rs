@@ -63,8 +63,12 @@ pub(crate) async fn wait() -> Result<(), String> {
                 StartupState::Stopped => return Err("本地网关正在退出，无法处理请求".to_string()),
                 StartupState::Starting => {}
             }
-            receiver.changed().await.map_err(|_| "本地网关启动状态不可用".to_string())?;
+            receiver
+                .changed()
+                .await
+                .map_err(|_| "本地网关启动状态不可用".to_string())?;
         }
-    }).await;
+    })
+    .await;
     result.unwrap_or_else(|_| Err("本地网关仍在启动，请稍后重试或查看运行日志".to_string()))
 }

@@ -30,18 +30,18 @@ use axum::http::HeaderMap;
 use serde_json::Value;
 
 use crate::server::core::account_store::AccountStore;
-use crate::server::core::proxies::ResolvedProxy;
 use crate::server::core::providers::adapter::{
     ChatRequestPlan, ModelRefreshOutcome, ProviderAdapter, ReasoningPatch, RetryAdvice,
     RetryDecision, UpstreamErrorClass, UpstreamResponse,
 };
 use crate::server::core::providers::ProviderKind;
+use crate::server::core::proxies::ResolvedProxy;
 use crate::server::core::upstream::usage::RequestTelemetry;
 use crate::server::core::upstream::ForwardOutcome;
 use crate::server::errors::GatewayError;
 
-use super::Host;
 use super::errors::strict;
+use super::Host;
 
 #[cfg(test)]
 #[path = "rpc_tests.rs"]
@@ -169,12 +169,7 @@ pub struct RpcAdapter {
 }
 
 impl RpcAdapter {
-    pub fn new(
-        id: String,
-        kind: ProviderKind,
-        host: Arc<Host>,
-        info: proto::ProviderInfo,
-    ) -> Self {
+    pub fn new(id: String, kind: ProviderKind, host: Arc<Host>, info: proto::ProviderInfo) -> Self {
         Self {
             id: leak_str(id),
             label: leak_str(info.label.clone()),
@@ -185,8 +180,11 @@ impl RpcAdapter {
             capabilities: info.capabilities,
             image_generation: false,
             image_editing: false,
-            image_models: info.default_models.into_iter()
-                .filter(crate::server::core::providers::images::model_is_image).collect(),
+            image_models: info
+                .default_models
+                .into_iter()
+                .filter(crate::server::core::providers::images::model_is_image)
+                .collect(),
             refusal_finishes: leak_slice(info.refusal_finishes),
             refusal_markers: leak_slice(info.refusal_markers),
         }
@@ -208,28 +206,46 @@ impl RpcAdapter {
 
     async fn execution(&self) -> Result<&Self, GatewayError> {
         match &self.binding {
-            Some(binding) => binding.get_or_try_init(|| async {
-                super::registry::acquire(self.id).await?
-                    .ok_or_else(|| super::activity::AvailabilityError::Unavailable.gateway())
-            }).await,
+            Some(binding) => {
+                binding
+                    .get_or_try_init(|| async {
+                        super::registry::acquire(self.id).await?.ok_or_else(|| {
+                            super::activity::AvailabilityError::Unavailable.gateway()
+                        })
+                    })
+                    .await
+            }
             None => Ok(self),
         }
     }
 
     fn metadata(&self) -> &Self {
-        self.binding.as_ref().and_then(|binding| binding.get()).unwrap_or(self)
+        self.binding
+            .as_ref()
+            .and_then(|binding| binding.get())
+            .unwrap_or(self)
     }
 
-    pub(super) fn host(&self) -> &Arc<Host> { &self.host }
+    pub(super) fn host(&self) -> &Arc<Host> {
+        &self.host
+    }
 
     pub(super) async fn load_image_capability(&mut self) {
-        let result = self.control(
-            crate::server::core::providers::images::CAPABILITIES_METHOD,
-            Value::Object(self.base()),
-        ).await;
+        let result = self
+            .control(
+                crate::server::core::providers::images::CAPABILITIES_METHOD,
+                Value::Object(self.base()),
+            )
+            .await;
         let capabilities = result.unwrap_or(Value::Null);
-        self.image_generation = capabilities.get("generation").and_then(Value::as_bool).unwrap_or(false);
-        self.image_editing = capabilities.get("editing").and_then(Value::as_bool).unwrap_or(false);
+        self.image_generation = capabilities
+            .get("generation")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        self.image_editing = capabilities
+            .get("editing")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         if !self.image_generation {
             self.image_models.clear();
         }
@@ -253,24 +269,30 @@ impl RpcAdapter {
     ) -> Result<Value, GatewayError> {
         // 每次调用都先 ensure：崩溃之后第一次调用会重新拉起子进程。
         let execution = self.execution().await?;
-        let lease = execution.lease.clone().or_else(|| execution.host.activity.acquire())
+        let lease = execution
+            .lease
+            .clone()
+            .or_else(|| execution.host.activity.acquire())
             .ok_or_else(|| super::activity::AvailabilityError::Unavailable.gateway())?;
-        execution.host
-            .ensure()
-            .await
-            .map_err(|e| {
-                if strict::applies(self.id) { strict::fatal(self.id, 503, "runtime_transport_unavailable") }
-                else { GatewayError::with_status(503, format!("提供商插件不可用：{e}")) }
-            })?;
+        execution.host.ensure().await.map_err(|e| {
+            if strict::applies(self.id) {
+                strict::fatal(self.id, 503, "runtime_transport_unavailable")
+            } else {
+                GatewayError::with_status(503, format!("提供商插件不可用：{e}"))
+            }
+        })?;
         let host = execution.host.clone();
         let method = method.to_string();
         let provider = self.id;
         // 调用方取消等待不能让已发送的管理动作失去保护，完成或超时后才释放租约。
         crate::spawn_task(async move {
             let _lease = lease;
-            host.call_coded(&method, params, timeout).await
+            host.call_coded(&method, params, timeout)
+                .await
                 .map_err(|error| rpc_error(provider, error, &method))
-        }).await.map_err(|_| GatewayError::with_status(503, "插件调用任务中断"))?
+        })
+        .await
+        .map_err(|_| GatewayError::with_status(503, "插件调用任务中断"))?
     }
 
     /// 本 provider 的参数前缀（每个方法都要带 provider）。
@@ -278,12 +300,15 @@ impl RpcAdapter {
         let mut map = serde_json::Map::new();
         map.insert("provider".into(), Value::String(self.id.to_string()));
         let timeouts = crate::server::config::timeout_settings();
-        map.insert("timeouts".into(), serde_json::json!({
-            "connectSeconds": timeouts.connect_seconds,
-            "headersSeconds": timeouts.headers_seconds,
-            "streamIdleSeconds": timeouts.stream_idle_seconds,
-            "bodySeconds": timeouts.body_seconds,
-        }));
+        map.insert(
+            "timeouts".into(),
+            serde_json::json!({
+                "connectSeconds": timeouts.connect_seconds,
+                "headersSeconds": timeouts.headers_seconds,
+                "streamIdleSeconds": timeouts.stream_idle_seconds,
+                "bodySeconds": timeouts.body_seconds,
+            }),
+        );
         map
     }
 
@@ -297,7 +322,9 @@ impl RpcAdapter {
 
 /// 控制面与 head 前的会话错误共用同一解码，不靠文案猜分类。
 pub(super) fn rpc_error(provider: &str, error: proto::WireError, method: &str) -> GatewayError {
-    if strict::applies(provider) { return strict::wire_error(provider, &error, method); }
+    if strict::applies(provider) {
+        return strict::wire_error(provider, &error, method);
+    }
     if let Some(failure) = super::errors::control_error(&error) {
         return failure;
     }
@@ -346,9 +373,15 @@ impl ProviderAdapter for RpcAdapter {
         let mut models = super::rpc_cache::models_for(self.id).unwrap_or_default();
         for image in &self.metadata().image_models {
             let id = crate::server::core::models::model_id(image);
-            if let Some(existing) = models.iter_mut().find(|item| crate::server::core::models::model_id(item).eq_ignore_ascii_case(&id)) {
+            if let Some(existing) = models
+                .iter_mut()
+                .find(|item| crate::server::core::models::model_id(item).eq_ignore_ascii_case(&id))
+            {
                 existing["kind"] = serde_json::json!("image");
-                existing["output_modalities"] = image.get("output_modalities").cloned().unwrap_or(serde_json::json!(["image"]));
+                existing["output_modalities"] = image
+                    .get("output_modalities")
+                    .cloned()
+                    .unwrap_or(serde_json::json!(["image"]));
                 existing["supportsToolCall"] = Value::Bool(false);
                 existing["isDefault"] = Value::Bool(false);
             } else if image.get("synthetic").and_then(Value::as_bool) == Some(true) {
@@ -378,8 +411,16 @@ impl ProviderAdapter for RpcAdapter {
             let mut params = self.base();
             params.insert("account".into(), Value::String(account_id_of(account)));
             params.insert("proxy".into(), proxy_of(account));
-            params.insert("proxy_override".into(), Value::Bool(account.get("proxy").and_then(|proxy| proxy.get("source"))
-                .and_then(Value::as_str) == Some("direct")));
+            params.insert(
+                "proxy_override".into(),
+                Value::Bool(
+                    account
+                        .get("proxy")
+                        .and_then(|proxy| proxy.get("source"))
+                        .and_then(Value::as_str)
+                        == Some("direct"),
+                ),
+            );
             params.insert("body".into(), body.clone());
             params.insert("headers".into(), headers_json(client_headers));
             params.insert("stream".into(), Value::Bool(true));
@@ -393,8 +434,14 @@ impl ProviderAdapter for RpcAdapter {
             params.insert("wire_model".into(), Value::String(wire_model));
             params.insert("reasoning".into(), Value::String(String::new()));
 
-            let value = self.network(proto::methods::gateway::CHAT, Value::Object(params)).await?;
-            let url = value.get("url").and_then(Value::as_str).unwrap_or("").to_string();
+            let value = self
+                .network(proto::methods::gateway::CHAT, Value::Object(params))
+                .await?;
+            let url = value
+                .get("url")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             if url.is_empty() {
                 return Err(GatewayError::with_status(502, "插件没有给出上游地址"));
             }
@@ -420,7 +467,9 @@ impl ProviderAdapter for RpcAdapter {
                 ),
                 reasoning: match value.get("reasoning") {
                     Some(Value::Null) => Some(None),
-                    Some(Value::String(level)) => Some(crate::server::core::model_rules::normalize_reasoning(level)),
+                    Some(Value::String(level)) => {
+                        Some(crate::server::core::model_rules::normalize_reasoning(level))
+                    }
                     _ => None,
                 },
             })
@@ -455,18 +504,28 @@ impl ProviderAdapter for RpcAdapter {
                 "wire_model": body.get("model").and_then(Value::as_str).unwrap_or(""),
             });
             // RPC 一帧上限 16 MiB；超限在写管道前拒绝，不让插件因读到半帧退出。
-            let size = serde_json::to_vec(&params).map_err(|_| GatewayError::bad_request("图片请求无法序列化"))?.len();
+            let size = serde_json::to_vec(&params)
+                .map_err(|_| GatewayError::bad_request("图片请求无法序列化"))?
+                .len();
             if size > 14 * 1024 * 1024 {
-                return Err(GatewayError::with_status(413, "图片请求内联数据总大小不得超过 14 MiB"));
+                return Err(GatewayError::with_status(
+                    413,
+                    "图片请求内联数据总大小不得超过 14 MiB",
+                ));
             }
             let value = self.network(operation.method(), params).await?;
-            let plan: ImageRequestPlan = serde_json::from_value(value)
-                .map_err(|error| {
-                    if strict::applies(self.id) { strict::fatal(self.id, 502, "runtime_protocol_error") }
-                    else { GatewayError::with_status(502, format!("插件生图计划无法解析：{error}")) }
-                })?;
+            let plan: ImageRequestPlan = serde_json::from_value(value).map_err(|error| {
+                if strict::applies(self.id) {
+                    strict::fatal(self.id, 502, "runtime_protocol_error")
+                } else {
+                    GatewayError::with_status(502, format!("插件生图计划无法解析：{error}"))
+                }
+            })?;
             if plan.url.trim().is_empty() || !plan.body.is_object() {
-                return Err(GatewayError::with_status(502, "插件生图计划缺少上游地址或 JSON 请求体"));
+                return Err(GatewayError::with_status(
+                    502,
+                    "插件生图计划缺少上游地址或 JSON 请求体",
+                ));
             }
             Ok(ChatRequestPlan {
                 url: plan.url,
@@ -483,7 +542,8 @@ impl ProviderAdapter for RpcAdapter {
         &'a self,
         status: u16,
         headers: &'a HeaderMap,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, GatewayError>> + Send + 'a>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, GatewayError>> + Send + 'a>>
+    {
         Box::pin(async move {
             if !(200..300).contains(&status) {
                 return Ok(true);
@@ -491,12 +551,15 @@ impl ProviderAdapter for RpcAdapter {
             let mut params = self.base();
             params.insert("status".into(), Value::from(status));
             params.insert("headers".into(), headers_json(headers));
-            let value = self.control(
-                proto::methods::gateway::IS_ERROR_RESPONSE, Value::Object(params),
-            ).await?;
-            value.as_bool().ok_or_else(|| GatewayError::with_status(
-                502, "插件返回的响应类型判定不是布尔值",
-            ))
+            let value = self
+                .control(
+                    proto::methods::gateway::IS_ERROR_RESPONSE,
+                    Value::Object(params),
+                )
+                .await?;
+            value
+                .as_bool()
+                .ok_or_else(|| GatewayError::with_status(502, "插件返回的响应类型判定不是布尔值"))
         })
     }
 
@@ -516,7 +579,10 @@ impl ProviderAdapter for RpcAdapter {
                 Ok(value) => value,
                 Err(e) => {
                     if strict::applies(self.id) {
-                        return strict::cached_class(self.id, &strict::fatal(self.id, status, "runtime_classification_unavailable"));
+                        return strict::cached_class(
+                            self.id,
+                            &strict::fatal(self.id, status, "runtime_classification_unavailable"),
+                        );
                     }
                     // 分类拿不到 = 插件挂了。返回 Fatal 是安全兜底：不罚账号、
                     // 不重试，只把错误透传 —— 与「未覆写的家」同一处置。
@@ -532,11 +598,14 @@ impl ProviderAdapter for RpcAdapter {
                     let class = upstream_error_class(class);
                     if strict::applies(self.id) {
                         strict::sdk_class(self.id, status, class, error_body)
-                    } else { class }
+                    } else {
+                        class
+                    }
                 }
-                Err(_) if strict::applies(self.id) => {
-                    strict::cached_class(self.id, &strict::fatal(self.id, status, "runtime_protocol_error"))
-                }
+                Err(_) if strict::applies(self.id) => strict::cached_class(
+                    self.id,
+                    &strict::fatal(self.id, status, "runtime_protocol_error"),
+                ),
                 Err(e) => UpstreamErrorClass::Fatal {
                     status,
                     message: format!("插件返回的错误分类无法解析：{e}"),
@@ -550,12 +619,20 @@ impl ProviderAdapter for RpcAdapter {
         &'a self,
         status: u16,
         body: &'a Value,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = crate::server::core::providers::policy::ErrorPolicy> + Send + 'a>> {
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = crate::server::core::providers::policy::ErrorPolicy>
+                + Send
+                + 'a,
+        >,
+    > {
         Box::pin(async move {
             let mut params = self.base();
             params.insert("status".into(), Value::from(status));
             params.insert("body".into(), body.clone());
-            self.control("error.policy", Value::Object(params)).await.ok()
+            self.control("error.policy", Value::Object(params))
+                .await
+                .ok()
                 .map(crate::server::core::providers::policy::ErrorPolicy::from_value)
                 .unwrap_or_default()
         })
@@ -573,13 +650,18 @@ impl ProviderAdapter for RpcAdapter {
             params.insert("model".into(), Value::String(model.to_string()));
             params.insert("body".into(), body.clone());
             let value = match self
-                .control(proto::methods::gateway::REASONING_PATCH, Value::Object(params))
+                .control(
+                    proto::methods::gateway::REASONING_PATCH,
+                    Value::Object(params),
+                )
                 .await
             {
                 Ok(value) => value,
                 // 问不到就不注入 —— 与「这家不支持」同一处置，body 一个字节不动。
                 Err(_) => {
-                    return ReasoningPatch::Skip { reason: "提供商插件未响应，跳过档位注入" }
+                    return ReasoningPatch::Skip {
+                        reason: "提供商插件未响应，跳过档位注入",
+                    }
                 }
             };
             match serde_json::from_value::<proto::ReasoningPatch>(value) {
@@ -588,10 +670,18 @@ impl ProviderAdapter for RpcAdapter {
                     value,
                 },
                 Ok(proto::ReasoningPatch::Skip { reason }) => {
-                    let reason = if strict::applies(self.id) { "提供商未注入该思考档位".to_string() } else { reason };
-                    ReasoningPatch::Skip { reason: leak_str(reason) }
+                    let reason = if strict::applies(self.id) {
+                        "提供商未注入该思考档位".to_string()
+                    } else {
+                        reason
+                    };
+                    ReasoningPatch::Skip {
+                        reason: leak_str(reason),
+                    }
                 }
-                Err(_) => ReasoningPatch::Skip { reason: "插件返回的档位结果无法解析" },
+                Err(_) => ReasoningPatch::Skip {
+                    reason: "插件返回的档位结果无法解析",
+                },
             }
         })
     }
@@ -635,7 +725,10 @@ impl ProviderAdapter for RpcAdapter {
 
     fn classify_error(&self, status: u16, _error_body: &Value) -> UpstreamErrorClass {
         if strict::applies(self.id) {
-            return strict::cached_class(self.id, &strict::fatal(self.id, status, "runtime_classification_unavailable"));
+            return strict::cached_class(
+                self.id,
+                &strict::fatal(self.id, status, "runtime_classification_unavailable"),
+            );
         }
         // 同步版报 Fatal（见 [`Self::classify_error_async`]）。Fatal 不罚账号、
         // 不重试 —— 即使某条链路漏改，后果也只是「这条错误没触发换号」，
@@ -649,7 +742,9 @@ impl ProviderAdapter for RpcAdapter {
 
     fn classify_conversation_error(&self, error: &GatewayError) -> UpstreamErrorClass {
         // 新增 scoped runtime 已在异步错误边界完成正式分类；不能重新按 HTTP 429 猜配额。
-        if strict::applies(self.id) { return strict::cached_class(self.id, error); }
+        if strict::applies(self.id) {
+            return strict::cached_class(self.id, error);
+        }
         if let Some(class) = &error.conversation_class {
             return class.clone();
         }
@@ -755,38 +850,57 @@ impl ProviderAdapter for RpcAdapter {
         account_id: &'a str,
         action: &'a str,
         payload: &'a Value,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>>
+    {
         Box::pin(async move {
-            let activity = self.id == "workbuddy-intl" && action == "activity.run"
+            let activity = self.id == "workbuddy-intl"
+                && action == "activity.run"
                 && payload.get("mode").and_then(Value::as_str) != Some("claim");
             let mut activity_payload = payload.clone();
             let access = if activity {
-                let (models, identity) = crate::server::core::billing::keepalive::authorized_models()?;
+                let (models, identity) =
+                    crate::server::core::billing::keepalive::authorized_models()?;
                 activity_payload["models"] = serde_json::json!(models);
                 Some(identity)
-            } else { None };
+            } else {
+                None
+            };
             let mut params = self.with_account(account_id);
             if let Some(object) = params.as_object_mut() {
                 object.insert("action".into(), Value::String(action.to_string()));
                 object.insert("payload".into(), activity_payload.clone());
             }
             let started_at = crate::server::logging::now_ms();
-            let result = self.network(proto::methods::gateway::ADMIN_ACTION, params).await;
+            let result = self
+                .network(proto::methods::gateway::ADMIN_ACTION, params)
+                .await;
             // 旧 SDK 将「没实现该管理动作」包成 INTERNAL；只对这个只读探测
             // 还原为 501，不能把网络失败或其它业务动作的错误一并吞掉。
             let result = result.map_err(|mut error| {
-                if action == "auth.methods" && error.message.contains("auth.methods")
-                    && ["没有实现管理动作", "不认识管理动作", "不支持管理动作", "unknown action", "unsupported action"]
-                        .iter().any(|marker| error.message.contains(marker))
+                if action == "auth.methods"
+                    && error.message.contains("auth.methods")
+                    && [
+                        "没有实现管理动作",
+                        "不认识管理动作",
+                        "不支持管理动作",
+                        "unknown action",
+                        "unsupported action",
+                    ]
+                    .iter()
+                    .any(|marker| error.message.contains(marker))
                 {
                     error.status_code = 501;
                 }
                 error
             });
             if let Some(identity) = access {
-                crate::server::core::billing::keepalive::record_activity(account_id, started_at, &activity_payload, &result, identity);
+                crate::server::core::billing::keepalive::record_activity(
+                    account_id,
+                    started_at,
+                    &activity_payload,
+                    &result,
+                    identity,
+                );
             }
             result
         })
@@ -801,7 +915,10 @@ impl ProviderAdapter for RpcAdapter {
     > {
         Box::pin(async move {
             let value = self
-                .network(proto::methods::gateway::TOKEN_ENSURE, self.with_account(account_id))
+                .network(
+                    proto::methods::gateway::TOKEN_ENSURE,
+                    self.with_account(account_id),
+                )
                 .await?;
             value
                 .as_str()
@@ -819,7 +936,10 @@ impl ProviderAdapter for RpcAdapter {
     > {
         Box::pin(async move {
             let value = self
-                .network(proto::methods::gateway::TOKEN_REFRESH, self.with_account(account_id))
+                .network(
+                    proto::methods::gateway::TOKEN_REFRESH,
+                    self.with_account(account_id),
+                )
                 .await?;
             value
                 .as_str()
@@ -847,7 +967,10 @@ impl ProviderAdapter for RpcAdapter {
             params.insert("account".into(), Value::String(account_id.to_string()));
             params.insert("force".into(), Value::Bool(force));
             match self
-                .network(proto::methods::gateway::MODELS_REFRESH, Value::Object(params))
+                .network(
+                    proto::methods::gateway::MODELS_REFRESH,
+                    Value::Object(params),
+                )
                 .await
             {
                 Ok(value) => match serde_json::from_value::<proto::RefreshOutcome>(value.clone()) {
@@ -857,30 +980,57 @@ impl ProviderAdapter for RpcAdapter {
                                 refreshed: false,
                                 count: outcome.count,
                                 message: if strict::applies(self.id) {
-                                    outcome.message.map(|_| "上游目录未能刷新，已保留可用清单".into())
-                                } else { outcome.message },
+                                    outcome
+                                        .message
+                                        .map(|_| "上游目录未能刷新，已保留可用清单".into())
+                                } else {
+                                    outcome.message
+                                },
                             };
                         }
-                        let list = if crate::server::core::providers::is_scoped_runtime_provider(self.id) {
+                        let list = if crate::server::core::providers::is_scoped_runtime_provider(
+                            self.id,
+                        ) {
                             match serde_json::from_value::<proto::ModelList>(value) {
-                                Ok(list) if list.meta.remote && outcome.count == list.models.len() => list,
-                                _ => return ModelRefreshOutcome::failed("插件刷新缺少同次真实远程模型快照，已保留旧清单"),
+                                Ok(list)
+                                    if list.meta.remote && outcome.count == list.models.len() =>
+                                {
+                                    list
+                                }
+                                _ => {
+                                    return ModelRefreshOutcome::failed(
+                                        "插件刷新缺少同次真实远程模型快照，已保留旧清单",
+                                    )
+                                }
                             }
-                        } else { match self.control(
-                            proto::methods::gateway::MODELS_LIST,
-                            self.with_account(account_id),
-                        ).await {
-                            Ok(value) => match serde_json::from_value::<proto::ModelList>(value) {
-                                Ok(list) => list,
-                                Err(error) => return ModelRefreshOutcome::failed(
-                                    format!("插件刷新后返回的模型清单无法解析: {error}"),
-                                ),
-                            },
-                            Err(error) => return ModelRefreshOutcome::failed(error.message),
-                        } };
+                        } else {
+                            match self
+                                .control(
+                                    proto::methods::gateway::MODELS_LIST,
+                                    self.with_account(account_id),
+                                )
+                                .await
+                            {
+                                Ok(value) => {
+                                    match serde_json::from_value::<proto::ModelList>(value) {
+                                        Ok(list) => list,
+                                        Err(error) => {
+                                            return ModelRefreshOutcome::failed(format!(
+                                                "插件刷新后返回的模型清单无法解析: {error}"
+                                            ))
+                                        }
+                                    }
+                                }
+                                Err(error) => return ModelRefreshOutcome::failed(error.message),
+                            }
+                        };
                         let count = super::rpc_cache::set_remote(self.id, list);
-                        if count == 0 && !crate::server::core::providers::is_scoped_runtime_provider(self.id) {
-                            return ModelRefreshOutcome::failed("插件刷新后没有可用模型，已保留旧清单");
+                        if count == 0
+                            && !crate::server::core::providers::is_scoped_runtime_provider(self.id)
+                        {
+                            return ModelRefreshOutcome::failed(
+                                "插件刷新后没有可用模型，已保留旧清单",
+                            );
                         }
                         crate::server::core::providers::adapter::seed_hidden_visibility_defaults();
                         ModelRefreshOutcome {
@@ -888,10 +1038,14 @@ impl ProviderAdapter for RpcAdapter {
                             count,
                             message: if strict::applies(self.id) {
                                 outcome.message.map(|_| "提供商模型目录已刷新".into())
-                            } else { outcome.message },
+                            } else {
+                                outcome.message
+                            },
                         }
                     }
-                    Err(_) if strict::applies(self.id) => ModelRefreshOutcome::failed("插件返回的模型刷新结果无法解析，原始诊断已隐藏"),
+                    Err(_) if strict::applies(self.id) => ModelRefreshOutcome::failed(
+                        "插件返回的模型刷新结果无法解析，原始诊断已隐藏",
+                    ),
                     Err(e) => ModelRefreshOutcome::failed(format!("插件返回形状不对: {e}")),
                 },
                 Err(e) => ModelRefreshOutcome::failed(e.message),
@@ -906,8 +1060,11 @@ impl ProviderAdapter for RpcAdapter {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>>
     {
         Box::pin(async move {
-            self.network(proto::methods::gateway::USAGE_QUERY, self.with_account(account_id))
-                .await
+            self.network(
+                proto::methods::gateway::USAGE_QUERY,
+                self.with_account(account_id),
+            )
+            .await
         })
     }
 
@@ -926,11 +1083,14 @@ impl ProviderAdapter for RpcAdapter {
         Box::pin(async move {
             let execution = self.execution().await?;
             let host = execution.host.clone();
-            let lease = execution.lease.clone().or_else(|| host.activity.acquire())
+            let lease = execution
+                .lease
+                .clone()
+                .or_else(|| host.activity.acquire())
                 .ok_or_else(|| super::activity::AvailabilityError::Unavailable.gateway())?;
             let mut params = self.base();
             params.insert("account".into(), Value::String(account_id.to_string()));
-            params.insert("proxy".into(), proxy.map_or(Value::Null, |proxy| wire_proxy(proxy)));
+            params.insert("proxy".into(), proxy.map_or(Value::Null, wire_proxy));
             params.insert("body".into(), body.clone());
             params.insert("headers".into(), headers_json(client_headers));
             // ── 恒发 `stream: true` ────────────────────────────────
@@ -943,7 +1103,11 @@ impl ProviderAdapter for RpcAdapter {
             params.insert("session".into(), Value::String(session_of(client_headers)));
             // 发送名与思考档位同 `build_chat_request_async`：body 里已经是
             // 网关改好的名字（模型改写发生在这之前）。
-            let wire_model = body.get("model").and_then(Value::as_str).unwrap_or("").to_string();
+            let wire_model = body
+                .get("model")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             params.insert("wire_model".into(), Value::String(wire_model.clone()));
 
             let strict = strict::applies(self.id);
@@ -951,14 +1115,20 @@ impl ProviderAdapter for RpcAdapter {
                 .open_stream(proto::methods::gateway::CONVERSATION, Value::Object(params))
                 .await
                 .map_err(|e| {
-                    if strict { strict::fatal(self.id, 503, "runtime_transport_unavailable") }
-                    else { GatewayError::with_status(503, format!("提供商插件不可用：{e}")) }
+                    if strict {
+                        strict::fatal(self.id, 503, "runtime_transport_unavailable")
+                    } else {
+                        GatewayError::with_status(503, format!("提供商插件不可用：{e}"))
+                    }
                 })?;
             let id = call.id;
             let mut events = call.events;
             // head 前取消也必须把流清理完，不能先释放宿主使用凭证。
             let mut opening = Some(ErrorBodyScope {
-                host: host.clone(), id, abort_on_drop: true, lease: Some(lease.clone()),
+                host: host.clone(),
+                id,
+                abort_on_drop: true,
+                lease: Some(lease.clone()),
             });
 
             // ── 等 head：这段时间里插件在做真正的上游请求 ────────────────
@@ -970,7 +1140,8 @@ impl ProviderAdapter for RpcAdapter {
             // 插件可能在发 head **之前**就失败（凭证缺失、上游连不上），
             // 那时它给的是最终应答或 chunk（错误体）。只盯 head 会让网关
             // 白等满整个超时，然后报一句「超时」—— 而真正的原因就在通道里。
-            let budget = Duration::from_millis(crate::server::config::timeout_settings().headers_ms());
+            let budget =
+                Duration::from_millis(crate::server::config::timeout_settings().headers_ms());
             let receive = tokio::time::timeout(budget, events.recv());
             let received = if strict {
                 if let Some(token) = telemetry.cancel_token() {
@@ -979,8 +1150,12 @@ impl ProviderAdapter for RpcAdapter {
                         _ = token.cancelled() => return Err(crate::server::core::upstream::cancellation::cancelled_error()),
                         result = receive => result,
                     }
-                } else { receive.await }
-            } else { receive.await };
+                } else {
+                    receive.await
+                }
+            } else {
+                receive.await
+            };
             let first = match received {
                 Ok(Some(event)) => event,
                 // 通道关了：宿主清表（进程没了）
@@ -1007,17 +1182,29 @@ impl ProviderAdapter for RpcAdapter {
                 super::StreamEvent::Head(head) => head,
                 // 与控制面还原同一状态/业务码；只有显式 provider_http 才交分类器。
                 super::StreamEvent::Done(Err(error)) => {
-                    if let Some(scope) = opening.take() { scope.finish(); }
+                    if let Some(scope) = opening.take() {
+                        scope.finish();
+                    }
                     host.close_stream(id);
                     if strict {
                         if let Some((status, detail)) = strict::private_control(&error) {
                             let class = self.classify_error_async(status, &detail).await;
-                            return Err(strict::conversation(self.id, status, class, &detail, None));
+                            return Err(strict::conversation(
+                                self.id, status, class, &detail, None,
+                            ));
                         }
-                        return Err(rpc_error(self.id, error, proto::methods::gateway::CONVERSATION));
+                        return Err(rpc_error(
+                            self.id,
+                            error,
+                            proto::methods::gateway::CONVERSATION,
+                        ));
                     }
                     let provider_http = super::errors::control_error(&error).is_some();
-                    let mut failure = rpc_error(self.id, error.clone(), proto::methods::gateway::CONVERSATION);
+                    let mut failure = rpc_error(
+                        self.id,
+                        error.clone(),
+                        proto::methods::gateway::CONVERSATION,
+                    );
                     if provider_http {
                         // 现有分类器收归一化 {code: 上游数字码, message}，扩展语义另放字段。
                         let mut detail = serde_json::json!({
@@ -1026,7 +1213,9 @@ impl ProviderAdapter for RpcAdapter {
                             "providerCode": failure.code,
                             "upstreamCode": failure.upstream_code,
                         });
-                        if let Some(Value::Object(metadata)) = error.code.as_deref()
+                        if let Some(Value::Object(metadata)) = error
+                            .code
+                            .as_deref()
                             .and_then(|code| code.strip_prefix("provider_http:"))
                             .and_then(|payload| serde_json::from_str::<Value>(payload).ok())
                         {
@@ -1046,7 +1235,9 @@ impl ProviderAdapter for RpcAdapter {
                     return Err(failure);
                 }
                 super::StreamEvent::Done(Ok(_)) => {
-                    if let Some(scope) = opening.take() { scope.finish(); }
+                    if let Some(scope) = opening.take() {
+                        scope.finish();
+                    }
                     host.close_stream(id);
                     return Err(GatewayError::with_status(
                         502,
@@ -1055,30 +1246,66 @@ impl ProviderAdapter for RpcAdapter {
                 }
                 super::StreamEvent::Failed(message) => {
                     host.close_stream(id);
-                    return Err(if strict { strict::fatal(self.id, 502, "runtime_stream_interrupted") }
-                        else { GatewayError::with_status(502, message) });
+                    return Err(if strict {
+                        strict::fatal(self.id, 502, "runtime_stream_interrupted")
+                    } else {
+                        GatewayError::with_status(502, message)
+                    });
                 }
                 // 先到的居然是正文：协议要求先 head，但把它当「状态码 200」
                 // 继续处理比报错有用 —— 少一帧头不至于让整条流作废。
                 super::StreamEvent::Chunk(_) if strict => {
-                    return Err(GatewayError::with_status(502, "辅助程序在真实响应头之前发送正文，未猜测成功"));
+                    return Err(GatewayError::with_status(
+                        502,
+                        "辅助程序在真实响应头之前发送正文，未猜测成功",
+                    ));
                 }
                 super::StreamEvent::Chunk(bytes) => {
                     let status = 200;
-                    if let Some(scope) = opening.take() { scope.handoff(); }
+                    if let Some(scope) = opening.take() {
+                        scope.handoff();
+                    }
                     return execution
-                        .finish_stream(id, status, stream, events, Some(bytes), wire_model, telemetry, None, lease)
+                        .finish_stream(
+                            id,
+                            status,
+                            stream,
+                            events,
+                            Some(bytes),
+                            wire_model,
+                            telemetry,
+                            None,
+                            lease,
+                        )
                         .await;
                 }
             };
 
-            if let Some(scope) = opening.take() { scope.handoff(); }
-            execution.finish_stream(id, head.status, stream, events, None, wire_model, telemetry, Some(head.headers), lease)
+            if let Some(scope) = opening.take() {
+                scope.handoff();
+            }
+            execution
+                .finish_stream(
+                    id,
+                    head.status,
+                    stream,
+                    events,
+                    None,
+                    wire_model,
+                    telemetry,
+                    Some(head.headers),
+                    lease,
+                )
                 .await
         })
     }
 
-    fn retry_advice(&self, _error_body: &Value, _attempt: usize, _budget: usize) -> Option<RetryAdvice> {
+    fn retry_advice(
+        &self,
+        _error_body: &Value,
+        _attempt: usize,
+        _budget: usize,
+    ) -> Option<RetryAdvice> {
         // 真正的实现在 [`Self::retry_advice_async`]（同步签名没法 await）。
         // 同步版返回 None = 不退避：编排层还有 `transient_retry_advice` /
         // `fallback_retry_advice` 两层通用兜底，不会因此丢掉重试能力。
@@ -1111,7 +1338,11 @@ impl ProviderAdapter for RpcAdapter {
                 .ok()
                 .map(|advice| RetryAdvice {
                     delay_ms: advice.delay_ms,
-                    reason: if strict::applies(self.id) { "提供商建议等待后重试".to_string() } else { advice.reason },
+                    reason: if strict::applies(self.id) {
+                        "提供商建议等待后重试".to_string()
+                    } else {
+                        advice.reason
+                    },
                 })
         })
     }
@@ -1132,10 +1363,15 @@ impl ProviderAdapter for RpcAdapter {
             let method = crate::server::core::providers::retry::RETRY_DECISION_METHOD;
             match self.control(method, Value::Object(params)).await {
                 Ok(value) => {
-                    let decision = serde_json::from_value(value).unwrap_or_else(|_| RetryDecision::Stop {
-                        reason: "提供商插件返回的重试决定无法解析，停止本次请求".to_string(),
-                    });
-                    if strict::applies(self.id) { strict::retry_decision(decision) } else { decision }
+                    let decision =
+                        serde_json::from_value(value).unwrap_or_else(|_| RetryDecision::Stop {
+                            reason: "提供商插件返回的重试决定无法解析，停止本次请求".to_string(),
+                        });
+                    if strict::applies(self.id) {
+                        strict::retry_decision(decision)
+                    } else {
+                        decision
+                    }
                 }
                 Err(error) if error.status_code == 501 => {
                     match self.retry_advice_async(error_body, attempt, budget).await {
@@ -1147,7 +1383,10 @@ impl ProviderAdapter for RpcAdapter {
                     }
                 }
                 Err(error) => RetryDecision::Stop {
-                    reason: format!("提供商插件无法给出重试决定，停止本次请求：{}", error.message),
+                    reason: format!(
+                        "提供商插件无法给出重试决定，停止本次请求：{}",
+                        error.message
+                    ),
                 },
             }
         })
@@ -1156,7 +1395,9 @@ impl ProviderAdapter for RpcAdapter {
     fn reasoning_patch(&self, _level: &str, _model: &str, _body: &Value) -> ReasoningPatch {
         // 真正的实现在 [`Self::reasoning_patch_async`]。同步版 Skip = 不注入
         // （body 一个字节不动），是安全兜底。
-        ReasoningPatch::Skip { reason: "插件 provider 的档位翻译要走异步入口" }
+        ReasoningPatch::Skip {
+            reason: "插件 provider 的档位翻译要走异步入口",
+        }
     }
 
     fn build_login_url(&self) -> Option<(String, String)> {
@@ -1167,9 +1408,8 @@ impl ProviderAdapter for RpcAdapter {
 
     fn build_login_url_async<'a>(
         &'a self,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Option<(String, String)>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<(String, String)>> + Send + 'a>>
+    {
         Box::pin(async move {
             let start = self.login_start_async().await?;
             // `flow` 就是回调侧要比对的 state（插件自己生成、自己保管）
@@ -1190,7 +1430,10 @@ impl ProviderAdapter for RpcAdapter {
         >,
     > {
         Box::pin(async move {
-            self.build_login_flow_with_options(serde_json::json!({})).await.ok().flatten()
+            self.build_login_flow_with_options(serde_json::json!({}))
+                .await
+                .ok()
+                .flatten()
         })
     }
 
@@ -1198,7 +1441,11 @@ impl ProviderAdapter for RpcAdapter {
         &'a self,
         options: Value,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Option<proto::LoginStart>, GatewayError>> + Send + 'a>,
+        Box<
+            dyn std::future::Future<Output = Result<Option<proto::LoginStart>, GatewayError>>
+                + Send
+                + 'a,
+        >,
     > {
         Box::pin(async move {
             if !options.is_object() {
@@ -1212,13 +1459,14 @@ impl ProviderAdapter for RpcAdapter {
                 "proxy": options.get("proxy").cloned().unwrap_or(Value::Null),
                 "payload": options,
             });
-            let value = self.control(proto::methods::gateway::LOGIN_START, params).await?;
+            let value = self
+                .control(proto::methods::gateway::LOGIN_START, params)
+                .await?;
             if value.is_null() {
                 return Ok(None);
             }
-            let start: proto::LoginStart = serde_json::from_value(value).map_err(|_| {
-                GatewayError::with_status(502, "插件返回的登录启动信息无法解析")
-            })?;
+            let start: proto::LoginStart = serde_json::from_value(value)
+                .map_err(|_| GatewayError::with_status(502, "插件返回的登录启动信息无法解析"))?;
             if start.flow.trim().is_empty() {
                 return Err(GatewayError::with_status(502, "插件没有返回登录流程 id"));
             }
@@ -1232,11 +1480,7 @@ impl ProviderAdapter for RpcAdapter {
         &'a self,
         flow: &'a str,
     ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<proto::LoginPoll, GatewayError>>
-                + Send
-                + 'a,
-        >,
+        Box<dyn std::future::Future<Output = Result<proto::LoginPoll, GatewayError>> + Send + 'a>,
     > {
         Box::pin(async move {
             // 轮询本身要出网（问上游「授权完了没」），用网络超时
@@ -1245,10 +1489,17 @@ impl ProviderAdapter for RpcAdapter {
                 .network(proto::methods::gateway::LOGIN_POLL, params)
                 .await?;
             let poll = serde_json::from_value::<proto::LoginPoll>(value).map_err(|e| {
-                if strict::applies(self.id) { strict::fatal(self.id, 502, "runtime_protocol_error") }
-                else { GatewayError::with_status(502, format!("插件返回的登录进度无法解析：{e}")) }
+                if strict::applies(self.id) {
+                    strict::fatal(self.id, 502, "runtime_protocol_error")
+                } else {
+                    GatewayError::with_status(502, format!("插件返回的登录进度无法解析：{e}"))
+                }
             })?;
-            Ok(if strict::applies(self.id) { strict::login_poll(poll) } else { poll })
+            Ok(if strict::applies(self.id) {
+                strict::login_poll(poll)
+            } else {
+                poll
+            })
         })
     }
 
@@ -1266,15 +1517,21 @@ impl ProviderAdapter for RpcAdapter {
         Box::pin(async move {
             // 探活可能要出网（取昵称 / 验令牌），所以用宽超时
             let params = serde_json::to_value(&input).map_err(|e| {
-                if strict::applies(self.id) { GatewayError::bad_request("添加账号的参数无法序列化，原始诊断已隐藏") }
-                else { GatewayError::with_status(400, format!("添加账号的参数无法序列化：{e}")) }
+                if strict::applies(self.id) {
+                    GatewayError::bad_request("添加账号的参数无法序列化，原始诊断已隐藏")
+                } else {
+                    GatewayError::with_status(400, format!("添加账号的参数无法序列化：{e}"))
+                }
             })?;
             let value = self
                 .network(proto::methods::gateway::ACCOUNT_NORMALIZE, params)
                 .await?;
             serde_json::from_value::<proto::NormalizedAccount>(value).map_err(|e| {
-                if strict::applies(self.id) { strict::fatal(self.id, 502, "runtime_protocol_error") }
-                else { GatewayError::with_status(502, format!("插件返回的账号形状不对：{e}")) }
+                if strict::applies(self.id) {
+                    strict::fatal(self.id, 502, "runtime_protocol_error")
+                } else {
+                    GatewayError::with_status(502, format!("插件返回的账号形状不对：{e}"))
+                }
             })
         })
     }
@@ -1298,7 +1555,11 @@ impl ProviderAdapter for RpcAdapter {
         _store: &'a AccountStore,
         callback: proto::LoginCallback,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Option<proto::LoginPoll>, GatewayError>> + Send + 'a>,
+        Box<
+            dyn std::future::Future<Output = Result<Option<proto::LoginPoll>, GatewayError>>
+                + Send
+                + 'a,
+        >,
     > {
         Box::pin(async move {
             let params = serde_json::json!({
@@ -1307,24 +1568,30 @@ impl ProviderAdapter for RpcAdapter {
                 "code": callback.code,
                 "url": callback.url,
             });
-            let value = self.network(proto::methods::gateway::LOGIN_CALLBACK, params).await?;
-            let poll = serde_json::from_value::<proto::LoginPoll>(value).map_err(|_| {
-                GatewayError::with_status(502, "插件返回的登录结果无法解析")
-            })?;
+            let value = self
+                .network(proto::methods::gateway::LOGIN_CALLBACK, params)
+                .await?;
+            let poll = serde_json::from_value::<proto::LoginPoll>(value)
+                .map_err(|_| GatewayError::with_status(502, "插件返回的登录结果无法解析"))?;
             // 不在 RPC 层落库：Pending 只是投递成功，Done 由任务服务统一落账。
-            Ok(Some(if strict::applies(self.id) { strict::login_poll(poll) } else { poll }))
+            Ok(Some(if strict::applies(self.id) {
+                strict::login_poll(poll)
+            } else {
+                poll
+            }))
         })
     }
 
     fn login_cancel_async<'a>(
         &'a self,
         flow: &'a str,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<(), GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), GatewayError>> + Send + 'a>>
+    {
         Box::pin(async move {
             let params = serde_json::json!({ "provider": self.id, "flow": flow });
-            self.control(proto::methods::gateway::LOGIN_CANCEL, params).await.map(|_| ())
+            self.control(proto::methods::gateway::LOGIN_CANCEL, params)
+                .await
+                .map(|_| ())
         })
     }
 
@@ -1339,17 +1606,28 @@ impl ProviderAdapter for RpcAdapter {
         Box::pin(async move {
             // 旧调用方既可能传裸 code，也可能传整条 URL。新回调通道显式保留
             // 两份，避免标准 code 提取后丢掉 state 或厂商附加参数。
-            let credential = url::Url::parse(code).ok().and_then(|url| {
-                url.query_pairs().find(|(key, _)| key == "code" || key == "authorization_code")
-                    .map(|(_, value)| value.into_owned())
-            }).unwrap_or_else(|| code.to_string());
-            let callback = proto::LoginCallback { flow: state.to_string(), code: credential, url: code.to_string() };
+            let credential = url::Url::parse(code)
+                .ok()
+                .and_then(|url| {
+                    url.query_pairs()
+                        .find(|(key, _)| key == "code" || key == "authorization_code")
+                        .map(|(_, value)| value.into_owned())
+                })
+                .unwrap_or_else(|| code.to_string());
+            let callback = proto::LoginCallback {
+                flow: state.to_string(),
+                code: credential,
+                url: code.to_string(),
+            };
             match self.login_callback_poll_async(store, callback).await? {
                 Some(proto::LoginPoll::Done { account }) => self.save_login_account(&account),
-                Some(proto::LoginPoll::Failed { message }) => Err(GatewayError::with_status(400, message)),
+                Some(proto::LoginPoll::Failed { message }) => {
+                    Err(GatewayError::with_status(400, message))
+                }
                 // 旧 String API 无法表达 pending；新路由一律走 callback-poll API。
                 Some(proto::LoginPoll::Pending { .. }) | None => Err(GatewayError::with_status(
-                    502, "插件尚未完成登录回调，请继续轮询登录任务",
+                    502,
+                    "插件尚未完成登录回调，请继续轮询登录任务",
                 )),
             }
         })
@@ -1368,22 +1646,21 @@ impl ProviderAdapter for RpcAdapter {
         &'a self,
         store: &'a AccountStore,
         account_id: &'a str,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>>
+    {
         self.checkin_claim_with_options(store, account_id, false)
     }
 
     fn plugin_account_view<'a>(
         &'a self,
         secret: &'a Value,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>>
+    {
         Box::pin(async move {
             let mut params = self.base();
             params.insert("secret".into(), secret.clone());
-            self.control(proto::methods::gateway::ACCOUNT_VIEW, Value::Object(params)).await
+            self.control(proto::methods::gateway::ACCOUNT_VIEW, Value::Object(params))
+                .await
         })
     }
 
@@ -1392,36 +1669,45 @@ impl ProviderAdapter for RpcAdapter {
         store: &'a AccountStore,
         account_id: &'a str,
         manual: bool,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>>
+    {
         Box::pin(async move {
             let mut params = self.base();
             params.insert("account".into(), Value::String(account_id.to_string()));
             params.insert("manual".into(), Value::Bool(manual));
-            let value = self.network(proto::methods::gateway::CHECKIN_CLAIM, Value::Object(params)).await?;
+            let value = self
+                .network(
+                    proto::methods::gateway::CHECKIN_CLAIM,
+                    Value::Object(params),
+                )
+                .await?;
             let retry_at = value.get("retryAt").cloned();
             let details = value.get("details").cloned();
             let report: proto::CheckinReport = serde_json::from_value(value).map_err(|e| {
-                if strict::applies(self.id) { strict::fatal(self.id, 502, "runtime_protocol_error") }
-                else { GatewayError::with_status(502, format!("插件返回的签到结果无法解析：{e}")) }
+                if strict::applies(self.id) {
+                    strict::fatal(self.id, 502, "runtime_protocol_error")
+                } else {
+                    GatewayError::with_status(502, format!("插件返回的签到结果无法解析：{e}"))
+                }
             })?;
             let (success, default_message) = match report.outcome {
                 proto::CheckinOutcome::Claimed => (true, "签到成功"),
                 proto::CheckinOutcome::Done => (false, "今天已经签过了"),
                 proto::CheckinOutcome::Ineligible => (false, "该账号不参与签到"),
                 proto::CheckinOutcome::Inactive => (false, "当前没有可领的活动"),
-                proto::CheckinOutcome::Captcha => {
-                    (false, "上游要求验证码，请到官方客户端手动签到")
-                }
+                proto::CheckinOutcome::Captcha => (false, "上游要求验证码，请到官方客户端手动签到"),
                 proto::CheckinOutcome::Failed => (false, "签到失败"),
             };
-            let message = if strict::applies(self.id) { default_message } else { report
-                .message
-                .as_deref()
-                .map(str::trim)
-                .filter(|text| !text.is_empty())
-                .unwrap_or(default_message) };
+            let message = if strict::applies(self.id) {
+                default_message
+            } else {
+                report
+                    .message
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty())
+                    .unwrap_or(default_message)
+            };
             let mut claim = serde_json::json!({
                 "success": success,
                 "alreadyCompleted": report.outcome == proto::CheckinOutcome::Done,
@@ -1437,24 +1723,43 @@ impl ProviderAdapter for RpcAdapter {
                 if let Some(details) = details {
                     if let Some(results) = details.get("results").and_then(Value::as_array) {
                         claim["results"] = Value::Array(results.clone());
-                        if crate::server::core::providers::zcode::region::Region::from_provider_id(self.id).is_some() {
+                        if crate::server::core::providers::zcode::region::Region::from_provider_id(
+                            self.id,
+                        )
+                        .is_some()
+                        {
                             for row in results {
                                 if row.get("success").and_then(Value::as_bool) == Some(true)
-                                    || row.get("alreadyCompleted").and_then(Value::as_bool) == Some(true)
+                                    || row.get("alreadyCompleted").and_then(Value::as_bool)
+                                        == Some(true)
                                 {
-                                    let plan = row.get("planId").and_then(Value::as_str).unwrap_or("");
-                                    let at = row.get("claimedAt").and_then(Value::as_i64)
-                                        .filter(|at| *at > 0).unwrap_or_else(crate::server::logging::now_ms);
-                                    if !plan.is_empty() && !store.mark_zcode_claim(account_id, plan, at) {
-                                        crate::server::logging::verbose("[Checkin]", "套餐领取明细未能落盘");
+                                    let plan =
+                                        row.get("planId").and_then(Value::as_str).unwrap_or("");
+                                    let at = row
+                                        .get("claimedAt")
+                                        .and_then(Value::as_i64)
+                                        .filter(|at| *at > 0)
+                                        .unwrap_or_else(crate::server::logging::now_ms);
+                                    if !plan.is_empty()
+                                        && !store.mark_zcode_claim(account_id, plan, at)
+                                    {
+                                        crate::server::logging::verbose(
+                                            "[Checkin]",
+                                            "套餐领取明细未能落盘",
+                                        );
                                     }
                                 }
                             }
                         }
                     }
-                    if let Some(state) = details.get("dailyCheckin").filter(|state| state.is_object()) {
+                    if let Some(state) = details
+                        .get("dailyCheckin")
+                        .filter(|state| state.is_object())
+                    {
                         claim["dailyCheckin"] = state.clone();
-                        if let Err(message) = store.plugin_set_ledger(account_id, "dailyCheckin", state) {
+                        if let Err(message) =
+                            store.plugin_set_ledger(account_id, "dailyCheckin", state)
+                        {
                             crate::server::logging::verbose("[Checkin]", &message);
                         }
                     }
@@ -1470,9 +1775,8 @@ impl ProviderAdapter for RpcAdapter {
         _store: &'a AccountStore,
         account_id: &'a str,
         claim: &'a str,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>>
+    {
         Box::pin(async move {
             let mut params = self.base();
             params.insert("account".into(), Value::String(account_id.to_string()));
@@ -1488,9 +1792,8 @@ impl ProviderAdapter for RpcAdapter {
         _store: &'a AccountStore,
         account_id: &'a str,
         refresh: bool,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value, GatewayError>> + Send + 'a>>
+    {
         Box::pin(async move {
             let mut params = self.with_account(account_id);
             if refresh {
@@ -1526,18 +1829,36 @@ pub(crate) fn upstream_response(kind: proto::UpstreamKind) -> UpstreamResponse {
 /// 见 `ProviderAdapter::classify_error` 的说明）。这里只做字段搬运。
 fn upstream_error_class(class: proto::ErrorClass) -> UpstreamErrorClass {
     match class {
-        proto::ErrorClass::QuotaLimited { reset_at, message, upstream_code, status } => {
-            UpstreamErrorClass::QuotaLimited { reset_at, message, upstream_code, status }
-        }
-        proto::ErrorClass::TokenExpired { message } => {
-            UpstreamErrorClass::TokenExpired { message }
-        }
-        proto::ErrorClass::ContentBlocked { status, message, upstream_code } => {
-            UpstreamErrorClass::ContentBlocked { status, message, upstream_code }
-        }
-        proto::ErrorClass::Fatal { status, message, upstream_code } => {
-            UpstreamErrorClass::Fatal { status, message, upstream_code }
-        }
+        proto::ErrorClass::QuotaLimited {
+            reset_at,
+            message,
+            upstream_code,
+            status,
+        } => UpstreamErrorClass::QuotaLimited {
+            reset_at,
+            message,
+            upstream_code,
+            status,
+        },
+        proto::ErrorClass::TokenExpired { message } => UpstreamErrorClass::TokenExpired { message },
+        proto::ErrorClass::ContentBlocked {
+            status,
+            message,
+            upstream_code,
+        } => UpstreamErrorClass::ContentBlocked {
+            status,
+            message,
+            upstream_code,
+        },
+        proto::ErrorClass::Fatal {
+            status,
+            message,
+            upstream_code,
+        } => UpstreamErrorClass::Fatal {
+            status,
+            message,
+            upstream_code,
+        },
     }
 }
 
@@ -1548,7 +1869,10 @@ impl RpcAdapter {
     /// 插件在登录完成时已经算出了稳定身份（uid / 邮箱 / 设备码）。用那个做
     /// id 才能让「同一账号登录两次」被识别成更新而不是新增 —— 而网关不知
     /// 道任何一家的身份规则。
-    fn save_login_account(&self, account: &proto::NormalizedAccount) -> Result<String, GatewayError> {
+    fn save_login_account(
+        &self,
+        account: &proto::NormalizedAccount,
+    ) -> Result<String, GatewayError> {
         let Some(store) = crate::server::core::account_store::plugin_accounts::shared() else {
             return Err(GatewayError::with_status(
                 503,
@@ -1563,12 +1887,26 @@ impl RpcAdapter {
             .filter(|value| !value.trim().is_empty())
             .unwrap_or(self.label);
         let record = store
-            .plugin_upsert_account(&id, self.id, name, &account.secret, &account.public, account.desktop)
+            .plugin_upsert_account(
+                &id,
+                self.id,
+                name,
+                &account.secret,
+                &account.public,
+                account.desktop,
+            )
             .map_err(|message| {
-                if strict::applies(self.id) { GatewayError::with_status(500, "保存提供商登录结果失败，原始诊断已隐藏") }
-                else { GatewayError::with_status(500, message) }
+                if strict::applies(self.id) {
+                    GatewayError::with_status(500, "保存提供商登录结果失败，原始诊断已隐藏")
+                } else {
+                    GatewayError::with_status(500, message)
+                }
             })?;
-        Ok(record.get("id").and_then(Value::as_str).unwrap_or(&id).to_string())
+        Ok(record
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or(&id)
+            .to_string())
     }
 
     /// head 已到之后的三条分支：错误状态 / 非流式聚合 / 流式交出去。
@@ -1595,10 +1933,23 @@ impl RpcAdapter {
         // 要的是一份**完整的** JSON 错误，而不是一段 SSE。
         if status >= 400 {
             let scope = ErrorBodyScope {
-                host: self.host.clone(), id, abort_on_drop: true, lease: Some(lease.clone()),
+                host: self.host.clone(),
+                id,
+                abort_on_drop: true,
+                lease: Some(lease.clone()),
             };
             let mut error_private = None;
-            let collected = match collect(self.id, &self.host, id, events, pending, telemetry, &mut error_private).await {
+            let collected = match collect(
+                self.id,
+                &self.host,
+                id,
+                events,
+                pending,
+                telemetry,
+                &mut error_private,
+            )
+            .await
+            {
                 Ok(bytes) => {
                     scope.finish(); // 已收到正常终态，只清登记，不额外 abort。
                     bytes
@@ -1609,15 +1960,33 @@ impl RpcAdapter {
                         return Err(crate::server::core::upstream::cancellation::cancelled_error());
                     }
                     if let Some((error_status, detail)) = error_private {
-                        let error_status = if matches!(status, 499 | 504) { status }
-                            else if matches!(error_status, 499 | 504) { error_status }
-                            else if status == 556 { status } else { error_status };
+                        let error_status = if matches!(status, 499 | 504) {
+                            status
+                        } else if matches!(error_status, 499 | 504) {
+                            error_status
+                        } else if status == 556 {
+                            status
+                        } else {
+                            error_status
+                        };
                         let class = self.classify_error_async(error_status, &detail).await;
-                        return Err(strict::conversation(self.id, error_status, class, &detail, response_headers.as_ref()));
+                        return Err(strict::conversation(
+                            self.id,
+                            error_status,
+                            class,
+                            &detail,
+                            response_headers.as_ref(),
+                        ));
                     }
-                    if strict::applies(self.id) && (matches!(status, 499 | 504)
-                        || status == 556 && !matches!(error.status_code, 499 | 504)) {
-                        let code = if status == 556 { proto::WireError::LOCAL_PRECONDITION } else { "runtime_stream_interrupted" };
+                    if strict::applies(self.id)
+                        && (matches!(status, 499 | 504)
+                            || status == 556 && !matches!(error.status_code, 499 | 504))
+                    {
+                        let code = if status == 556 {
+                            proto::WireError::LOCAL_PRECONDITION
+                        } else {
+                            "runtime_stream_interrupted"
+                        };
                         return Err(strict::fatal(self.id, status, code));
                     }
                     return Err(error);
@@ -1633,7 +2002,13 @@ impl RpcAdapter {
             // 分类走同一个 RPC 入口（插件知道自己的业务码含义）。
             let class = self.classify_error_async(status, &error).await;
             if strict::applies(self.id) {
-                return Err(strict::conversation(self.id, status, class, &error, response_headers.as_ref()));
+                return Err(strict::conversation(
+                    self.id,
+                    status,
+                    class,
+                    &error,
+                    response_headers.as_ref(),
+                ));
             }
             return Err(conversation_error(status, class, &error));
         }
@@ -1660,11 +2035,11 @@ impl RpcAdapter {
         // 「流式与非流式的正文不一样」，极难排查。
         if !stream {
             let policy = crate::server::core::upstream::sse::FramePolicy::assembled(
-                self.metadata().capabilities
-                    .sse_model_rewrite
-                    .then(|| crate::server::core::upstream::sse::ModelRewrite {
+                self.metadata().capabilities.sse_model_rewrite.then_some({
+                    crate::server::core::upstream::sse::ModelRewrite {
                         requested: wire_model,
-                    }),
+                    }
+                }),
                 self.metadata().capabilities.sse_strip_newline_chunks,
                 crate::server::config::strip_newline_keepalive(),
             );
@@ -1678,7 +2053,12 @@ impl RpcAdapter {
             if strict && telemetry.is_cancelled() {
                 return Err(crate::server::core::upstream::cancellation::cancelled_error());
             }
-            if strict && aggregated.as_ref().err().is_some_and(|error| error.message.starts_with("非流式响应超时(")) {
+            if strict
+                && aggregated
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| error.message.starts_with("非流式响应超时("))
+            {
                 return Err(strict::fatal(self.id, 504, "upstream_timeout"));
             }
             let upstream = failure.and_then(|slot| {
@@ -1690,13 +2070,21 @@ impl RpcAdapter {
                     let mut guard = slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                     guard.take()
                 });
-                if strict::stopped(&error) || error.conversation_class.is_some() && private.is_none() {
+                if strict::stopped(&error)
+                    || error.conversation_class.is_some() && private.is_none()
+                {
                     return Err(strict::reproject(self.id, &error));
                 }
                 let status = u16::try_from(error.status_code).unwrap_or(502);
                 let detail = strict::classification_input(&error, private.as_ref());
                 let class = self.classify_error_async(status, &detail).await;
-                let mut classified = strict::conversation(self.id, status, class, &detail, response_headers.as_ref());
+                let mut classified = strict::conversation(
+                    self.id,
+                    status,
+                    class,
+                    &detail,
+                    response_headers.as_ref(),
+                );
                 strict::preserve_retry(&mut classified, &error);
                 return Err(classified);
             }
@@ -1704,13 +2092,18 @@ impl RpcAdapter {
             return match aggregated {
                 Ok(done) => Ok(ForwardOutcome::Completion { body: done.body }),
                 Err(error) => {
-                    if strict { return Err(strict::reproject(self.id, &error)); }
+                    if strict {
+                        return Err(strict::reproject(self.id, &error));
+                    }
                     Err(error)
                 }
             };
         }
 
-        Ok(ForwardOutcome::Stream { status, stream: Box::new(source) })
+        Ok(ForwardOutcome::Stream {
+            status,
+            stream: Box::new(source),
+        })
     }
 }
 
@@ -1799,7 +2192,9 @@ impl ErrorBodyScope {
 
 impl Drop for ErrorBodyScope {
     fn drop(&mut self) {
-        if self.id == 0 { return; }
+        if self.id == 0 {
+            return;
+        }
         self.host.close_stream(self.id);
         if self.abort_on_drop {
             let host = self.host.clone();
@@ -1830,12 +2225,18 @@ async fn collect(
     let started = tokio::time::Instant::now();
     let deadline = started + body;
     let mut idle_deadline = started + idle;
-    let body_timeout = || GatewayError::with_status(
-        if strict::applies(provider) { 504 } else { 502 }, format!("读取提供商错误响应体超时（{}秒）", body.as_secs()),
-    );
-    let idle_timeout = || GatewayError::with_status(
-        if strict::applies(provider) { 504 } else { 502 }, format!("读取提供商错误响应体空闲超时（{}秒）", idle.as_secs()),
-    );
+    let body_timeout = || {
+        GatewayError::with_status(
+            if strict::applies(provider) { 504 } else { 502 },
+            format!("读取提供商错误响应体超时（{}秒）", body.as_secs()),
+        )
+    };
+    let idle_timeout = || {
+        GatewayError::with_status(
+            if strict::applies(provider) { 504 } else { 502 },
+            format!("读取提供商错误响应体空闲超时（{}秒）", idle.as_secs()),
+        )
+    };
     let token = telemetry.cancel_token();
     let cancelled = async move {
         match token {
@@ -1867,7 +2268,10 @@ async fn collect(
                 let credit_host = host.clone();
                 let credit = tokio::spawn(async move { credit_host.credit(id, n).await });
                 if bytes.len() >= MAX_ERROR_BODY_BYTES.saturating_sub(out.len()) {
-                    return Err(GatewayError::with_status(502, "提供商错误响应体达到 1 MiB 上限，已停止读取"));
+                    return Err(GatewayError::with_status(
+                        502,
+                        "提供商错误响应体达到 1 MiB 上限，已停止读取",
+                    ));
                 }
                 if !bytes.is_empty() {
                     idle_deadline = tokio::time::Instant::now() + idle;
@@ -1885,14 +2289,28 @@ async fn collect(
             }
             Some(super::StreamEvent::Done(Ok(_))) => return Ok(out),
             Some(super::StreamEvent::Done(Err(error))) => {
-                if strict::applies(provider) { *private_failure = strict::private_control(&error); }
-                return Err(rpc_error(provider, error, proto::methods::gateway::CONVERSATION));
+                if strict::applies(provider) {
+                    *private_failure = strict::private_control(&error);
+                }
+                return Err(rpc_error(
+                    provider,
+                    error,
+                    proto::methods::gateway::CONVERSATION,
+                ));
             }
             Some(super::StreamEvent::Failed(message)) => {
-                return Err(if strict::applies(provider) { strict::fatal(provider, 502, "runtime_stream_interrupted") }
-                    else { GatewayError::with_status(502, message) });
+                return Err(if strict::applies(provider) {
+                    strict::fatal(provider, 502, "runtime_stream_interrupted")
+                } else {
+                    GatewayError::with_status(502, message)
+                });
             }
-            None => return Err(GatewayError::with_status(502, "提供商错误响应体在终态之前中断")),
+            None => {
+                return Err(GatewayError::with_status(
+                    502,
+                    "提供商错误响应体在终态之前中断",
+                ))
+            }
             // 重复 head / 空 chunk 不延长无数据保护；总 deadline 永不重置。
             Some(super::StreamEvent::Head(_)) => {}
         }
@@ -1906,14 +2324,35 @@ async fn collect(
 /// 那个（分类器可能把它改小，例如 402 → 429），文案原样用，上游码带上。
 fn conversation_error(status: u16, class: UpstreamErrorClass, body: &Value) -> GatewayError {
     let mut error = match &class {
-        UpstreamErrorClass::QuotaLimited { status, message, upstream_code, .. }
-        | UpstreamErrorClass::ContentBlocked { status, message, upstream_code }
-        | UpstreamErrorClass::Fatal { status, message, upstream_code } => {
-            let text = if message.is_empty() { describe_body(body) } else { message.clone() };
+        UpstreamErrorClass::QuotaLimited {
+            status,
+            message,
+            upstream_code,
+            ..
+        }
+        | UpstreamErrorClass::ContentBlocked {
+            status,
+            message,
+            upstream_code,
+        }
+        | UpstreamErrorClass::Fatal {
+            status,
+            message,
+            upstream_code,
+        } => {
+            let text = if message.is_empty() {
+                describe_body(body)
+            } else {
+                message.clone()
+            };
             GatewayError::with_status(i32::from(*status), text).with_optional_code(*upstream_code)
         }
         UpstreamErrorClass::TokenExpired { message } => {
-            let text = if message.is_empty() { describe_body(body) } else { message.clone() };
+            let text = if message.is_empty() {
+                describe_body(body)
+            } else {
+                message.clone()
+            };
             GatewayError::with_status(i32::from(status), text)
         }
     };
@@ -1969,7 +2408,10 @@ fn headers_json(headers: &HeaderMap) -> Value {
     let mut map = serde_json::Map::new();
     for (name, value) in headers {
         if let Ok(text) = value.to_str() {
-            map.insert(name.as_str().to_ascii_lowercase(), Value::String(text.to_string()));
+            map.insert(
+                name.as_str().to_ascii_lowercase(),
+                Value::String(text.to_string()),
+            );
         }
     }
     Value::Object(map)

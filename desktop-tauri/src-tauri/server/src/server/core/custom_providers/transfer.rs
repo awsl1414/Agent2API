@@ -51,7 +51,11 @@ pub(crate) struct MergeReport {
 /// 整体失败（写盘不成功）返回 Err，调用方必须当成整批导入失败。
 pub(crate) fn merge_imported(items: &[Value]) -> Result<MergeReport, String> {
     let mut current = read_items();
-    let mut report = MergeReport { added: 0, updated: 0, warnings: Vec::new() };
+    let mut report = MergeReport {
+        added: 0,
+        updated: 0,
+        warnings: Vec::new(),
+    };
     let mut seen: HashSet<String> = HashSet::new();
 
     for item in items {
@@ -117,7 +121,9 @@ pub(crate) fn merge_imported(items: &[Value]) -> Result<MergeReport, String> {
     }
 
     if !write_items(&current) {
-        return Err("保存失败：自定义提供商定义写入未成功（请检查磁盘空间与配置目录权限）".to_string());
+        return Err(
+            "保存失败：自定义提供商定义写入未成功（请检查磁盘空间与配置目录权限）".to_string(),
+        );
     }
     Ok(report)
 }

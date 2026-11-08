@@ -26,7 +26,11 @@ use crate::server::http::{ok_json, parse_body};
 use crate::server::ServerState;
 
 fn text_field<'a>(object: &'a serde_json::Map<String, Value>, key: &str) -> &'a str {
-    object.get(key).and_then(Value::as_str).map(str::trim).unwrap_or("")
+    object
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("")
 }
 
 /// 网关基址：优先取请求 Host（客户端看到的就是它要填的地址），没有则回环。
@@ -41,7 +45,11 @@ fn base_url(headers: &HeaderMap, state: &ServerState) -> String {
         .filter(|value| !value.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| format!("127.0.0.1:{}", state.port));
-    let host = if state.panel_port.is_some() { with_port(&host, state.port) } else { host };
+    let host = if state.panel_port.is_some() {
+        with_port(&host, state.port)
+    } else {
+        host
+    };
     let scheme = headers
         .get("x-forwarded-proto")
         .and_then(|value| value.to_str().ok())
@@ -103,7 +111,9 @@ pub async fn patch_server(Path(id): Path<String>, body: Bytes) -> Response {
         return errors::management_error(400, "需要 enabled 或 timeout_seconds");
     }
     if let Some(seconds) = timeout {
-        if !(tool_services::TIMEOUT_MIN_SECONDS..=tool_services::TIMEOUT_MAX_SECONDS).contains(&seconds) {
+        if !(tool_services::TIMEOUT_MIN_SECONDS..=tool_services::TIMEOUT_MAX_SECONDS)
+            .contains(&seconds)
+        {
             return errors::management_error(
                 400,
                 format!(
@@ -149,10 +159,19 @@ pub async fn put_selection(body: Bytes) -> Response {
     let search = object.get("search_providers").map(|value| {
         value
             .as_array()
-            .map(|items| items.iter().filter_map(Value::as_str).map(str::to_string).collect::<Vec<_>>())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default()
     });
-    let fetch = object.get("fetch_provider").and_then(Value::as_str).map(str::to_string);
+    let fetch = object
+        .get("fetch_provider")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     match tool_services::update_selection(search, fetch) {
         Ok(value) => ok_json(value),
         Err(error) => errors::management_error(400, error),
@@ -160,7 +179,11 @@ pub async fn put_selection(body: Bytes) -> Response {
 }
 
 /// PUT /api/tools/providers/{provider} `{api_key?, account_id?, enabled?}`
-pub async fn put_provider(State(state): State<ServerState>, Path(provider): Path<String>, body: Bytes) -> Response {
+pub async fn put_provider(
+    State(state): State<ServerState>,
+    Path(provider): Path<String>,
+    body: Bytes,
+) -> Response {
     if !tool_services::is_search_provider(&provider) {
         return errors::management_error(400, "未知的搜索提供商");
     }
@@ -203,7 +226,10 @@ pub async fn delete_provider_key(Path(provider): Path<String>) -> Response {
     ok_json(json!({ "success": true }))
 }
 
-pub async fn test_provider(State(state): State<ServerState>, Path(provider): Path<String>) -> Response {
+pub async fn test_provider(
+    State(state): State<ServerState>,
+    Path(provider): Path<String>,
+) -> Response {
     if !tool_services::is_search_provider(&provider) {
         return errors::management_error(400, "未知的搜索提供商");
     }
@@ -259,14 +285,14 @@ pub async fn put_vision_config(State(state): State<ServerState>, body: Bytes) ->
     }
 
     // 提供商与模型从模型管理的当前视图里取：只接受「这家、这个已启用的模型」
-    let view = catalog::manage_view(&state.store());
+    let view = catalog::manage_view(state.store());
     let provider_label = view
         .get("providers")
         .and_then(Value::as_array)
         .and_then(|providers| {
-            providers
-                .iter()
-                .find(|item| item.get("provider").and_then(Value::as_str) == Some(provider.as_str()))
+            providers.iter().find(|item| {
+                item.get("provider").and_then(Value::as_str) == Some(provider.as_str())
+            })
         })
         .and_then(|item| item.get("providerLabel"))
         .and_then(Value::as_str)
@@ -287,7 +313,10 @@ pub async fn put_vision_config(State(state): State<ServerState>, body: Bytes) ->
         .and_then(Value::as_str)
         .map(str::to_string);
     let Some(model_id) = model_id else {
-        return errors::management_error(400, "该提供商下没有这个已启用的模型，请先在模型管理页确认");
+        return errors::management_error(
+            400,
+            "该提供商下没有这个已启用的模型，请先在模型管理页确认",
+        );
     };
 
     let config = VisionConfig {
@@ -335,7 +364,11 @@ pub async fn install_targets(Query(query): Query<HashMap<String, String>>) -> Re
 }
 
 /// GET /api/tools/install-info?service=web-search
-pub async fn install_info(State(state): State<ServerState>, headers: HeaderMap, Query(query): Query<HashMap<String, String>>) -> Response {
+pub async fn install_info(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
     let service = query.get("service").map(String::as_str).unwrap_or("");
     if !tool_services::is_service(service) {
         return errors::management_error(400, "未知的工具服务");
@@ -382,7 +415,13 @@ fn client_ids(object: &serde_json::Map<String, Value>) -> Vec<String> {
     object
         .get("clients")
         .and_then(Value::as_array)
-        .map(|items| items.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -391,7 +430,11 @@ fn outcomes_json(outcomes: Vec<tool_services::InstallOutcome>) -> Value {
 }
 
 /// POST /api/tools/install-skill `{api_key_id, variant, clients}`
-pub async fn install_skill(State(state): State<ServerState>, headers: HeaderMap, body: Bytes) -> Response {
+pub async fn install_skill(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let payload = match parse_body(&body) {
         Ok(value) => value,
         Err(error) => return errors::management_error(400, error.message),
@@ -422,7 +465,11 @@ pub async fn install_skill(State(state): State<ServerState>, headers: HeaderMap,
 }
 
 /// POST /api/tools/install-mcp `{service_id, mode?, api_key_id, clients}`
-pub async fn install_mcp(State(state): State<ServerState>, headers: HeaderMap, body: Bytes) -> Response {
+pub async fn install_mcp(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let payload = match parse_body(&body) {
         Ok(value) => value,
         Err(error) => return errors::management_error(400, error.message),
@@ -450,13 +497,8 @@ pub async fn install_mcp(State(state): State<ServerState>, headers: HeaderMap, b
     if clients.is_empty() {
         return errors::management_error(400, "请至少选择一个客户端");
     }
-    let outcomes = tool_services::install_mcp(
-        service,
-        mode,
-        &base_url(&headers, &state),
-        &key,
-        &clients,
-    );
+    let outcomes =
+        tool_services::install_mcp(service, mode, &base_url(&headers, &state), &key, &clients);
     ok_json(outcomes_json(outcomes))
 }
 
@@ -473,7 +515,10 @@ pub async fn uninstall_skill(body: Bytes) -> Response {
     if clients.is_empty() {
         return errors::management_error(400, "请至少选择一个客户端");
     }
-    ok_json(outcomes_json(tool_services::uninstall_skill(tool_services::WEB_SEARCH_SERVICE_ID, &clients)))
+    ok_json(outcomes_json(tool_services::uninstall_skill(
+        tool_services::WEB_SEARCH_SERVICE_ID,
+        &clients,
+    )))
 }
 
 /// POST /api/tools/uninstall-mcp `{service_id, clients}`
@@ -493,7 +538,9 @@ pub async fn uninstall_mcp(body: Bytes) -> Response {
     if clients.is_empty() {
         return errors::management_error(400, "请至少选择一个客户端");
     }
-    ok_json(outcomes_json(tool_services::uninstall_mcp(service, &clients)))
+    ok_json(outcomes_json(tool_services::uninstall_mcp(
+        service, &clients,
+    )))
 }
 
 /// GET /api/tools/mcp-bridge/vision.js —— 视觉本地桥接脚本（文本）

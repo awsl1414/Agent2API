@@ -39,7 +39,9 @@ pub struct Connections {
 
 impl Connections {
     pub fn new() -> Self {
-        Self { inner: Arc::new(Mutex::new(HashMap::new())) }
+        Self {
+            inner: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
     /// 全部**非零**计数（account_id → count），按 id 排序保证输出稳定。
@@ -115,7 +117,10 @@ pub struct ConnectionGuard {
 
 impl ConnectionGuard {
     pub(super) fn new(connections: Connections) -> Self {
-        Self { connections, account_id: None }
+        Self {
+            connections,
+            account_id: None,
+        }
     }
 
     /// 改绑到另一个账号：先放掉旧的，再给新的 +1（同一个账号则原样不动）。

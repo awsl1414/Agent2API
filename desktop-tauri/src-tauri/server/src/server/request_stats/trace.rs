@@ -42,15 +42,29 @@ impl RequestStats {
             self.with_conn(&guard, |conn| {
                 let matched: i64 = conn.query_row(
                     &format!("SELECT COUNT(*) FROM requests {where_clause}"),
-                    params![model, start, end, search], |row| row.get(0),
+                    params![model, start, end, search],
+                    |row| row.get(0),
                 )?;
-                let query = format!("SELECT {}, row_id AS trace_key FROM requests {where_clause}
-                    ORDER BY ts DESC, row_id DESC LIMIT ?5 OFFSET ?6", sql::REQUEST_COLUMNS);
+                let query = format!(
+                    "SELECT {}, row_id AS trace_key FROM requests {where_clause}
+                    ORDER BY ts DESC, row_id DESC LIMIT ?5 OFFSET ?6",
+                    sql::REQUEST_COLUMNS
+                );
                 let mut stmt = conn.prepare(&query)?;
-                let mut rows = stmt.query(params![model, start, end, search, limit as i64, offset as i64])?;
+                let mut rows = stmt.query(params![
+                    model,
+                    start,
+                    end,
+                    search,
+                    limit as i64,
+                    offset as i64
+                ])?;
                 let mut entries = Vec::new();
                 while let Some(row) = rows.next()? {
-                    entries.push((sql::decode_request(row)?, row.get::<_, i64>("trace_key")?.to_string()));
+                    entries.push((
+                        sql::decode_request(row)?,
+                        row.get::<_, i64>("trace_key")?.to_string(),
+                    ));
                 }
                 Ok((matched, entries))
             })
@@ -58,7 +72,10 @@ impl RequestStats {
         let Some((matched, rows)) = loaded else {
             return json!({ "available": false, "entries": [], "matched": 0 });
         };
-        let entries: Vec<Value> = rows.into_iter().map(|(entry, key)| trace_json(&entry, key)).collect();
+        let entries: Vec<Value> = rows
+            .into_iter()
+            .map(|(entry, key)| trace_json(&entry, key))
+            .collect();
         json!({ "available": true, "entries": entries, "matched": matched, "offset": offset, "limit": limit })
     }
 

@@ -49,10 +49,10 @@ use std::time::Duration;
 use bytes::Bytes;
 use futures::Stream;
 
+use crate::server::core::protocol::ai_sdk_ndjson::ChatFromAiSdkNdjsonStream;
 use crate::server::core::protocol::anthropic_outbound::ChatFromAnthropicStream;
 use crate::server::core::protocol::antigravity_stream::ChatFromAntigravityStream;
 use crate::server::core::protocol::chatglm_stream::ChatFromChatglmStream;
-use crate::server::core::protocol::ai_sdk_ndjson::ChatFromAiSdkNdjsonStream;
 
 /// 上游 Anthropic SSE → 标准 chat SSE 的字节流（`reqwest::Response` 直接进来）。
 ///

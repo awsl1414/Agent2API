@@ -82,7 +82,11 @@ pub async fn set_state(State(state): State<ServerState>, body: Bytes) -> Respons
     // 目标提供商：新版前端总是带着（启停粒度是「提供商 × 模型 id」）；
     // 缺省走旧版全局语义 —— 只有旧版前端（升级前）会这么传
     let provider = text_field(&object, "provider");
-    let provider_opt = if provider.is_empty() { None } else { Some(provider.as_str()) };
+    let provider_opt = if provider.is_empty() {
+        None
+    } else {
+        Some(provider.as_str())
+    };
     if let Some(provider) = provider_opt {
         if !crate::server::core::providers::is_known_provider_id(provider) {
             return errors::management_error(400, format!("未知的提供商: {provider}"));
@@ -96,7 +100,11 @@ pub async fn set_state(State(state): State<ServerState>, body: Bytes) -> Respons
         Some(name) => format!("[{name}] {id}"),
         None => id.clone(),
     };
-    let what = if enabled == Some(true) { "已启用" } else { "已禁用" };
+    let what = if enabled == Some(true) {
+        "已启用"
+    } else {
+        "已禁用"
+    };
     logging::log("[Models]", &format!("模型 {subject} {what}"));
     ok_json(catalog::manage_view(state.store()))
 }
@@ -131,7 +139,11 @@ pub async fn add_mapping(State(state): State<ServerState>, body: Bytes) -> Respo
     if target.is_empty() {
         return errors::management_error(400, "缺少目标上游模型");
     }
-    let provider_opt = if provider.is_empty() { None } else { Some(provider.as_str()) };
+    let provider_opt = if provider.is_empty() {
+        None
+    } else {
+        Some(provider.as_str())
+    };
     if let Some(kind) = provider_opt {
         // provider 必须是注册表里的家：它决定候选链里追加谁，写错名字会让
         // 映射悄悄变成一条永远路由不到的死路
@@ -169,7 +181,9 @@ pub async fn add_mapping(State(state): State<ServerState>, body: Bytes) -> Respo
         Some(Value::Bool(value)) => Some(*value),
         Some(_) => return errors::management_error(400, "create 必须是布尔值"),
     };
-    if let Err(error) = model_rules::add_mapping(&alias, &target, provider_opt, reasoning, enabled, create) {
+    if let Err(error) =
+        model_rules::add_mapping(&alias, &target, provider_opt, reasoning, enabled, create)
+    {
         return errors::management_error(error.status_code, error.message);
     }
     let subject = match provider_opt {
@@ -187,7 +201,10 @@ pub async fn add_mapping(State(state): State<ServerState>, body: Bytes) -> Respo
         Some(false) => "，开关 关",
         None => "",
     };
-    logging::log("[Models]", &format!("保存映射 {subject}{reasoning_text}{enabled_text}"));
+    logging::log(
+        "[Models]",
+        &format!("保存映射 {subject}{reasoning_text}{enabled_text}"),
+    );
     ok_json(catalog::manage_view(state.store()))
 }
 
@@ -208,7 +225,11 @@ pub async fn remove_mapping(State(state): State<ServerState>, body: Bytes) -> Re
     if alias.is_empty() || target.is_empty() {
         return errors::management_error(400, "缺少映射名或目标上游模型");
     }
-    let provider_opt = if provider.is_empty() { None } else { Some(provider.as_str()) };
+    let provider_opt = if provider.is_empty() {
+        None
+    } else {
+        Some(provider.as_str())
+    };
     // 自映射（默认绑定）正常**不能删** —— 它跟着模型行存在，要停用请关它的开关。
     // 唯一的例外是**这条模型行已经不在了**（上游把模型下线、那家被移除或没有可用
     // 账号）：这时开关没有落点，「关掉它」无从谈起，删除是唯一出路 —— 管理页的
@@ -312,10 +333,7 @@ pub async fn remove_custom(State(state): State<ServerState>, body: Bytes) -> Res
         Err(error) => return errors::management_error(error.status_code, error.message),
     };
     if !removed {
-        return errors::management_error(
-            404,
-            format!("自定义模型不存在: [{provider}] {id}"),
-        );
+        return errors::management_error(404, format!("自定义模型不存在: [{provider}] {id}"));
     }
     logging::log("[Models]", &format!("移除自定义模型 [{provider}] {id}"));
     ok_json(catalog::manage_view(state.store()))
@@ -393,6 +411,9 @@ pub async fn set_capabilities(State(state): State<ServerState>, body: Bytes) -> 
         })
         .collect::<Vec<_>>()
         .join(", ");
-    logging::log("[Models]", &format!("保存模型能力 [{provider}] {id}: {summary}"));
+    logging::log(
+        "[Models]",
+        &format!("保存模型能力 [{provider}] {id}: {summary}"),
+    );
     ok_json(catalog::manage_view(state.store()))
 }

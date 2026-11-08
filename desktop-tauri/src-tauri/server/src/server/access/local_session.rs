@@ -23,10 +23,15 @@ pub fn issue() -> Result<Session, String> {
     let access_token: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
     let now = now_ms();
     let expires_at = now.saturating_add(ACCESS_TTL.as_millis() as i64);
-    let mut table = tokens().lock().map_err(|_| "本机管理会话状态不可用".to_string())?;
+    let mut table = tokens()
+        .lock()
+        .map_err(|_| "本机管理会话状态不可用".to_string())?;
     table.retain(|_, expiry| *expiry > now);
     table.insert(sha256_hex(&access_token), expires_at);
-    Ok(Session { access_token, expires_at })
+    Ok(Session {
+        access_token,
+        expires_at,
+    })
 }
 
 pub fn valid(token: &str) -> bool {
@@ -34,19 +39,27 @@ pub fn valid(token: &str) -> bool {
 }
 
 pub(super) fn valid_any<'a>(candidates: impl IntoIterator<Item = &'a str>) -> bool {
-    let Ok(mut table) = tokens().lock() else { return false };
+    let Ok(mut table) = tokens().lock() else {
+        return false;
+    };
     let now = now_ms();
     table.retain(|_, expiry| *expiry > now);
-    candidates.into_iter().any(|token| !token.is_empty() && table.contains_key(&sha256_hex(token)))
+    candidates
+        .into_iter()
+        .any(|token| !token.is_empty() && table.contains_key(&sha256_hex(token)))
 }
 
 pub fn revoke(token: &str) {
-    let Ok(mut table) = tokens().lock() else { return };
+    let Ok(mut table) = tokens().lock() else {
+        return;
+    };
     table.remove(&sha256_hex(token));
 }
 
 pub(super) fn revoke_any(candidates: &[String]) {
-    let Ok(mut table) = tokens().lock() else { return };
+    let Ok(mut table) = tokens().lock() else {
+        return;
+    };
     for token in candidates {
         table.remove(&sha256_hex(token));
     }

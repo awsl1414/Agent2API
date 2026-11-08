@@ -56,7 +56,10 @@ impl Transport {
     pub(crate) fn display_path(&self) -> String {
         match self {
             Transport::WebDav { segments, .. } => format!("/{}", segments.join("/")),
-            Transport::S3 { credentials, prefix } => {
+            Transport::S3 {
+                credentials,
+                prefix,
+            } => {
                 format!("{}/{prefix}", credentials.bucket)
             }
         }
@@ -97,7 +100,10 @@ impl Transport {
                 let url = webdav::build_remote_url(base_url, &file_segments)?;
                 webdav::put_bytes(&url, auth, bytes, content_type, user_agent).await
             }
-            Transport::S3 { credentials, prefix } => {
+            Transport::S3 {
+                credentials,
+                prefix,
+            } => {
                 let key = format!("{prefix}/{}", name.trim_start_matches('/'));
                 s3::put_object(credentials, &key, bytes, content_type).await
             }
@@ -122,7 +128,10 @@ impl Transport {
                 let url = webdav::build_remote_url(base_url, &file_segments)?;
                 webdav::get_bytes(&url, auth, max_bytes, user_agent).await
             }
-            Transport::S3 { credentials, prefix } => {
+            Transport::S3 {
+                credentials,
+                prefix,
+            } => {
                 let key = format!("{prefix}/{}", name.trim_start_matches('/'));
                 s3::get_object(credentials, &key, max_bytes).await
             }
@@ -133,7 +142,10 @@ impl Transport {
     pub(crate) async fn get_manifest(
         &self,
     ) -> Result<Option<(Vec<u8>, manifest::SyncManifest)>, String> {
-        let Some(bytes) = self.get(manifest::REMOTE_MANIFEST, MAX_MANIFEST_BYTES).await? else {
+        let Some(bytes) = self
+            .get(manifest::REMOTE_MANIFEST, MAX_MANIFEST_BYTES)
+            .await?
+        else {
             return Ok(None);
         };
         let parsed: manifest::SyncManifest = serde_json::from_slice(&bytes).map_err(|error| {
@@ -148,9 +160,9 @@ impl Transport {
         name: &str,
         artifacts: &std::collections::BTreeMap<String, ArtifactMeta>,
     ) -> Result<Vec<u8>, String> {
-        let meta = artifacts.get(name).ok_or_else(|| {
-            format!("远端 manifest 里没有 {name}（这份快照不完整，请重新上传）")
-        })?;
+        let meta = artifacts
+            .get(name)
+            .ok_or_else(|| format!("远端 manifest 里没有 {name}（这份快照不完整，请重新上传）"))?;
         if meta.size > MAX_ARTIFACT_BYTES {
             return Err(format!(
                 "远端 {name} 超过上限（{} 字节 > {MAX_ARTIFACT_BYTES} 字节）",

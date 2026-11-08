@@ -80,14 +80,14 @@ use serde_json::{json, Value};
 use crate::server::config;
 use crate::server::core::custom_providers;
 use crate::server::core::protocol::strip_internal_fields;
+#[cfg(test)]
+use crate::server::core::providers::adapter::adapter_for;
 use crate::server::core::providers::adapter::{
     ProviderAdapter, RetryAdvice, RetryDecision, UpstreamErrorClass,
 };
 use crate::server::core::providers::custom::forward as custom_forward;
 use crate::server::core::providers::readiness;
 use crate::server::core::providers::{kind_from_id, meta};
-#[cfg(test)]
-use crate::server::core::providers::adapter::adapter_for;
 // `ProviderKind` 只被 `provider_loop/tests.rs` 通过 `super::*` 用到；
 // 生产代码已经不再需要它（分派改成 `adapter_by_id`）。留着这个 re-import
 // 比让测试自己写全路径更贴合既有写法。
@@ -102,8 +102,7 @@ use super::usage::LogPhase;
 use super::{
     account_display, account_label, cancellation, connections::ConnectionGuard, describe_proxy,
     format_reset_text, refusal, reset_hint, rotate, ForwardOutcome, InFlightGuard, RouteTarget,
-    UpstreamService,
-    MAX_ROUTE_ATTEMPTS,
+    UpstreamService, MAX_ROUTE_ATTEMPTS,
 };
 
 #[cfg(test)]
@@ -143,7 +142,10 @@ struct RetryBudget {
 
 impl RetryBudget {
     fn new(total: usize) -> Self {
-        Self { total, remaining: total }
+        Self {
+            total,
+            remaining: total,
+        }
     }
 
     /// 已经用掉几次（适配器要这个来写文案）
@@ -212,9 +214,14 @@ fn defer_to_next_account(
             tried_ids.push(account_id);
         }
     }
-    let Some(next) =
-        rotate::pick_next_account(service, provider_ids, cooldown_keys, tried_ids, pinned, request_routing)
-    else {
+    let Some(next) = rotate::pick_next_account(
+        service,
+        provider_ids,
+        cooldown_keys,
+        tried_ids,
+        pinned,
+        request_routing,
+    ) else {
         return false;
     };
     if !take_switch(switches_left, switch_total) {
@@ -240,7 +247,11 @@ fn defer_to_next_account(
         &format!(
             "⚠️ 账号 {} 对模型 {model} {stage}（HTTP {status_code}），\
              按队列顺延 → {}（优先级 {}{next_home}）",
-            account_label(target.account.as_ref(), &target.account_id.clone().unwrap_or_default(), &session),
+            account_label(
+                target.account.as_ref(),
+                &target.account_id.clone().unwrap_or_default(),
+                session
+            ),
             account_display(&next),
             next.get("priority")
                 .and_then(Value::as_i64)
@@ -324,7 +335,10 @@ fn transient_retry_advice(status: u16, remaining: usize) -> Option<RetryAdvice> 
 ///
 /// 原因取错误自带的简短形态（`UpstreamRequestError::reason`）：连接超时与
 /// 等待响应头超时各自带设置页旋钮名与实际秒数，其余统一「上游连接失败」。
-fn transport_retry_advice(error: &super::request::UpstreamRequestError, remaining: usize) -> Option<RetryAdvice> {
+fn transport_retry_advice(
+    error: &super::request::UpstreamRequestError,
+    remaining: usize,
+) -> Option<RetryAdvice> {
     if remaining == 0 {
         return None;
     }
@@ -397,7 +411,10 @@ fn fallback_retry_advice(
 /// 一个已经算好的数）。改造前这句整句由适配器与两个兜底函数各自拼好，
 /// 措辞与现在一致，只是分隔符统一成「；」（原先瞬时错误与连接失败那两句用「，」）。
 fn retry_log_line(reason: &str, delay_ms: u64, used: usize, total: usize) -> String {
-    format!("⚠️ {reason}；{} 秒后重试（第 {used}/{total} 次）", delay_ms / 1000)
+    format!(
+        "⚠️ {reason}；{} 秒后重试（第 {used}/{total} 次）",
+        delay_ms / 1000
+    )
 }
 
 /// 转发入口：在候选家的全部账号里按全局优先级逐个尝试。
@@ -429,41 +446,65 @@ pub(super) async fn forward_with_providers(
     // `provider_only`，就是被钉住的那一家）；发送侧的按家改写照常走生产语义，
     // 关闭的默认绑定解析不出目标、名字原样直发，见 `ForwardRequest` 的说明。
     let candidates = if ctx.routing.group.is_some() {
-        if ctx.images.is_some() { return Err(GatewayError::bad_request("对话路由组不能用于图片生成")); }
+        if ctx.images.is_some() {
+            return Err(GatewayError::bad_request("对话路由组不能用于图片生成"));
+        }
         ctx.routing.providers(Vec::new())
     } else if ctx.ignore_model_gate {
         ctx.key_scope
             .map(crate::server::core::key_scope::KeyScope::allowed_provider_ids)
             .unwrap_or_default()
     } else if let Some(operation) = ctx.images {
-        ctx.routing.providers(crate::server::core::providers::images::operation_providers(&model, operation))
+        ctx.routing
+            .providers(crate::server::core::providers::images::operation_providers(
+                &model, operation,
+            ))
     } else {
         let available = crate::server::core::providers::catalog::forwarding_providers(&model);
         // 压缩目标在入口校验后被删除时应报错，不能落到普通请求的默认提供商兜底。
-        let available = if !ctx.compact_routed && available.is_empty() && crate::server::core::providers::catalog::providers_for_model(&model).is_empty() {
+        let available = if !ctx.compact_routed
+            && available.is_empty()
+            && crate::server::core::providers::catalog::providers_for_model(&model).is_empty()
+        {
             vec![crate::server::core::providers::DEFAULT_PROVIDER_ID.to_string()]
-        } else { available };
+        } else {
+            available
+        };
         ctx.routing.providers(available)
     };
     let candidates: Vec<_> = if ctx.images.is_some() || ctx.routing.group.is_some() {
         candidates
     } else {
-        candidates.into_iter().filter(|provider| {
-            !crate::server::core::providers::images::provider_model_is_image(provider, &model)
-        }).collect()
+        candidates
+            .into_iter()
+            .filter(|provider| {
+                !crate::server::core::providers::images::provider_model_is_image(provider, &model)
+            })
+            .collect()
     };
-    if !ctx.compact_routed && ctx.routing.group.is_none() && crate::server::core::providers::catalog::providers_for_model(&model).is_empty() {
+    if !ctx.compact_routed
+        && ctx.routing.group.is_none()
+        && crate::server::core::providers::catalog::providers_for_model(&model).is_empty()
+    {
         logging::verbose(
             "[Upstream]",
             &format!(
                 "模型 {} 不在聚合目录中，按默认提供商转发",
-                if model.is_empty() { "(未指定)" } else { &model },
+                if model.is_empty() {
+                    "(未指定)"
+                } else {
+                    &model
+                },
             ),
         );
     }
     if candidates.is_empty() {
         if ctx.routing.group.is_some() {
-            return Err(GatewayError::with_status(503, "此路由组没有参与成员，请在路由页加入模型；未回退全局或默认提供商").with_code("route_empty"));
+            return Err(GatewayError::with_status(
+                503,
+                "此路由组没有参与成员，请在路由页加入模型；未回退全局或默认提供商",
+            )
+            .with_code("route_empty"));
         }
         // 空链有两条来源（见 `route_for_forward`）：注册表里连默认 provider 都
         // 没有，或者这个名字的承载家**全被关闭**（那时不回落默认家）。后者是
@@ -471,9 +512,7 @@ pub(super) async fn forward_with_providers(
         if crate::server::core::providers::catalog::model_blocked_everywhere(&model) {
             return Err(GatewayError::with_status(
                 404,
-                format!(
-                    "模型已在网关中关闭: {model}。完整列表见 GET /v1/models"
-                ),
+                format!("模型已在网关中关闭: {model}。完整列表见 GET /v1/models"),
             )
             .with_code("model_not_found"));
         }
@@ -487,13 +526,17 @@ pub(super) async fn forward_with_providers(
             };
             return Err(GatewayError::with_status(
                 503,
-                format!("模型 {model} 没有可参与转发的提供商：当前路由的参与范围将候选全部排除。{hint}"),
+                format!(
+                    "模型 {model} 没有可参与转发的提供商：当前路由的参与范围将候选全部排除。{hint}"
+                ),
             ));
         }
         if ctx.compact_routed {
-            return Err(GatewayError::with_status(404, format!(
-                "压缩目标模型 {model} 已不可用，未回退默认提供商或原模型"
-            )).with_code("model_not_found"));
+            return Err(GatewayError::with_status(
+                404,
+                format!("压缩目标模型 {model} 已不可用，未回退默认提供商或原模型"),
+            )
+            .with_code("model_not_found"));
         }
         return Err(GatewayError::new("没有可用的提供商，无法转发"));
     }
@@ -508,9 +551,9 @@ pub(super) async fn forward_with_providers(
     let provider_ids: Vec<&str> = candidates.iter().map(String::as_str).collect();
     // 映射扩池的提示：链比本名承载家长，说明追加了映射的提供商（选路顺序仍是
     // 原生优先）。用户看到请求落到映射家时，这里与发送侧的改写日志对得上。
-    let with_mapping = crate::server::core::model_rules::shared()
+    let with_mapping = !crate::server::core::model_rules::shared()
         .mappings_of(&model)
-        .len() > 0;
+        .is_empty();
     logging::verbose(
         "[Upstream]",
         &format!(
@@ -592,7 +635,11 @@ async fn attempt_queue(
     connections: &mut ConnectionGuard,
 ) -> Result<ForwardOutcome, GatewayError> {
     let model = model_of(ctx.body);
-    let model_label = if model.is_empty() { "(默认)".to_string() } else { model.clone() };
+    let model_label = if model.is_empty() {
+        "(默认)".to_string()
+    } else {
+        model.clone()
+    };
     // 限额冷却键的解析器：把请求名解析成**各家上游真名**（见 `routing::CooldownKeys`）。
     // 建一次、整条请求共用 —— 选路、429 记账、成功清理三处读的必须是同一个键，
     // 否则冷却会写在一个名字上、查在另一个名字上。
@@ -603,18 +650,27 @@ async fn attempt_queue(
     // 标识、也没有可用的会话特征（无 messages），粘性自动不生效。整个请求周期
     // 只用这一个键 —— 429 顺延的后续选路查的是同一个会话，粘住的账号失败后
     // 同样顺延（粘性不等于无条件）。
-    let conv_key = super::route_state::RouteState::conversation_key(ctx.client_headers, &ctx.body);
+    let conv_key = super::route_state::RouteState::conversation_key(ctx.client_headers, ctx.body);
     let sticky_generation = service.route.sticky_generation();
-    let sticky_source = super::route_state::RouteState::conversation_source(ctx.client_headers, &ctx.body);
+    let sticky_source =
+        super::route_state::RouteState::conversation_source(ctx.client_headers, ctx.body);
     if !conv_key.is_empty() {
         let mut decision = json!({
             "sessionId": super::route_sticky::entry_id(&conv_key, &model), "sessionSource": sticky_source,
             "strategy": ctx.routing.settings.strategy.as_str(), "sticky": ctx.routing.settings.sticky.as_str(),
             "scope": ctx.routing.scope, "configSnapshot": ctx.routing.json(),
         });
-        if ctx.routing.settings.sticky.ttl_ms().is_some() { decision["stickyId"] = decision["sessionId"].clone(); }
+        if ctx.routing.settings.sticky.ttl_ms().is_some() {
+            decision["stickyId"] = decision["sessionId"].clone();
+        }
         if let Some(group) = &ctx.routing.group {
-            decision["blocked"] = json!(ctx.routing.group_projection.blocked.iter().take(12).collect::<Vec<_>>());
+            decision["blocked"] = json!(ctx
+                .routing
+                .group_projection
+                .blocked
+                .iter()
+                .take(12)
+                .collect::<Vec<_>>());
             decision["blockedTotal"] = ctx.routing.group_projection.blocked.len().into();
             decision["groupId"] = group.id.clone().into();
         }
@@ -664,7 +720,8 @@ async fn attempt_queue(
     // 值里同时带着**该家实际收到的上游模型名**（`SendBody::wire_model`）——
     // 它是限额冷却的键，与发出去的字节同源（见 `payload::SendBody`）。
     // 缓存因此不只省一次脱敏：429 记账与成功清理都从这里取真名，不必再解析一遍。
-    let mut send_cache: HashMap<(&'static str, String, String, bool), SendBody<'_>> = HashMap::new();
+    let mut send_cache: HashMap<(&'static str, String, String, bool), SendBody<'_>> =
+        HashMap::new();
 
     // 标签是必需的：下面「429 降级到下一个账号」发生在**内层发送循环**里，
     // 裸 `continue` 会回到内层（用同一个账号再发一次，正好是要避免的事）。
@@ -694,9 +751,11 @@ async fn attempt_queue(
         } else if crate::server::core::providers::is_scoped_runtime_provider(&target.provider)
             && target.proxy_notice.is_some()
         {
-            return Err(GatewayError::with_status(400,
-                "指定账号的代理不可用；未回退直连、系统代理或其他账号")
-                .with_code("account_proxy_unavailable"));
+            return Err(GatewayError::with_status(
+                400,
+                "指定账号的代理不可用；未回退直连、系统代理或其他账号",
+            )
+            .with_code("account_proxy_unavailable"));
         }
         // 决策快照挂进 telemetry（最后一次为准：请求日志的「路由回放」显示
         // 的是最终承载那次选路的完整排序 —— 与 attempts 明细的换号链互补，
@@ -710,8 +769,12 @@ async fn attempt_queue(
         // （429 降级、401 刷新后换号、会话式失败顺延三条路径都经过这里）。
         connections.rebind(target.account_id.clone());
         let attempt_key = target.attempt_key().unwrap_or_default();
-        let selected_model = target.account.as_ref().and_then(crate::server::core::routing_groups::candidate_model)
-            .map(str::to_string).unwrap_or_else(|| model.clone());
+        let selected_model = target
+            .account
+            .as_ref()
+            .and_then(crate::server::core::routing_groups::candidate_model)
+            .map(str::to_string)
+            .unwrap_or_else(|| model.clone());
         // ── 自定义提供商的分流（第二阶段；与下面的 is_stateful 同形状）──
         // 位置在 `kind_from_id` 之前：custom id **不进** `ProviderKind`
         // （「不认识就是不认识」的全仓口径，见 `custom_providers` 的模块头），
@@ -725,14 +788,19 @@ async fn attempt_queue(
                 Ok(outcome) => {
                     if let Some(account_id) = custom_account_id.as_deref() {
                         service.route.sticky_bind(
-                            &conv_key, &model, &attempt_key, sticky_source, logging::now_ms(),
-                            ctx.routing.settings.sticky.ttl_ms().unwrap_or(0), sticky_generation,
+                            &conv_key,
+                            &model,
+                            &attempt_key,
+                            sticky_source,
+                            logging::now_ms(),
+                            ctx.routing.settings.sticky.ttl_ms().unwrap_or(0),
+                            sticky_generation,
                         );
                         service.route.backoff_clear(account_id);
                         service.route.sink_clear(account_id);
                     }
                     return Ok(outcome);
-                },
+                }
                 Err(error) => {
                     // 手动终止优先（与无状态路径同一判定与理由）：不把已受理的
                     // 终止当成「这一轮失败」去顺延下一个账号
@@ -759,7 +827,9 @@ async fn attempt_queue(
                             // 自定义家没有「同名多池」之类的键重排，冷却键
                             // 与发送名同源（`custom::forward::cooldown_model`）。
                             if error.is_quota_limit() {
-                                let wire_model = if ctx.routing.group.is_some() { selected_model.clone() } else {
+                                let wire_model = if ctx.routing.group.is_some() {
+                                    selected_model.clone()
+                                } else {
                                     custom_forward::cooldown_model(&custom_provider_id, &model)
                                 };
                                 rotate::mark_account_limited(
@@ -813,7 +883,8 @@ async fn attempt_queue(
                                 &format!(
                                     "⚠️ 自定义转发失败，按队列顺延 → {}（优先级 {}）",
                                     account_display(&next),
-                                    next.get("priority").and_then(Value::as_i64)
+                                    next.get("priority")
+                                        .and_then(Value::as_i64)
                                         .map(|value| value.to_string())
                                         .unwrap_or_else(|| "-".to_string()),
                                 ),
@@ -833,7 +904,10 @@ async fn attempt_queue(
                 _ = token.cancelled() => return Err(cancellation::cancelled_error()),
                 result = ready => result?,
             }
-        } else { ready.await? }.ok_or_else(|| {
+        } else {
+            ready.await?
+        }
+        .ok_or_else(|| {
             GatewayError::with_status(
                 503,
                 format!("账号所属提供商「{}」未知，无法转发", target.provider),
@@ -854,7 +928,8 @@ async fn attempt_queue(
             // 它失败了就把它记入已尝试、回到循环挑下一个账号 —— 可能已经换了一家。
             // 没有下一个可用账号时，把这个错误原样透传（它的文案最贴近真实原因）。
             let stateful_account_id = target.account_id.clone();
-            let strict_runtime = crate::server::core::providers::is_scoped_runtime_provider(provider_id);
+            let strict_runtime =
+                crate::server::core::providers::is_scoped_runtime_provider(provider_id);
             match attempt_stateful(
                 service,
                 ctx,
@@ -870,14 +945,22 @@ async fn attempt_queue(
                 Ok(outcome) => {
                     if let Some(account_id) = stateful_account_id.as_deref() {
                         service.route.sticky_bind(
-                            &conv_key, &model, &attempt_key, sticky_source, logging::now_ms(),
-                            ctx.routing.settings.sticky.ttl_ms().unwrap_or(0), sticky_generation,
+                            &conv_key,
+                            &model,
+                            &attempt_key,
+                            sticky_source,
+                            logging::now_ms(),
+                            ctx.routing.settings.sticky.ttl_ms().unwrap_or(0),
+                            sticky_generation,
                         );
                         service.route.backoff_clear(account_id);
                         service.route.sink_clear(account_id);
                     }
-                    return Ok(crate::server::core::plugin_host::hold_adapter(outcome, adapter_handle));
-                },
+                    return Ok(crate::server::core::plugin_host::hold_adapter(
+                        outcome,
+                        adapter_handle,
+                    ));
+                }
                 Err(error) => {
                     // 手动终止优先（与无状态 / 自定义两条路径同一判定与理由）：
                     // 会话式这一轮已经结束，但用户要的是终止 —— 不把它当成
@@ -889,10 +972,8 @@ async fn attempt_queue(
                         );
                         return Err(cancellation::cancelled_error());
                     }
-                    if stateful_account_id.is_some() {
-                        if !tried_ids.contains(&attempt_key) {
-                            tried_ids.push(attempt_key.clone());
-                        }
+                    if stateful_account_id.is_some() && !tried_ids.contains(&attempt_key) {
+                        tried_ids.push(attempt_key.clone());
                     }
                     // ── 会话式路径的限额记账（与无状态「动作 1」同一语义）──
                     // 分类由适配器供给（默认 Fatal，既有家逐字不变）；取到的
@@ -907,26 +988,41 @@ async fn attempt_queue(
                     let class = adapter.classify_conversation_error(&error);
                     // Scoped runtime 的原生 loader 已拥有单次 token 恢复；宿主不再消费
                     // refresh，也不把 Fatal/权限/WAF/取消/超时改成账号顺延。
-                    if strict_runtime && !matches!(&class, UpstreamErrorClass::QuotaLimited { .. }) {
+                    if strict_runtime && !matches!(&class, UpstreamErrorClass::QuotaLimited { .. })
+                    {
                         return Err(error);
                     }
                     // ── 本地校验类 4xx：换号无意义，直接透传（#524）──────
                     // 插件用控制面信封标了 local_validation（请求形状问题，
                     // prepare 阶段还没碰上游）；换任何账号重发都是同一份坏请求，
                     // 顺延只会把一次 400 变成四条。冷却同理不记。
-                    if error.code.as_deref() == Some(crate::server::core::plugin_host::LOCAL_VALIDATION_CODE) {
+                    if error.code.as_deref()
+                        == Some(crate::server::core::plugin_host::LOCAL_VALIDATION_CODE)
+                    {
                         return Err(error);
                     }
                     if let (UpstreamErrorClass::QuotaLimited { .. }, Some(account_id)) =
                         (&class, &stateful_account_id)
                     {
-                        let wire = if ctx.routing.group.is_some() { selected_model.clone() } else { cooldown_keys.for_provider(provider_id) };
+                        let wire = if ctx.routing.group.is_some() {
+                            selected_model.clone()
+                        } else {
+                            cooldown_keys.for_provider(provider_id)
+                        };
                         let group = adapter.quota_cooldown_models(account_id, &wire);
-                        mark_conversation_limited(service, account_id, &group, &class, &error.message);
+                        mark_conversation_limited(
+                            service,
+                            account_id,
+                            &group,
+                            &class,
+                            &error.message,
+                        );
                         let label = if group.len() > 1 {
-                            format!("{} 等 {} 个模型（福利池按账号记账）",
-                                    group.first().cloned().unwrap_or_else(|| wire.clone()),
-                                    group.len())
+                            format!(
+                                "{} 等 {} 个模型（福利池按账号记账）",
+                                group.first().cloned().unwrap_or_else(|| wire.clone()),
+                                group.len()
+                            )
                         } else {
                             wire.clone()
                         };
@@ -960,7 +1056,8 @@ async fn attempt_queue(
                                 &format!(
                                     "⚠️ 会话式转发失败，按队列顺延 → {}（优先级 {}）",
                                     account_display(&next),
-                                    next.get("priority").and_then(Value::as_i64)
+                                    next.get("priority")
+                                        .and_then(Value::as_i64)
                                         .map(|value| value.to_string())
                                         .unwrap_or_else(|| "-".to_string()),
                                 ),
@@ -981,38 +1078,39 @@ async fn attempt_queue(
                 "没有可用账号，无账号可转发：请在账号页添加并启用账号",
             ));
         }
-        let mut session = match rotate::session_for(service, provider_id, target.account_id.as_deref()).await {
-            Ok(session) => session,
-            Err(error) => {
-                // ── 默认登录态的兜底（Agent2API W3-T4）──────────────────
-                // `session_for(None)` 只认「auth 层认识的默认登录态」：workbuddy 是
-                // `WORKBUDDY_TOKEN` 环境变量 + 账号文件派生的当前账号。小浣熊的
-                // 旁路凭证（`RACCOON_TOKEN`）不在那一层，而它的**账号文件里可能
-                // 一条记录都没有**（脚本/CI 用户的常规用法）—— 那种情况下
-                // 上面的调用必然 401。
-                //
-                // 兜底只对**自己声明了匿名默认会话**的 provider 生效
-                // （`allows_anonymous_default_session`），且仅在没有指定账号时：
-                // 适配器给出的 token 单独构成一个最小会话（只有 Authorization
-                // 需要它），不覆盖 workbuddy 那条已经能拿到完整会话的路径 ——
-                // 所以既有行为逐字不变。
-                if target.account_id.is_none() && adapter.allows_anonymous_default_session() {
-                    match adapter.ensure_access_token(&service.store, "").await {
-                        Ok(token) if !token.is_empty() => json!({
-                            "auth": {
-                                "accessToken": token,
-                                "tokenType": "Bearer",
-                            },
-                        }),
-                        // 适配器也拿不到凭证：返回**原始错误**（它比 401「请先登录」
-                        // 更贴近真实原因，例如环境变量为空、auth.json 缺失）
-                        _ => return Err(error),
+        let mut session =
+            match rotate::session_for(service, provider_id, target.account_id.as_deref()).await {
+                Ok(session) => session,
+                Err(error) => {
+                    // ── 默认登录态的兜底（Agent2API W3-T4）──────────────────
+                    // `session_for(None)` 只认「auth 层认识的默认登录态」：workbuddy 是
+                    // `WORKBUDDY_TOKEN` 环境变量 + 账号文件派生的当前账号。小浣熊的
+                    // 旁路凭证（`RACCOON_TOKEN`）不在那一层，而它的**账号文件里可能
+                    // 一条记录都没有**（脚本/CI 用户的常规用法）—— 那种情况下
+                    // 上面的调用必然 401。
+                    //
+                    // 兜底只对**自己声明了匿名默认会话**的 provider 生效
+                    // （`allows_anonymous_default_session`），且仅在没有指定账号时：
+                    // 适配器给出的 token 单独构成一个最小会话（只有 Authorization
+                    // 需要它），不覆盖 workbuddy 那条已经能拿到完整会话的路径 ——
+                    // 所以既有行为逐字不变。
+                    if target.account_id.is_none() && adapter.allows_anonymous_default_session() {
+                        match adapter.ensure_access_token(&service.store, "").await {
+                            Ok(token) if !token.is_empty() => json!({
+                                "auth": {
+                                    "accessToken": token,
+                                    "tokenType": "Bearer",
+                                },
+                            }),
+                            // 适配器也拿不到凭证：返回**原始错误**（它比 401「请先登录」
+                            // 更贴近真实原因，例如环境变量为空、auth.json 缺失）
+                            _ => return Err(error),
+                        }
+                    } else {
+                        return Err(error);
                     }
-                } else {
-                    return Err(error);
                 }
-            }
-        };
+            };
         // ── 凭证可用性（架构文档 §4.2 的 ensure_access_token）──────────
         // 显式选中的账号在这里补一次「临期主动刷新」：改造前只有默认登录态
         // 走 get_current_session 时才刷新，多账号链路上一个即将过期的 token
@@ -1023,7 +1121,10 @@ async fn attempt_queue(
         // 失效由 401 → refresh_access_token 那条路径兜底，这里提前报错
         // 反而会让一个本来能成功的请求失败。
         if let Some(account_id) = target.account_id.clone() {
-            match adapter.ensure_access_token(&service.store, &account_id).await {
+            match adapter
+                .ensure_access_token(&service.store, &account_id)
+                .await
+            {
                 Ok(_) => {
                     // 刷新可能已回写：重取会话，让头里的 token 是最新的
                     if let Ok(fresh) =
@@ -1051,18 +1152,16 @@ async fn attempt_queue(
             &session,
         );
         ctx.telemetry.note_quota_channel(target.account.as_ref());
-        ctx.telemetry.note_attempt(
-            target.account_id.as_deref(),
-            &attempt_account,
-            provider_id,
-        );
+        ctx.telemetry
+            .note_attempt(target.account_id.as_deref(), &attempt_account, provider_id);
         // 尝试明细的「起头」：本轮的承载者定了，结果稍后由下面两个出口补上
         // （成功出口 / 失败出口）。与 note_attempt 必须成对且在它之后 ——
         // 明细的条数因此恒等于 attempts，前端「共 N 次尝试」与链长对得上。
         // 放在这里而不是 send_with_retry 里：函数内那层退避重试（同账号重发）
         // **不算一次新尝试**（口径见 TelemetrySnapshot::attempts 的说明），
         // 若在循环里起头就会多出几条「同名同账号」的重复项。
-        ctx.telemetry.note_attempt_started(provider_id, &attempt_account);
+        ctx.telemetry
+            .note_attempt_started(provider_id, &attempt_account);
         // 代理回退提示：选路时记下的「代理不可用、本次直连」跟着这一轮走
         // （改造前它是一行运行日志，见 `with_proxy_notice`）
         if let Some(notice) = target.proxy_notice.as_deref() {
@@ -1112,7 +1211,12 @@ async fn attempt_queue(
             // `send_body` 现在是 async（要问插件家「这个思考档位怎么翻译」），
             // 而 `or_insert_with` 的闭包不能 await。改成「先查、miss 时 await
             // 生成、再插入」—— 语义等价，代价是 miss 那次多一次哈希查找。
-            let cache_key = (provider_id, account_pool.clone(), selected_model.clone(), degraded);
+            let cache_key = (
+                provider_id,
+                account_pool.clone(),
+                selected_model.clone(),
+                degraded,
+            );
             if !send_cache.contains_key(&cache_key) {
                 let built = send_body(ctx, provider_id, target.account.as_ref(), degraded).await;
                 send_cache.insert(cache_key.clone(), built);
@@ -1139,7 +1243,8 @@ async fn attempt_queue(
             // 循环外（`cap_cleared` 要读它）—— 所以它是 break 的第二个元素。
             let wire_model = send.wire_model.clone();
             ctx.telemetry.note_upstream_model(&wire_model);
-            ctx.telemetry.note_upstream_reasoning(send.wire_reasoning.clone());
+            ctx.telemetry
+                .note_upstream_reasoning(send.wire_reasoning.clone());
             // 构造请求计划**可能失败**（适配器自己的校验，例如小浣熊账号缺
             // accessToken → 401）。这里显式处理而不是用 `?` 直接抛出：
             // 上面的 `note_attempt_started` 已经为这一轮起了头，直接返回会让
@@ -1151,17 +1256,26 @@ async fn attempt_queue(
             // 见 `ProviderAdapter::build_chat_request_async` 的说明。
             if ctx.images.is_none() {
                 if let Some(override_proxy) = ctx.proxy_override {
-                    session["proxy"] = override_proxy.as_ref().map(|proxy| json!({
-                        "protocol": proxy.protocol, "host": proxy.host, "port": proxy.port,
-                        "username": proxy.username, "password": proxy.password,
-                    })).unwrap_or_else(|| json!({ "source": "direct" }));
+                    session["proxy"] = override_proxy
+                        .as_ref()
+                        .map(|proxy| {
+                            json!({
+                                "protocol": proxy.protocol, "host": proxy.host, "port": proxy.port,
+                                "username": proxy.username, "password": proxy.password,
+                            })
+                        })
+                        .unwrap_or_else(|| json!({ "source": "direct" }));
                     session["proxyError"] = Value::Null;
                 }
             }
             let planned = if let Some(operation) = ctx.images {
-                adapter.build_image_request_async(&session, body, ctx.client_headers, operation).await
+                adapter
+                    .build_image_request_async(&session, body, ctx.client_headers, operation)
+                    .await
             } else {
-                adapter.build_chat_request_async(&session, body, ctx.client_headers).await
+                adapter
+                    .build_chat_request_async(&session, body, ctx.client_headers)
+                    .await
             };
             let mut plan = match planned {
                 Ok(plan) => plan,
@@ -1185,9 +1299,14 @@ async fn attempt_queue(
                     // 换个账号发的是同一份坏请求，换满预算只会把一次 400 变成四条
                     // 400，并把真实原因埋进顺延链里。
                     let account_unavailable = error.code.as_deref().is_some_and(|code| {
-                        matches!(code, "account_model_unavailable" | "account_model_permissions_unknown")
+                        matches!(
+                            code,
+                            "account_model_unavailable" | "account_model_permissions_unknown"
+                        )
                     });
-                    if i32::from(readiness::LOCAL_PRECONDITION_STATUS) != error.status_code && !account_unavailable {
+                    if i32::from(readiness::LOCAL_PRECONDITION_STATUS) != error.status_code
+                        && !account_unavailable
+                    {
                         return Err(error);
                     }
                     if defer_to_next_account(
@@ -1213,19 +1332,28 @@ async fn attempt_queue(
             };
             if plan.policy.stable_conversation {
                 if conversation_ids.is_none() {
-                    conversation_ids = Some(match super::conversation_ids::resolve(ctx.client_headers, ctx.body) {
-                        Ok(ids) => ids,
-                        Err(error) => {
-                            ctx.telemetry.finish_last_attempt(Some(i64::from(error.status_code)), Some(&error.message));
-                            return Err(error);
-                        }
-                    });
+                    conversation_ids = Some(
+                        match super::conversation_ids::resolve(ctx.client_headers, ctx.body) {
+                            Ok(ids) => ids,
+                            Err(error) => {
+                                ctx.telemetry.finish_last_attempt(
+                                    Some(i64::from(error.status_code)),
+                                    Some(&error.message),
+                                );
+                                return Err(error);
+                            }
+                        },
+                    );
                 }
-                if let Some(ids) = &conversation_ids { ids.apply(&mut plan.headers); }
+                if let Some(ids) = &conversation_ids {
+                    ids.apply(&mut plan.headers);
+                }
             }
             native_tools = if plan.policy.repair_native_tools {
                 super::native_tools::declared_tools(&plan.body)
-            } else { Vec::new() };
+            } else {
+                Vec::new()
+            };
             if ctx.images.is_none() {
                 let reasoning = plan.reasoning.clone().unwrap_or_else(|| {
                     super::payload::outbound_reasoning_of(provider_id, &plan.body)
@@ -1291,7 +1419,9 @@ async fn attempt_queue(
                 ctx.telemetry,
                 degraded,
                 match plan.response {
-                    crate::server::core::providers::adapter::UpstreamResponse::Images(kind) => Some(kind),
+                    crate::server::core::providers::adapter::UpstreamResponse::Images(kind) => {
+                        Some(kind)
+                    }
                     _ => None,
                 },
                 plan.policy.network.as_ref(),
@@ -1317,9 +1447,10 @@ async fn attempt_queue(
                     let route_settings = ctx.routing.settings;
                     if let Some(account_id) = target.account_id.as_deref() {
                         if route_settings.breaker_enabled {
-                            service
-                                .route
-                                .breaker_success(account_id, route_settings.breaker_success_threshold);
+                            service.route.breaker_success(
+                                account_id,
+                                route_settings.breaker_success_threshold,
+                            );
                         }
                         service.route.backoff_clear(account_id);
                         service.route.sink_clear(account_id);
@@ -1333,9 +1464,14 @@ async fn attempt_queue(
                         // 「需要重新登录」上，用户明明已经重新登录、账号也能用，
                         // 界面却一直红着。
                         // CodeArts 的临时访问凭据仍可能有效，转发成功不代表刷新授权恢复。
-                        if adapter.provider_id() != "codearts" && target.account.as_ref()
-                            .is_some_and(|account| account.get("needsRelogin").and_then(Value::as_bool) == Some(true)) {
-                            crate::server::core::blocking::in_place(|| service.store.set_needs_relogin(account_id, None));
+                        if adapter.provider_id() != "codearts"
+                            && target.account.as_ref().is_some_and(|account| {
+                                account.get("needsRelogin").and_then(Value::as_bool) == Some(true)
+                            })
+                        {
+                            crate::server::core::blocking::in_place(|| {
+                                service.store.set_needs_relogin(account_id, None)
+                            });
                             logging::log(
                                 "[Upstream]",
                                 &format!("账号 {account_id} 转发成功，已清除「需要重新登录」标记"),
@@ -1348,8 +1484,12 @@ async fn attempt_queue(
                         target.account_id.as_deref(),
                     ) {
                         service.route.sticky_bind(
-                            &conv_key, &model, &attempt_key, sticky_source,
-                            logging::now_ms(), route_settings.sticky.ttl_ms().unwrap_or(0),
+                            &conv_key,
+                            &model,
+                            &attempt_key,
+                            sticky_source,
+                            logging::now_ms(),
+                            route_settings.sticky.ttl_ms().unwrap_or(0),
                             sticky_generation,
                         );
                     }
@@ -1386,11 +1526,17 @@ async fn attempt_queue(
                     if let Some(account_id) = target.account_id.as_deref() {
                         if failure.policy.suspend_account {
                             let _ = crate::server::core::blocking::in_place(|| {
-                                service.store.suspend_upstream_account(account_id, &failure.policy.reason)
+                                service
+                                    .store
+                                    .suspend_upstream_account(account_id, &failure.policy.reason)
                             });
                         } else if let Some(until) = failure.policy.account_cooldown_until {
                             let _ = crate::server::core::blocking::in_place(|| {
-                                service.store.cooldown_upstream_account(account_id, until, &failure.policy.reason)
+                                service.store.cooldown_upstream_account(
+                                    account_id,
+                                    until,
+                                    &failure.policy.reason,
+                                )
                             });
                         }
                     }
@@ -1429,9 +1575,12 @@ async fn attempt_queue(
                     // 重试成功时这一轮的结局就是成功。`degraded` 置位后不再重复
                     // 触发，一次请求最多补救一次。
                     let attempt_prompt = ctx.prompt.for_provider(provider_id);
-                    if ctx.images.is_some() && matches!(failure.class, UpstreamErrorClass::ContentBlocked { .. }) {
+                    if ctx.images.is_some()
+                        && matches!(failure.class, UpstreamErrorClass::ContentBlocked { .. })
+                    {
                         ctx.telemetry.finish_last_attempt(
-                            Some(i64::from(failure.error.status_code)), Some(&failure.error.message),
+                            Some(i64::from(failure.error.status_code)),
+                            Some(&failure.error.message),
                         );
                         return Err(failure.error);
                     }
@@ -1482,7 +1631,9 @@ async fn attempt_queue(
                         // 与退避重试同一落点 —— 请求日志的重试链因此能回答
                         // 「这一轮重试过没有、为什么」，运行日志不再写这一行。
                         ctx.telemetry.note_attempt_retry(
-                            &format!("token 被上游拒绝（401），刷新后重试一次（账号 {account_id}）"),
+                            &format!(
+                                "token 被上游拒绝（401），刷新后重试一次（账号 {account_id}）"
+                            ),
                             Some(i64::from(failure.error.status_code)),
                             0,
                         );
@@ -1547,11 +1698,15 @@ async fn attempt_queue(
                             // 只在该账号尚未被标记时写一次：401 会随每次请求重复
                             // 出现，每轮都写一遍等于把账号表当日志写。`set_needs_relogin`
                             // 本身是幂等的，这里的判据只是省掉重复的写盘。
-                            if !crate::server::core::blocking::in_place(|| service.store.needs_relogin(&account_id)) {
-                                crate::server::core::blocking::in_place(|| service.store.set_needs_relogin(
-                                    &account_id,
-                                    Some("上游拒绝了这个登录态（会话已失效）"),
-                                ));
+                            if !crate::server::core::blocking::in_place(|| {
+                                service.store.needs_relogin(&account_id)
+                            }) {
+                                crate::server::core::blocking::in_place(|| {
+                                    service.store.set_needs_relogin(
+                                        &account_id,
+                                        Some("上游拒绝了这个登录态（会话已失效）"),
+                                    )
+                                });
                                 logging::log(
                                     "[Upstream]",
                                     &format!(
@@ -1731,11 +1886,8 @@ async fn attempt_queue(
                                         None,
                                         provider_id,
                                     );
-                                    return Err(GatewayError::with_status(
-                                        *status as i32,
-                                        message,
-                                    )
-                                    .with_optional_code(*upstream_code));
+                                    return Err(GatewayError::with_status(*status as i32, message)
+                                        .with_optional_code(*upstream_code));
                                 }
                             }
                         }
@@ -1824,7 +1976,8 @@ async fn attempt_queue(
             &limit_model_label(&model, &wire_model),
             &session,
             provider_id,
-        ).await;
+        )
+        .await;
         logging::verbose(
             "[Upstream]",
             &format!(
@@ -1899,129 +2052,134 @@ async fn attempt_queue(
                         }),
                 };
             if let Some((message, is_quota, refusal_label)) = refusal_hit {
-                    // 上游那句原话：配额型的**窗口重置时刻**要从它里面读出来
-                    // （认「当日 HH:MM」与「… HH:MM:SS UTC+8」两种形态，见
-                    // `errors::parse_quota_reset_at`）。SSE 噪声原样喂进去没问题 ——
-                    // 它只在字节流里找时刻，不做 JSON 解析。
-                    let upstream_text = String::from_utf8_lossy(&head.buffered).to_string();
-                    // 给客户端的等待时长（秒）：0 = 认不出恢复时刻，那就只回 429 不带头
-                    let mut refusal_reset_at: i64 = 0;
-                    // 配额型：这一家的额度用完了 ⇒ 罚账号。冷却时长交给
-                    // `mark_account_limited` 的文本兜底去解析正文里的窗口重置时刻
-                    // （「…当前滚动窗口约在当日 HH:MM 结束并重置额度…」）；解析不出时
-                    // 它自己的兜底是 10 分钟。
-                    if is_quota {
-                        if let Some(account_id) = &target.account_id {
-                            refusal_reset_at = parse_quota_reset_at(&upstream_text);
-                            let reset_text = rotate::mark_account_limited(
-                                service,
-                                account_id,
-                                &model,
-                                429,
-                                None,
-                                if refusal_reset_at > 0 { Some(refusal_reset_at) } else { None },
-                                &message,
-                            );
-                            logging::console_line(
+                // 上游那句原话：配额型的**窗口重置时刻**要从它里面读出来
+                // （认「当日 HH:MM」与「… HH:MM:SS UTC+8」两种形态，见
+                // `errors::parse_quota_reset_at`）。SSE 噪声原样喂进去没问题 ——
+                // 它只在字节流里找时刻，不做 JSON 解析。
+                let upstream_text = String::from_utf8_lossy(&head.buffered).to_string();
+                // 给客户端的等待时长（秒）：0 = 认不出恢复时刻，那就只回 429 不带头
+                let mut refusal_reset_at: i64 = 0;
+                // 配额型：这一家的额度用完了 ⇒ 罚账号。冷却时长交给
+                // `mark_account_limited` 的文本兜底去解析正文里的窗口重置时刻
+                // （「…当前滚动窗口约在当日 HH:MM 结束并重置额度…」）；解析不出时
+                // 它自己的兜底是 10 分钟。
+                if is_quota {
+                    if let Some(account_id) = &target.account_id {
+                        refusal_reset_at = parse_quota_reset_at(&upstream_text);
+                        let reset_text = rotate::mark_account_limited(
+                            service,
+                            account_id,
+                            &model,
+                            429,
+                            None,
+                            if refusal_reset_at > 0 {
+                                Some(refusal_reset_at)
+                            } else {
+                                None
+                            },
+                            &message,
+                        );
+                        logging::console_line(
                                 "[Upstream]",
                                 &format!(
                                     "⚠️ {provider_id} 账号 {account_id} 配额拒绝（正文标记命中），已限流{reset_text}"
                                 ),
                             );
-                        }
                     }
-                    ctx.telemetry.finish_last_attempt(Some(i64::from(head.status)), Some(&message));
-                    logging::console_line(
-                        "[Upstream]",
-                        &format!(
-                            "⚠️ {provider_id} 对模型 {model_label} 以「{refusal_label}」拒绝本次答复，\
+                }
+                ctx.telemetry
+                    .finish_last_attempt(Some(i64::from(head.status)), Some(&message));
+                logging::console_line(
+                    "[Upstream]",
+                    &format!(
+                        "⚠️ {provider_id} 对模型 {model_label} 以「{refusal_label}」拒绝本次答复，\
                              本家不采纳"
-                        ),
-                    );
-                    // 与其它失败同一落点：把这一轮记为失败、按队列顺延下一家。
-                    // 判据是「还有没有下一个账号/家」，不是「这一家还能不能救」——
-                    // 同一份 body 再发一次结论不变（审核按内容匹配），所以不原地重发。
-                    // 顺延那段与上面转发失败的写法逐字同形（本文件里这条链路
-                    // 已经有四处，不再抽第五份）。
-                    if target.account_id.is_some() && !tried_ids.contains(&attempt_key) {
-                        tried_ids.push(attempt_key.clone());
-                    }
-                    // 队列没人 / 换号次数用尽时给客户端的那句话：要说清是哪一类拒绝 ——
-                    // 内容型是「换一家或改内容」，配额型是「等窗口重置后重试」。
-                    let client_text = if is_quota {
-                        // 说清是哪一类拒绝，并把**恢复时刻**写进 body（与 `Retry-After`
-                        // 同一个数）—— 只读 body 的客户端也知道要等多久。
-                        let when = if refusal_reset_at > 0 {
-                            format!(
-                                "，额度预计在 {} 重置",
-                                crate::server::errors::format_reset_at_text(refusal_reset_at)
-                            )
-                        } else {
-                            String::new()
-                        };
+                    ),
+                );
+                // 与其它失败同一落点：把这一轮记为失败、按队列顺延下一家。
+                // 判据是「还有没有下一个账号/家」，不是「这一家还能不能救」——
+                // 同一份 body 再发一次结论不变（审核按内容匹配），所以不原地重发。
+                // 顺延那段与上面转发失败的写法逐字同形（本文件里这条链路
+                // 已经有四处，不再抽第五份）。
+                if target.account_id.is_some() && !tried_ids.contains(&attempt_key) {
+                    tried_ids.push(attempt_key.clone());
+                }
+                // 队列没人 / 换号次数用尽时给客户端的那句话：要说清是哪一类拒绝 ——
+                // 内容型是「换一家或改内容」，配额型是「等窗口重置后重试」。
+                let client_text = if is_quota {
+                    // 说清是哪一类拒绝，并把**恢复时刻**写进 body（与 `Retry-After`
+                    // 同一个数）—— 只读 body 的客户端也知道要等多久。
+                    let when = if refusal_reset_at > 0 {
                         format!(
+                            "，额度预计在 {} 重置",
+                            crate::server::errors::format_reset_at_text(refusal_reset_at)
+                        )
+                    } else {
+                        String::new()
+                    };
+                    format!(
                             "上游配额拒绝（该账号的用量窗口已耗尽{when}）：没有其他可用的账号或提供商可接管。\
                              请在窗口重置后重试，或在设置中更换该模型的服务商"
                         )
-                    } else {
-                        format!(
+                } else {
+                    format!(
                             "上游拒答（{refusal_label}）：该答复疑似被上游内容策略拦截，\
                              且没有其他可用的账号或提供商可接管。请调整内容后重试，或在设置中更换该模型的服务商"
                         )
-                    };
-                    match rotate::pick_next_account(
-                        service,
-                        provider_ids,
-                        &cooldown_keys,
-                        &tried_ids,
-                        ctx.pinned_account,
-                        &ctx.routing,
-                    ) {
-                        Some(next) => {
-                            if !take_switch(&mut switches_left, switch_total) {
-                                return Err(quota_refusal_error(
-                                    client_text,
-                                    refusal_reset_at,
-                                    is_quota,
-                                ));
+                };
+                match rotate::pick_next_account(
+                    service,
+                    provider_ids,
+                    &cooldown_keys,
+                    &tried_ids,
+                    ctx.pinned_account,
+                    &ctx.routing,
+                ) {
+                    Some(next) => {
+                        if !take_switch(&mut switches_left, switch_total) {
+                            return Err(quota_refusal_error(
+                                client_text,
+                                refusal_reset_at,
+                                is_quota,
+                            ));
+                        }
+                        let next_home = {
+                            let next_provider = rotate::provider_of(&next);
+                            if next_provider == provider_id {
+                                String::new()
+                            } else {
+                                format!(
+                                    "，切换提供商 → {}",
+                                    kind_from_id(next_provider)
+                                        .map(|kind| meta(kind).label)
+                                        .unwrap_or(next_provider)
+                                )
                             }
-                            let next_home = {
-                                let next_provider = rotate::provider_of(&next);
-                                if next_provider == provider_id {
-                                    String::new()
-                                } else {
-                                    format!(
-                                        "，切换提供商 → {}",
-                                        kind_from_id(next_provider)
-                                            .map(|kind| meta(kind).label)
-                                            .unwrap_or(next_provider)
-                                    )
-                                }
-                            };
-                            logging::console_line(
-                                "[Upstream]",
-                                &format!(
-                                    "⚠️ 账号 {} 对模型 {model} 上游拒答（HTTP {}），\
+                        };
+                        logging::console_line(
+                            "[Upstream]",
+                            &format!(
+                                "⚠️ 账号 {} 对模型 {model} 上游拒答（HTTP {}），\
                                      按队列顺延 → {}（优先级 {}{next_home}）",
-                                    account_label(
-                                        target.account.as_ref(),
-                                        &target.account_id.clone().unwrap_or_default(),
-                                        &session
-                                    ),
-                                    head.status,
-                                    account_display(&next),
-                                    next.get("priority")
-                                        .and_then(Value::as_i64)
-                                        .map(|value| value.to_string())
-                                        .unwrap_or_else(|| "-".to_string()),
+                                account_label(
+                                    target.account.as_ref(),
+                                    &target.account_id.clone().unwrap_or_default(),
+                                    &session
                                 ),
-                            );
-                            continue 'accounts;
-                        }
-                        None => {
-                            return Err(quota_refusal_error(client_text, refusal_reset_at, is_quota))
-                        }
+                                head.status,
+                                account_display(&next),
+                                next.get("priority")
+                                    .and_then(Value::as_i64)
+                                    .map(|value| value.to_string())
+                                    .unwrap_or_else(|| "-".to_string()),
+                            ),
+                        );
+                        continue 'accounts;
                     }
+                    None => {
+                        return Err(quota_refusal_error(client_text, refusal_reset_at, is_quota))
+                    }
+                }
             }
             Gate::Held(head)
         } else {
@@ -2029,7 +2187,11 @@ async fn attempt_queue(
         };
 
         let mut response_policy = frame_policy_of(adapter, &model);
-        if ctx.routing.group.is_some() { response_policy.rewrite = Some(super::sse::ModelRewrite { requested: model.clone() }); }
+        if ctx.routing.group.is_some() {
+            response_policy.rewrite = Some(super::sse::ModelRewrite {
+                requested: model.clone(),
+            });
+        }
         response_policy.native_tools = native_tools;
         // ── 上游响应协议（适配器在构造请求时一并给出）──────────────────
         // 绝大多数上游说 chat SSE（`ForwardStream` / 聚合器的默认输入）；
@@ -2047,9 +2209,7 @@ async fn attempt_queue(
         //
         // 门控只在 Chat 协议上生效（上面那个 `response_protocol` 判定），所以
         // 走到翻译分支时 `gate` 必是 `Live`、`response` 仍是未消费的活体。
-        if response_protocol
-            != crate::server::core::providers::adapter::UpstreamResponse::Chat
-        {
+        if response_protocol != crate::server::core::providers::adapter::UpstreamResponse::Chat {
             use crate::server::core::providers::adapter::UpstreamResponse;
             let Gate::Live(response) = gate else {
                 // 不可达：门控只在 Chat 协议上开启（上面的条件里已限定）。
@@ -2064,28 +2224,28 @@ async fn attempt_queue(
                 'static,
                 Result<bytes::Bytes, std::io::Error>,
             > = match response_protocol {
-                UpstreamResponse::Anthropic => Box::pin(
-                    super::translate::AnthropicToChatStream::new(
+                UpstreamResponse::Anthropic => {
+                    Box::pin(super::translate::AnthropicToChatStream::new(
                         response,
                         &wire_model,
                         ctx.telemetry,
-                    ),
-                ),
-                UpstreamResponse::AiSdkNdjson => Box::pin(
-                    super::translate::AiSdkNdjsonToChatStream::new(
+                    ))
+                }
+                UpstreamResponse::AiSdkNdjson => {
+                    Box::pin(super::translate::AiSdkNdjsonToChatStream::new(
                         response,
                         &wire_model,
                         ctx.telemetry,
-                    ),
-                ),
-                UpstreamResponse::AntigravityGemini => Box::pin(
-                    super::translate::AntigravityToChatStream::new(
+                    ))
+                }
+                UpstreamResponse::AntigravityGemini => {
+                    Box::pin(super::translate::AntigravityToChatStream::new(
                         response,
                         &wire_model,
                         &antigravity_session,
                         ctx.telemetry,
-                    ),
-                ),
+                    ))
+                }
                 // 智谱清言：SSE 帧混着增量与收尾全文快照，翻译机按帧语义差分
                 // （见那台的模块头）
                 UpstreamResponse::ChatglmSnapshot => {
@@ -2106,16 +2266,19 @@ async fn attempt_queue(
                 }
             };
             if ctx.stream {
-                return Ok(crate::server::core::plugin_host::hold_adapter(ForwardOutcome::Stream {
-                    status,
-                    stream: Box::new(super::ForwardStream::from_translated(
-                        translated,
-                        slot.take(),
-                        connections.handoff(),
-                        ctx.telemetry.clone(),
-                        response_policy.clone(),
-                    )),
-                }, adapter_handle));
+                return Ok(crate::server::core::plugin_host::hold_adapter(
+                    ForwardOutcome::Stream {
+                        status,
+                        stream: Box::new(super::ForwardStream::from_translated(
+                            translated,
+                            slot.take(),
+                            connections.handoff(),
+                            ctx.telemetry.clone(),
+                            response_policy.clone(),
+                        )),
+                    },
+                    adapter_handle,
+                ));
             }
             let aggregated = super::aggregate::aggregate_frame_stream(
                 translated,
@@ -2133,19 +2296,22 @@ async fn attempt_queue(
         match gate {
             Gate::Live(response) => {
                 if ctx.stream {
-                    return Ok(crate::server::core::plugin_host::hold_adapter(ForwardOutcome::Stream {
-                        status: response.status().as_u16(),
-                        // 槽位交给流：流跑完 / 客户端断开 / 流被 drop 时才放行等待者；
-                        // 连接计数同样移交（`handoff` 转移所有权，本栈帧的凭证随即失效，
-                        // 避免同一账号被两份凭证各算一次）
-                        stream: Box::new(super::ForwardStream::new(
-                            response,
-                            slot.take(),
-                            connections.handoff(),
-                            ctx.telemetry.clone(),
-                            response_policy.clone(),
-                        )),
-                    }, adapter_handle));
+                    return Ok(crate::server::core::plugin_host::hold_adapter(
+                        ForwardOutcome::Stream {
+                            status: response.status().as_u16(),
+                            // 槽位交给流：流跑完 / 客户端断开 / 流被 drop 时才放行等待者；
+                            // 连接计数同样移交（`handoff` 转移所有权，本栈帧的凭证随即失效，
+                            // 避免同一账号被两份凭证各算一次）
+                            stream: Box::new(super::ForwardStream::new(
+                                response,
+                                slot.take(),
+                                connections.handoff(),
+                                ctx.telemetry.clone(),
+                                response_policy.clone(),
+                            )),
+                        },
+                        adapter_handle,
+                    ));
                 }
                 let aggregated = super::aggregate::aggregate_sse_completion(
                     response,
@@ -2154,23 +2320,28 @@ async fn attempt_queue(
                 )
                 .await?;
                 log_aggregated(&aggregated);
-                return Ok(ForwardOutcome::Completion { body: aggregated.body });
+                return Ok(ForwardOutcome::Completion {
+                    body: aggregated.body,
+                });
             }
             Gate::Held(head) => {
                 let status = head.status;
                 let capture = ctx.telemetry.capture();
                 let source = head.into_stream(capture);
                 if ctx.stream {
-                    return Ok(crate::server::core::plugin_host::hold_adapter(ForwardOutcome::Stream {
-                        status,
-                        stream: Box::new(super::ForwardStream::from_translated(
-                            source,
-                            slot.take(),
-                            connections.handoff(),
-                            ctx.telemetry.clone(),
-                            response_policy.clone(),
-                        )),
-                    }, adapter_handle));
+                    return Ok(crate::server::core::plugin_host::hold_adapter(
+                        ForwardOutcome::Stream {
+                            status,
+                            stream: Box::new(super::ForwardStream::from_translated(
+                                source,
+                                slot.take(),
+                                connections.handoff(),
+                                ctx.telemetry.clone(),
+                                response_policy.clone(),
+                            )),
+                        },
+                        adapter_handle,
+                    ));
                 }
                 let aggregated = super::aggregate::aggregate_frame_stream(
                     source,
@@ -2179,7 +2350,9 @@ async fn attempt_queue(
                 )
                 .await?;
                 log_aggregated(&aggregated);
-                return Ok(ForwardOutcome::Completion { body: aggregated.body });
+                return Ok(ForwardOutcome::Completion {
+                    body: aggregated.body,
+                });
             }
         }
     }
@@ -2195,7 +2368,10 @@ enum Gate {
 
 /// 聚合完成的日志（门控两分支共用，措辞只有一处）。
 fn log_aggregated(aggregated: &super::aggregate::AggregatedCompletion) {
-    let choice = aggregated.body.get("choices").and_then(|value| value.get(0));
+    let choice = aggregated
+        .body
+        .get("choices")
+        .and_then(|value| value.get(0));
     let content_chars = choice
         .and_then(|choice| choice.pointer("/message/content"))
         .and_then(Value::as_str)
@@ -2246,7 +2422,13 @@ fn mark_conversation_limited(
     class: &UpstreamErrorClass,
     message: &str,
 ) {
-    let UpstreamErrorClass::QuotaLimited { status, upstream_code, reset_at, .. } = class else {
+    let UpstreamErrorClass::QuotaLimited {
+        status,
+        upstream_code,
+        reset_at,
+        ..
+    } = class
+    else {
         return;
     };
     for name in group {
@@ -2331,13 +2513,20 @@ async fn attempt_custom(
     // 「上游模型」列以**真名**为准：send_body 对自定义 id 是零改写（它记的
     // 是请求名），真名的解析与改写发生在 forward 内部 —— 这里按同源解析
     // 覆盖一次（note_upstream_model 是覆盖式，最后一次为准；空串被内部过滤）。
-    let wire_model = if ctx.routing.group.is_some() { send.wire_model.clone() } else { custom_forward::cooldown_model(&provider_id, &model_of(ctx.body)) };
+    let wire_model = if ctx.routing.group.is_some() {
+        send.wire_model.clone()
+    } else {
+        custom_forward::cooldown_model(&provider_id, &model_of(ctx.body))
+    };
     ctx.telemetry.note_upstream_model(&wire_model);
     logging::verbose(
         "[Upstream]",
         &format!(
             "自定义转发 model={} stream={} account={} priority={} 出口={} provider={provider_id}",
-            limit_model_label(&model_of(ctx.body), &custom_forward::cooldown_model(&provider_id, &model_of(ctx.body))),
+            limit_model_label(
+                &model_of(ctx.body),
+                &custom_forward::cooldown_model(&provider_id, &model_of(ctx.body))
+            ),
             ctx.stream,
             target.account_id.as_deref().unwrap_or("-"),
             target
@@ -2396,10 +2585,14 @@ async fn attempt_custom(
                     ),
                     &Value::Null,
                     &provider_id,
-                ).await;
+                )
+                .await;
                 logging::verbose(
                     "[Upstream]",
-                    &format!("自定义转发完成: HTTP {status}（{}ms）", logging::now_ms() - started_at),
+                    &format!(
+                        "自定义转发完成: HTTP {status}（{}ms）",
+                        logging::now_ms() - started_at
+                    ),
                 );
                 ctx.telemetry.finish_last_attempt(Some(status), None);
                 return Ok(outcome);
@@ -2411,7 +2604,10 @@ async fn attempt_custom(
                     if let Some(account_id) = target.account_id.as_deref() {
                         let store = service.store.clone();
                         let account_id = account_id.to_string();
-                        let next = crate::server::core::blocking::run(move || store.next_rotate_proxy(&account_id)).await?;
+                        let next = crate::server::core::blocking::run(move || {
+                            store.next_rotate_proxy(&account_id)
+                        })
+                        .await?;
                         match next {
                             Ok(Some(next)) => {
                                 rotate_left -= 1;
@@ -2443,10 +2639,7 @@ async fn attempt_custom(
                 }
                 // 只在终端：这条错误会作为 GatewayError 抛回入口（或由调用方的
                 // Err 分支顺延），由 `api::chat` / `api::protocol` 记进请求日志。
-                logging::console_line(
-                    "[CustomProvider]",
-                    &format!("❌ {}", error.message),
-                );
+                logging::console_line("[CustomProvider]", &format!("❌ {}", error.message));
                 ctx.telemetry
                     .finish_last_attempt(Some(i64::from(error.status_code)), Some(&error.message));
                 return Err(error);
@@ -2512,12 +2705,17 @@ async fn attempt_stateful(
     // 这里提前报错反而会把「适配器其实能拿到凭证」的请求挡掉。注意 CatPaw
     // 没有刷新机制（§9.1）：`ensure_access_token` 只做存在性校验。
     if let Some(account_id) = target.account_id.clone() {
-        if let Err(error) = adapter.ensure_access_token(&service.store, &account_id).await {
+        if let Err(error) = adapter
+            .ensure_access_token(&service.store, &account_id)
+            .await
+        {
             if crate::server::core::providers::is_scoped_runtime_provider(provider_id) {
                 let name = account_label(target.account.as_ref(), &account_id, &Value::Null);
-                ctx.telemetry.note_attempt(Some(&account_id), &name, provider_id);
+                ctx.telemetry
+                    .note_attempt(Some(&account_id), &name, provider_id);
                 ctx.telemetry.note_attempt_started(provider_id, &name);
-                ctx.telemetry.finish_last_attempt(Some(i64::from(error.status_code)), Some(&error.message));
+                ctx.telemetry
+                    .finish_last_attempt(Some(i64::from(error.status_code)), Some(&error.message));
                 return Err(error); // FULL CAS/来源/出口失败不能沿用旧凭证再发送。
             }
             logging::verbose(
@@ -2557,9 +2755,11 @@ async fn attempt_stateful(
     // 本路径的定稿在下面 match 的两个分支里 —— 有状态 provider 没有账号轮换，
     // 所以一轮就是一条明细，链路至多一项（`provider_loop` 的 `'accounts` 循环
     // 仍可能在外层顺延到下一个账号，那会走本函数第二次调用）。
-    ctx.telemetry.note_attempt_started(provider_id, &attempt_account);
+    ctx.telemetry
+        .note_attempt_started(provider_id, &attempt_account);
     ctx.telemetry.note_upstream_model(wire_model);
-    ctx.telemetry.note_upstream_reasoning(send.wire_reasoning.clone());
+    ctx.telemetry
+        .note_upstream_reasoning(send.wire_reasoning.clone());
     if let Some(notice) = target.proxy_notice.as_deref() {
         ctx.telemetry.note_attempt_notice(notice);
     }
@@ -2599,7 +2799,8 @@ async fn attempt_stateful(
                 &limit_model_label(&model, wire_model),
                 &Value::Null,
                 provider_id,
-            ).await;
+            )
+            .await;
             logging::verbose(
                 "[Upstream]",
                 &format!("会话式转发完成（{}ms）", logging::now_ms() - started_at),
@@ -2610,11 +2811,15 @@ async fn attempt_stateful(
             ctx.telemetry.finish_last_attempt(None, None);
             // 会话适配器只收到上游真名；客户端别名由外层可信请求体恢复。
             let outcome = match outcome {
-                ForwardOutcome::Stream { status, stream } if adapter.sse_model_rewrite() || ctx.routing.group.is_some() => {
+                ForwardOutcome::Stream { status, stream }
+                    if adapter.sse_model_rewrite() || ctx.routing.group.is_some() =>
+                {
                     return Ok(ForwardOutcome::Stream {
                         status,
                         stream: Box::new(super::ForwardStream::from_translated(
-                            Box::pin(stream), slot.take(), connections.handoff(),
+                            Box::pin(stream),
+                            slot.take(),
+                            connections.handoff(),
                             ctx.telemetry.clone(),
                             super::sse::FramePolicy::with_rewrite(Some(super::sse::ModelRewrite {
                                 requested: model,
@@ -2622,8 +2827,13 @@ async fn attempt_stateful(
                         )),
                     });
                 }
-                ForwardOutcome::Completion { mut body } if adapter.sse_model_rewrite() || ctx.routing.group.is_some() => {
-                    if let Some(current) = body.get_mut("model").filter(|value| value.as_str() != Some(model.as_str())) {
+                ForwardOutcome::Completion { mut body }
+                    if adapter.sse_model_rewrite() || ctx.routing.group.is_some() =>
+                {
+                    if let Some(current) = body
+                        .get_mut("model")
+                        .filter(|value| value.as_str() != Some(model.as_str()))
+                    {
                         *current = Value::String(model);
                     }
                     ForwardOutcome::Completion { body }
@@ -2723,7 +2933,8 @@ async fn cap_cleared(
     let store = service.store.clone();
     let id = account_id.to_string();
     let wire_model = model.to_string();
-    let cleared = crate::server::core::blocking::run(move || store.clear_rate_limit(&id, &wire_model)).await;
+    let cleared =
+        crate::server::core::blocking::run(move || store.clear_rate_limit(&id, &wire_model)).await;
     if !matches!(cleared, Ok(true)) {
         return;
     }
@@ -2761,7 +2972,11 @@ fn limit_model_label(requested: &str, wire: &str) -> String {
     let wire = wire.trim();
     if wire.is_empty() {
         // 没有真名（请求体没带 model）：退回请求名，与改造前逐字一致
-        return if requested.is_empty() { "(默认)".to_string() } else { requested.to_string() };
+        return if requested.is_empty() {
+            "(默认)".to_string()
+        } else {
+            requested.to_string()
+        };
     }
     if requested.is_empty() || requested.eq_ignore_ascii_case(wire) {
         return wire.to_string();
@@ -2786,7 +3001,9 @@ fn frame_policy_of(adapter: &dyn ProviderAdapter, model: &str) -> super::sse::Fr
     super::sse::FramePolicy::assembled(
         adapter
             .sse_model_rewrite()
-            .then(|| super::sse::ModelRewrite { requested: model.to_string() }),
+            .then(|| super::sse::ModelRewrite {
+                requested: model.to_string(),
+            }),
         adapter.sse_strip_newline_chunks(),
         crate::server::config::strip_newline_keepalive(),
     )
@@ -2885,7 +3102,10 @@ async fn send_with_retry(
     images: Option<crate::server::core::providers::images::ImageResponseKind>,
     network: Option<&crate::server::core::providers::policy::NetworkPolicy>,
 ) -> Result<super::images::ImageResponse, OutboundFailure> {
-    let mut network = super::network_fallback::Fallback::new(transport, if images.is_some() { None } else { network });
+    let mut network = super::network_fallback::Fallback::new(
+        transport,
+        if images.is_some() { None } else { network },
+    );
     loop {
         // 手动终止：发送前先看令牌（退避睡眠 / 上一轮失败之后回到这里）。
         // 出口是 `cancelled_failure`，但调用方（attempt_queue）在分类动作之前
@@ -2901,7 +3121,12 @@ async fn send_with_retry(
         telemetry.note_phase(LogPhase::Waiting);
         if let Some(capture) = capture {
             let actual = network.transport();
-            capture.reset_request(&actual.url, adapter.provider_id(), &actual.headers, &actual.payload);
+            capture.reset_request(
+                &actual.url,
+                adapter.provider_id(),
+                &actual.headers,
+                &actual.payload,
+            );
         }
         let response = match send_or_cancel(&mut network, telemetry).await {
             Ok(response) => {
@@ -2914,13 +3139,17 @@ async fn send_with_retry(
                     return Err(cancelled_failure());
                 }
                 if images.is_some() && !error.safe_to_retry {
-                    telemetry.note_attempt_notice("生图请求可能已发送，未自动重发，以免重复消耗额度");
+                    telemetry
+                        .note_attempt_notice("生图请求可能已发送，未自动重发，以免重复消耗额度");
                     let gateway = super::images::output_error(format!(
-                        "{}；上游可能已消耗生图额度，未自动重试", error.message,
+                        "{}；上游可能已消耗生图额度，未自动重试",
+                        error.message,
                     ));
                     return Err(OutboundFailure {
                         class: UpstreamErrorClass::Fatal {
-                            status: 502, message: gateway.message.clone(), upstream_code: None,
+                            status: 502,
+                            message: gateway.message.clone(),
+                            upstream_code: None,
                         },
                         error: gateway,
                         stop: true,
@@ -2961,49 +3190,80 @@ async fn send_with_retry(
             match super::images::collect(response, kind, transport, telemetry).await {
                 Ok(body) => return Ok(super::images::ImageResponse::Complete(body)),
                 Err(failure) => {
-                    let message = failure.body.get("message").and_then(Value::as_str).unwrap_or("图片生成失败");
-                    let class = if failure.body.get("code").and_then(Value::as_str) == Some("content_policy_violation") {
+                    let message = failure
+                        .body
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("图片生成失败");
+                    let class = if failure.body.get("code").and_then(Value::as_str)
+                        == Some("content_policy_violation")
+                    {
                         UpstreamErrorClass::ContentBlocked {
-                            status: 400, message: message.to_string(), upstream_code: None,
+                            status: 400,
+                            message: message.to_string(),
+                            upstream_code: None,
                         }
                     } else {
-                        adapter.classify_error_async(failure.status, &failure.body).await
+                        adapter
+                            .classify_error_async(failure.status, &failure.body)
+                            .await
                     };
                     let error = match &class {
-                        UpstreamErrorClass::QuotaLimited { status, message, upstream_code, .. }
-                        | UpstreamErrorClass::ContentBlocked { status, message, upstream_code }
-                        | UpstreamErrorClass::Fatal { status, message, upstream_code } => {
+                        UpstreamErrorClass::QuotaLimited {
+                            status,
+                            message,
+                            upstream_code,
+                            ..
+                        }
+                        | UpstreamErrorClass::ContentBlocked {
+                            status,
+                            message,
+                            upstream_code,
+                        }
+                        | UpstreamErrorClass::Fatal {
+                            status,
+                            message,
+                            upstream_code,
+                        } => {
                             GatewayError::with_status(i32::from(*status).max(400), message.clone())
                                 .with_optional_code(*upstream_code)
                         }
-                        UpstreamErrorClass::TokenExpired { message } => GatewayError::with_status(401, message.clone()),
+                        UpstreamErrorClass::TokenExpired { message } => {
+                            GatewayError::with_status(401, message.clone())
+                        }
                     };
-                    let stop = failure.status >= 500
-                        && matches!(class, UpstreamErrorClass::Fatal { .. });
+                    let stop =
+                        failure.status >= 500 && matches!(class, UpstreamErrorClass::Fatal { .. });
                     if stop {
-                        telemetry.note_attempt_notice("生图结果不确定，未自动重发，以免重复消耗额度");
+                        telemetry
+                            .note_attempt_notice("生图结果不确定，未自动重发，以免重复消耗额度");
                     }
                     return Err(OutboundFailure {
                         class,
-                        error: if error.message.is_empty() { super::images::output_error(message) } else { error },
+                        error: if error.message.is_empty() {
+                            super::images::output_error(message)
+                        } else {
+                            error
+                        },
                         stop,
                         policy: Default::default(),
                     });
                 }
             }
         }
-        let is_error = adapter.is_error_response_async(
-            response.status().as_u16(), response.headers(),
-        ).await.map_err(|error| OutboundFailure {
-            class: UpstreamErrorClass::Fatal {
-                status: error.status_code as u16,
-                message: error.message.clone(),
-                upstream_code: error.upstream_code,
-            },
-            error,
-            stop: true,
-            policy: Default::default(),
-        })?;
+        let is_error = adapter
+            .is_error_response_async(response.status().as_u16(), response.headers())
+            .await
+            .map_err(|error| OutboundFailure {
+                class: UpstreamErrorClass::Fatal {
+                    status: error.status_code as u16,
+                    message: error.message.clone(),
+                    upstream_code: error.upstream_code,
+                },
+                error,
+                stop: true,
+                policy: Default::default(),
+            })?;
         if !is_error {
             network.success();
             return Ok(super::images::ImageResponse::Live(response));
@@ -3033,10 +3293,19 @@ async fn send_with_retry(
         let uncertain_image = images.is_some()
             && matches!(class, UpstreamErrorClass::Fatal { .. })
             && (status >= 500 || matches!(status, 408 | 409 | 425));
-        let stop = policy.stop || uncertain_image || matches!(&decision, RetryDecision::Stop { .. });
-        if let Some(reason) = network.after_status(status, &body,
-            !stop && !policy.suspend_account && policy.account_cooldown_until.is_none()
-                && matches!(class, UpstreamErrorClass::Fatal { .. })).await {
+        let stop =
+            policy.stop || uncertain_image || matches!(&decision, RetryDecision::Stop { .. });
+        if let Some(reason) = network
+            .after_status(
+                status,
+                &body,
+                !stop
+                    && !policy.suspend_account
+                    && policy.account_cooldown_until.is_none()
+                    && matches!(class, UpstreamErrorClass::Fatal { .. }),
+            )
+            .await
+        {
             telemetry.note_attempt_retry(&reason, Some(i64::from(status)), 0);
             continue;
         }
@@ -3063,7 +3332,9 @@ async fn send_with_retry(
         // 上，直接换下一个账号继续试（见 `direct_switch_status` 与动作 3），
         // 换满仍失败才把错误给客户端。两处合起来才是「这个码直接换号」的
         // 完整语义。
-        let advice = if stop || policy.suspend_account || policy.account_cooldown_until.is_some()
+        let advice = if stop
+            || policy.suspend_account
+            || policy.account_cooldown_until.is_some()
             || (!degraded && matches!(class, UpstreamErrorClass::ContentBlocked { .. }))
             || direct_switch_status(i64::from(status))
         {
@@ -3095,30 +3366,46 @@ async fn send_with_retry(
         );
         // 文案由适配器给出（含 provider 提示），编排层原样组装成网关错误
         let error = match &class {
-            UpstreamErrorClass::QuotaLimited { status, message, upstream_code, .. } => {
-                GatewayError::with_status(*status as i32, message.clone())
-                    .with_optional_code(*upstream_code)
-            }
+            UpstreamErrorClass::QuotaLimited {
+                status,
+                message,
+                upstream_code,
+                ..
+            } => GatewayError::with_status(*status as i32, message.clone())
+                .with_optional_code(*upstream_code),
             // 内容拦截与 Fatal 的客户端形态相同（状态码 + 上游原文 + 上游码）：
             // 区别只在**编排动作**（前者不罚账号、先换提示词补救），不在文案。
-            UpstreamErrorClass::ContentBlocked { status, message, upstream_code } => {
-                GatewayError::with_status(*status as i32, message.clone())
-                    .with_optional_code(*upstream_code)
-            }
-            UpstreamErrorClass::Fatal { status, message, upstream_code } => {
-                GatewayError::with_status(*status as i32, message.clone())
-                    .with_optional_code(*upstream_code)
-            }
+            UpstreamErrorClass::ContentBlocked {
+                status,
+                message,
+                upstream_code,
+            } => GatewayError::with_status(*status as i32, message.clone())
+                .with_optional_code(*upstream_code),
+            UpstreamErrorClass::Fatal {
+                status,
+                message,
+                upstream_code,
+            } => GatewayError::with_status(*status as i32, message.clone())
+                .with_optional_code(*upstream_code),
             UpstreamErrorClass::TokenExpired { message } => {
-                GatewayError::with_status(401, message.clone())
-                    .with_optional_code(detail.code)
+                GatewayError::with_status(401, message.clone()).with_optional_code(detail.code)
             }
         };
         let error = if uncertain_image {
-            GatewayError::with_status(error.status_code, format!("{}；图片请求可能已消耗额度，未自动重试", error.message))
-                .with_optional_code(error.upstream_code)
-        } else { error };
-        return Err(OutboundFailure { class, error, stop, policy });
+            GatewayError::with_status(
+                error.status_code,
+                format!("{}；图片请求可能已消耗额度，未自动重试", error.message),
+            )
+            .with_optional_code(error.upstream_code)
+        } else {
+            error
+        };
+        return Err(OutboundFailure {
+            class,
+            error,
+            stop,
+            policy,
+        });
     }
 }
 
@@ -3154,9 +3441,9 @@ mod local_failure {
     //! 对拍（NAS 上 -14 与 -15 的 `attempts` 差异就是它的证据）。这里钉的是两个
     //! 容易被顺手改掉的口径。
 
+    use super::direct_switch_status;
     use super::readiness;
     use super::TRANSIENT_RETRY_STATUSES;
-    use super::direct_switch_status;
 
     #[test]
     fn a_local_failure_is_never_resent_in_place() {
@@ -3175,7 +3462,9 @@ mod local_failure {
         // 「指定错误码直接换号」名单是用户配的（默认 402）。556 不该依赖它：
         // 用户把名单清空也挡不住本地失败换号，反过来用户点名 556 也不该有额外效果。
         // 这条用例的存在是为了让「改成走名单」这个念头先撞上说明。
-        assert!(!direct_switch_status(i64::from(readiness::LOCAL_PRECONDITION_STATUS)));
+        assert!(!direct_switch_status(i64::from(
+            readiness::LOCAL_PRECONDITION_STATUS
+        )));
     }
 
     #[test]

@@ -106,7 +106,9 @@ pub fn conversation_seed(body: &Value) -> String {
         if message.get("role").and_then(Value::as_str) != Some("user") {
             continue;
         }
-        let Some(content) = message.get("content") else { continue };
+        let Some(content) = message.get("content") else {
+            continue;
+        };
         if content.is_null() {
             continue;
         }
@@ -157,12 +159,15 @@ pub fn session_id(seed: &str) -> String {
 
 /// `ses_` + 12 位小写 hex + 14 位 Base62（上游 2026-09-16 起对其它形状一律 403）
 fn valid_session_id(text: &str) -> bool {
-    let Some(rest) = text.strip_prefix("ses_") else { return false };
+    let Some(rest) = text.strip_prefix("ses_") else {
+        return false;
+    };
     if rest.len() != 12 + 14 {
         return false;
     }
     let (hex, tail) = rest.split_at(12);
-    hex.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    hex.bytes()
+        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         && tail.bytes().all(|byte| BASE62.contains(&byte))
 }
 
@@ -196,8 +201,13 @@ pub fn is_acceptable_session_id(text: &str) -> bool {
     }
     // `ses_` 之后 12 位是 hex（valid_session_id 已保证是 ASCII），取末 3 位
     // 即低 12 位。用 get 而不是直接切片：本模块的硬约束是不 panic。
-    let Some(hex) = text.get(4..16) else { return false };
-    let Some(low) = hex.get(9..12).and_then(|tail| u16::from_str_radix(tail, 16).ok()) else {
+    let Some(hex) = text.get(4..16) else {
+        return false;
+    };
+    let Some(low) = hex
+        .get(9..12)
+        .and_then(|tail| u16::from_str_radix(tail, 16).ok())
+    else {
         return false;
     };
     low >= LOW12_FLOOR
@@ -289,19 +299,22 @@ fn go_user_agent() -> String {
 ///   · 会话 id 仍走 [`session_id`] 的派生（同一场对话同一个 id），
 ///     Go 拿它做路由与提示词缓存亲和。
 pub fn apply_go_headers(headers: &mut Vec<(String, String)>, session: &str) {
-    merge(headers, [
-        ("User-Agent".to_string(), go_user_agent()),
-        (GO_SESSION_HEADER.to_string(), session.to_string()),
-    ]);
+    merge(
+        headers,
+        [
+            ("User-Agent".to_string(), go_user_agent()),
+            (GO_SESSION_HEADER.to_string(), session.to_string()),
+        ],
+    );
 }
 
 /// 把一对键值按名合并进头表（ASCII 不区分大小写；同名覆盖，其余追加）
-fn merge(
-    headers: &mut Vec<(String, String)>,
-    pairs: impl IntoIterator<Item = (String, String)>,
-) {
+fn merge(headers: &mut Vec<(String, String)>, pairs: impl IntoIterator<Item = (String, String)>) {
     for (key, value) in pairs {
-        match headers.iter_mut().find(|(name, _)| name.eq_ignore_ascii_case(&key)) {
+        match headers
+            .iter_mut()
+            .find(|(name, _)| name.eq_ignore_ascii_case(&key))
+        {
             Some(slot) => slot.1 = value,
             None => headers.push((key, value)),
         }
@@ -324,7 +337,9 @@ fn merge(
 ///     它本来能用的工具调用。
 pub fn ensure_agent_shape(body: &mut Value) -> bool {
     let mut changed = false;
-    let Some(object) = body.as_object_mut() else { return false };
+    let Some(object) = body.as_object_mut() else {
+        return false;
+    };
     if object.get("stream").and_then(Value::as_bool) != Some(true) {
         object.insert("stream".to_string(), Value::Bool(true));
         changed = true;
@@ -342,7 +357,9 @@ pub fn ensure_agent_shape(body: &mut Value) -> bool {
     for name in STUB_TOOLS {
         // shell 侧用等价名匹配：`bash` 这条只要客户端带了 `bash` 或 `shell` 就算满足
         let satisfied = if name == "bash" {
-            declared.iter().any(|item| SHELL_TOOL_ALIASES.contains(&item.as_str()))
+            declared
+                .iter()
+                .any(|item| SHELL_TOOL_ALIASES.contains(&item.as_str()))
         } else {
             declared.iter().any(|item| item.as_str() == name)
         };
@@ -376,7 +393,11 @@ fn tool_names(tools: &[Value]) -> Vec<String> {
 /// 一个桩工具（参数与描述不参与上游校验，给可辨识的名字是为了让人读日志时
 /// 一眼看出它是网关补的）
 fn stub_tool(name: &str) -> Value {
-    let property = if name == "bash" { "command" } else { "filePath" };
+    let property = if name == "bash" {
+        "command"
+    } else {
+        "filePath"
+    };
     json!({
         "type": "function",
         "function": {

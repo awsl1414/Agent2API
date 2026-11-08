@@ -50,7 +50,10 @@ pub fn clip(value: &str, max_chars: usize) -> String {
 
 fn is_web_url(value: &str) -> bool {
     Url::parse(value)
-        .map(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some_and(|host| !host.is_empty()))
+        .map(|url| {
+            matches!(url.scheme(), "http" | "https")
+                && url.host_str().is_some_and(|host| !host.is_empty())
+        })
         .unwrap_or(false)
 }
 
@@ -264,7 +267,10 @@ fn is_public_ipv6(host: &str) -> bool {
 /// 是否是公网可抓取主机（拒绝本机、内网、链路本地、保留/文档用途地址）
 pub fn is_public_web_fetch_host(raw_host: &str) -> bool {
     let mut host = raw_host.trim().to_ascii_lowercase();
-    host = host.trim_start_matches('[').trim_end_matches(']').to_string();
+    host = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_string();
     if host.ends_with('.') {
         host.pop();
     }
@@ -286,7 +292,11 @@ pub fn is_public_web_fetch_host(raw_host: &str) -> bool {
     if let Some(parts) = ipv4_parts(&host) {
         return is_public_ipv4(parts);
     }
-    if host.bytes().all(|byte| byte.is_ascii_digit() || byte == b'.') || host.starts_with("0x") {
+    if host
+        .bytes()
+        .all(|byte| byte.is_ascii_digit() || byte == b'.')
+        || host.starts_with("0x")
+    {
         return false;
     }
     host.contains('.')

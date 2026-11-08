@@ -1107,7 +1107,11 @@ fn reset_model_refresh_cooldown(conn: &Connection) -> rusqlite::Result<()> {
     use serde_json::{json, Map, Value};
 
     let text: Option<String> = conn
-        .query_row("SELECT value FROM kv WHERE key = 'backgroundTaskState'", [], |row| row.get(0))
+        .query_row(
+            "SELECT value FROM kv WHERE key = 'backgroundTaskState'",
+            [],
+            |row| row.get(0),
+        )
         .optional()?;
     let Some(text) = text else { return Ok(()) };
     let Ok(mut states) = serde_json::from_str::<Map<String, Value>>(&text) else {
@@ -1116,7 +1120,10 @@ fn reset_model_refresh_cooldown(conn: &Connection) -> rusqlite::Result<()> {
     // 任务级键就是任务 id 本身（`scheduled_tasks::state_key`：模型刷新不是更新
     // 检查那种带仓库前缀的特例）。逐家的 `modelRefresh:<provider>` 键不动 ——
     // 它们的冷却记的是各家自己的失败，与这条误判无关。
-    let Some(state) = states.get_mut("modelRefresh").and_then(Value::as_object_mut) else {
+    let Some(state) = states
+        .get_mut("modelRefresh")
+        .and_then(Value::as_object_mut)
+    else {
         return Ok(());
     };
     let had_cooldown = state.get("retryAt").and_then(Value::as_i64).unwrap_or(0) > 0

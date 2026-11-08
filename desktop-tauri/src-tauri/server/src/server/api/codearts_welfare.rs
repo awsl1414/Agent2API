@@ -91,14 +91,7 @@ pub async fn claim(state: &ServerState, account_id: &str, body: &Bytes) -> Respo
         return management_error(400, "请求体不是合法 JSON");
     };
     let auto = auto_requested(&parsed);
-    match call_action(
-        state,
-        account_id,
-        "welfare.claim",
-        &json!({ "auto": auto }),
-    )
-    .await
-    {
+    match call_action(state, account_id, "welfare.claim", &json!({ "auto": auto })).await {
         Ok(mut outcome) => {
             // 台账由插件写 `ledger_put` 落回记录（键 `pluginLedger.codeartsWelfare`），
             // 网关这里只读出来给界面看「今天领了几次」。
@@ -110,9 +103,7 @@ pub async fn claim(state: &ServerState, account_id: &str, body: &Bytes) -> Respo
             if let Some(object) = outcome.as_object_mut() {
                 object.insert(
                     "welfare".to_string(),
-                    state
-                        .store()
-                        .plugin_ledger(account_id, "codeartsWelfare"),
+                    state.store().plugin_ledger(account_id, "codeartsWelfare"),
                 );
             }
             ok_json(outcome)

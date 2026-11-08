@@ -9,7 +9,9 @@ use serde_json::{Map, Value};
 use crate::server::core::account_store::state::StoredAccount;
 use crate::server::core::account_store::store_util::js_truthy;
 use crate::server::core::account_store::AccountStore;
-use crate::server::core::proxies::{describe_account_proxy, normalize_account_proxy, resolve_account_proxy, ProxyResolution};
+use crate::server::core::proxies::{
+    describe_account_proxy, normalize_account_proxy, resolve_account_proxy, ProxyResolution,
+};
 use crate::server::logging;
 
 /// 凭证键（不透明 JSON；公开出口只读取白名单标量派生字段）。
@@ -97,9 +99,14 @@ fn secret_of(record: &StoredAccount) -> Value {
     };
     let key = crate::server::core::providers::zcode::PLAN_FIELD;
     if super::is_zcode_family(&record.provider()) {
-        if let Some(plan) = record.get(key).and_then(Value::as_str)
-            .and_then(crate::server::core::providers::zcode::normalize_plan) {
-            if let Some(fields) = secret.as_object_mut() { fields.insert(key.to_string(), Value::String(plan.to_string())); }
+        if let Some(plan) = record
+            .get(key)
+            .and_then(Value::as_str)
+            .and_then(crate::server::core::providers::zcode::normalize_plan)
+        {
+            if let Some(fields) = secret.as_object_mut() {
+                fields.insert(key.to_string(), Value::String(plan.to_string()));
+            }
         }
     }
     secret
@@ -213,7 +220,10 @@ impl AccountStore {
     /// 读的是**投影列**（`record.provider()`），不解析 `pluginSecret`
     /// —— 归属是网关的事实，不是插件的事实。
     pub fn account_provider_of(&self, id: &str) -> Option<String> {
-        self.route_account(id)?.get("provider")?.as_str().map(str::to_string)
+        self.route_account(id)?
+            .get("provider")?
+            .as_str()
+            .map(str::to_string)
     }
 
     /// 反查账号 id：按 (provider, uid) 定位。
@@ -256,9 +266,9 @@ impl AccountStore {
             return None;
         }
         let expected = format!("user-{uid}");
-        self.route_account(&expected).filter(|account| {
-            account.get("provider").and_then(Value::as_str) == Some(provider)
-        }).map(|_| expected)
+        self.route_account(&expected)
+            .filter(|account| account.get("provider").and_then(Value::as_str) == Some(provider))
+            .map(|_| expected)
     }
 
     /// 比较-再写凭证。
@@ -325,7 +335,10 @@ impl AccountStore {
                     record.set("needsRelogin", Value::Bool(true));
                     record.set(
                         "needsReloginReason",
-                        secret.get("needsReloginReason").cloned().unwrap_or(Value::Null),
+                        secret
+                            .get("needsReloginReason")
+                            .cloned()
+                            .unwrap_or(Value::Null),
                     );
                 } else {
                     record.remove("needsRelogin");
@@ -372,9 +385,15 @@ impl AccountStore {
         };
         let key = format!("{LEDGER_PREFIX}{kind}");
         if kind == super::checkin_state::LEDGER_KIND {
-            let previous_at = record.get(&key).and_then(|state| state.get("at")).and_then(Value::as_i64);
+            let previous_at = record
+                .get(&key)
+                .and_then(|state| state.get("at"))
+                .and_then(Value::as_i64);
             let next_at = value.get("at").and_then(Value::as_i64);
-            if previous_at.zip(next_at).is_some_and(|(previous, next)| next < previous) {
+            if previous_at
+                .zip(next_at)
+                .is_some_and(|(previous, next)| next < previous)
+            {
                 return Ok(());
             }
             let checkin_at = record.checkin_at();
@@ -415,7 +434,9 @@ impl AccountStore {
         public: &Value,
         desktop: bool,
     ) -> Result<Value, String> {
-        self.plugin_upsert_account_with_source(id, provider, name, secret, public, desktop, "plugin")
+        self.plugin_upsert_account_with_source(
+            id, provider, name, secret, public, desktop, "plugin",
+        )
     }
 
     /// 标准账号的共享落库入口；来源由网关选择，不读取 secret 中的 provider/source。
@@ -431,8 +452,10 @@ impl AccountStore {
         desktop: bool,
         source: &str,
     ) -> Result<Value, String> {
-        self.plugin_upsert_account_with_source_and_proxy(id, provider, name, secret, public, desktop, source, None)
-            .map(|(account, _)| account)
+        self.plugin_upsert_account_with_source_and_proxy(
+            id, provider, name, secret, public, desktop, source, None,
+        )
+        .map(|(account, _)| account)
     }
 
     /// proxy 仅接受 API 已归一配置。None 保留旧出口；Some(direct) 保存显式直连。
@@ -457,80 +480,111 @@ impl AccountStore {
         let account = super::plugin_identity::incoming(provider, id, secret, public, desktop);
         let identity = id;
         let guard = self.guard();
-        let (id, existing) = self.plugin_account_for_upsert(&guard, provider, identity, &account)?;
-        let (saved, proxy_saved) = self.with_conn_mut(&guard, |conn| {
-            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-            // 身份分配后再在事务中读当前行，不用旧内存记录覆盖运营属性。
-            let current = crate::server::core::account_store::sql::load_by_id(&tx, &id)?;
-            if current.is_some() != existing.is_some()
-                || current.as_ref().zip(existing.as_ref())
-                    .is_some_and(|(current, previous)| current.provider() != previous.provider())
-            {
-                return Ok(Err("账号身份或存在状态已变化，未覆盖原账号，请重新添加".to_string()));
-            }
-            let is_new = current.is_none();
-            let mut record = if let Some(mut record) = current {
-                let zcode_plan = super::is_zcode_family(&record.provider()).then(|| record.zcode_plan());
-                record.set_provider(provider);
-                // 原插件调用保留历史来源；本体接管或首次缺来源时记当前执行来源。
-                if source == "builtin" || record.get("source").is_none() {
-                    record.set("source", Value::String(source.to_string()));
+        let (id, existing) =
+            self.plugin_account_for_upsert(&guard, provider, identity, &account)?;
+        let (saved, proxy_saved) = self
+            .with_conn_mut(&guard, |conn| {
+                let tx =
+                    conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+                // 身份分配后再在事务中读当前行，不用旧内存记录覆盖运营属性。
+                let current = crate::server::core::account_store::sql::load_by_id(&tx, &id)?;
+                if current.is_some() != existing.is_some()
+                    || current
+                        .as_ref()
+                        .zip(existing.as_ref())
+                        .is_some_and(|(current, previous)| {
+                            current.provider() != previous.provider()
+                        })
+                {
+                    return Ok(Err(
+                        "账号身份或存在状态已变化，未覆盖原账号，请重新添加".to_string()
+                    ));
                 }
-                record.set("desktop", Value::Bool(desktop));
-                // 旧账号可能只在 secret.proxy 中保存出口。未选新代理时保留该出口
-                // 到账号配置层，不把它混入替换后的 RAW secret。
-                if proxy.is_none() && record.get("proxy").is_none() {
-                    if let Some(previous) = secret_of(&record).get("proxy").filter(|value| !value.is_null()).cloned() {
-                        let previous = normalize_account_proxy(&previous).ok().flatten().unwrap_or(previous);
-                        record.set_proxy(previous);
+                let is_new = current.is_none();
+                let mut record = if let Some(mut record) = current {
+                    let zcode_plan =
+                        super::is_zcode_family(&record.provider()).then(|| record.zcode_plan());
+                    record.set_provider(provider);
+                    // 原插件调用保留历史来源；本体接管或首次缺来源时记当前执行来源。
+                    if source == "builtin" || record.get("source").is_none() {
+                        record.set("source", Value::String(source.to_string()));
                     }
+                    record.set("desktop", Value::Bool(desktop));
+                    // 旧账号可能只在 secret.proxy 中保存出口。未选新代理时保留该出口
+                    // 到账号配置层，不把它混入替换后的 RAW secret。
+                    if proxy.is_none() && record.get("proxy").is_none() {
+                        if let Some(previous) = secret_of(&record)
+                            .get("proxy")
+                            .filter(|value| !value.is_null())
+                            .cloned()
+                        {
+                            let previous = normalize_account_proxy(&previous)
+                                .ok()
+                                .flatten()
+                                .unwrap_or(previous);
+                            record.set_proxy(previous);
+                        }
+                    }
+                    record.set(SECRET_KEY, secret.clone());
+                    record.set(PUBLIC_KEY, public.clone());
+                    super::plugin_identity::remember_identity(&mut record, provider, identity);
+                    if let Some(plan) = zcode_plan.filter(|plan| !plan.trim().is_empty()) {
+                        record.set_zcode_plan(&plan);
+                    }
+                    // 重新登录拿到新凭证后，同次清掉旧凭证的重登录标记。
+                    record.remove("needsRelogin");
+                    record.remove("needsReloginReason");
+                    record
+                } else {
+                    let mut record = account;
+                    super::plugin_identity::remember_identity(&mut record, provider, identity);
+                    record.set("id", Value::String(id.clone()));
+                    record.set("name", Value::String(name.to_string()));
+                    record.set("source", Value::String(source.to_string()));
+                    record.set("addedAt", Value::from(logging::now_ms()));
+                    let used = crate::server::core::account_store::sql::priorities_all(&tx)?;
+                    let priority = super::priority::next_free_priority(&used);
+                    if used.contains(&priority) {
+                        return Err(rusqlite::Error::InvalidQuery);
+                    }
+                    record.set_priority(priority);
+                    record
+                };
+                // 身份 / 端点字段镜像到顶层（issue #380）：网关的计费、签到、余额
+                // 几条读路径只认顶层 `uid` / `edition`，缺了它们新建账号会报
+                // 「找不到该会话对应的账号记录」而对话却正常。新建与更新都要走，
+                // 否则「重新登录一次」不会把旧记录的缺字段补上。
+                super::plugin_identity::mirror_identity(&mut record, provider);
+                // RAW secret 原样保留；旧凭证镜像契约不变，代理配置只写账号顶层。
+                if let Some(proxy) = proxy {
+                    record.set_proxy(proxy.clone());
                 }
-                record.set(SECRET_KEY, secret.clone());
-                record.set(PUBLIC_KEY, public.clone());
-                super::plugin_identity::remember_identity(&mut record, provider, identity);
-                if let Some(plan) = zcode_plan.filter(|plan| !plan.trim().is_empty()) { record.set_zcode_plan(&plan); }
-                // 重新登录拿到新凭证后，同次清掉旧凭证的重登录标记。
-                record.remove("needsRelogin");
-                record.remove("needsReloginReason");
-                record
-            } else {
-                let mut record = account;
-                super::plugin_identity::remember_identity(&mut record, provider, identity);
-                record.set("id", Value::String(id.clone()));
-                record.set("name", Value::String(name.to_string()));
-                record.set("source", Value::String(source.to_string()));
-                record.set("addedAt", Value::from(logging::now_ms()));
-                let used = crate::server::core::account_store::sql::priorities_all(&tx)?;
-                let priority = super::priority::next_free_priority(&used);
-                if used.contains(&priority) { return Err(rusqlite::Error::InvalidQuery); }
-                record.set_priority(priority);
-                record
-            };
-            // 身份 / 端点字段镜像到顶层（issue #380）：网关的计费、签到、余额
-            // 几条读路径只认顶层 `uid` / `edition`，缺了它们新建账号会报
-            // 「找不到该会话对应的账号记录」而对话却正常。新建与更新都要走，
-            // 否则「重新登录一次」不会把旧记录的缺字段补上。
-            super::plugin_identity::mirror_identity(&mut record, provider);
-            // RAW secret 原样保留；旧凭证镜像契约不变，代理配置只写账号顶层。
-            if let Some(proxy) = proxy { record.set_proxy(proxy.clone()); }
-            record.set_updated_at(logging::now_ms());
-            if is_new {
-                crate::server::core::account_store::sql::put(&tx, &record)?;
-            } else {
-                crate::server::core::account_store::sql::update_in_place(&tx, &record)?;
-            }
-            let Some(saved) = crate::server::core::account_store::sql::load_by_id(&tx, &id)? else {
-                return Ok(Err("保存账号后未能回读，账号与代理均未提交".to_string()));
-            };
-            if saved.get(SECRET_KEY) != record.get(SECRET_KEY) || saved.get(PUBLIC_KEY) != record.get(PUBLIC_KEY)
-                || saved.get("proxy") != record.get("proxy")
-                || proxy.is_some_and(|config| saved.get("proxy") != Some(config))
-            {
-                return Ok(Err("账号凭证或代理回读不一致，本次保存已回滚".to_string()));
-            }
-            tx.commit()?;
-            Ok(Ok((saved, proxy.is_some())))
-        }).map_err(|error| format!("保存账号与代理失败（请确认优先级号段未满且账号库可用）: {}", error.message))??;
+                record.set_updated_at(logging::now_ms());
+                if is_new {
+                    crate::server::core::account_store::sql::put(&tx, &record)?;
+                } else {
+                    crate::server::core::account_store::sql::update_in_place(&tx, &record)?;
+                }
+                let Some(saved) = crate::server::core::account_store::sql::load_by_id(&tx, &id)?
+                else {
+                    return Ok(Err("保存账号后未能回读，账号与代理均未提交".to_string()));
+                };
+                if saved.get(SECRET_KEY) != record.get(SECRET_KEY)
+                    || saved.get(PUBLIC_KEY) != record.get(PUBLIC_KEY)
+                    || saved.get("proxy") != record.get("proxy")
+                    || proxy.is_some_and(|config| saved.get("proxy") != Some(config))
+                {
+                    return Ok(Err("账号凭证或代理回读不一致，本次保存已回滚".to_string()));
+                }
+                tx.commit()?;
+                Ok(Ok((saved, proxy.is_some())))
+            })
+            .map_err(|error| {
+                format!(
+                    "保存账号与代理失败（请确认优先级号段未满且账号库可用）: {}",
+                    error.message
+                )
+            })??;
         Ok((self.public_account(&saved), proxy_saved))
     }
 
@@ -544,7 +598,10 @@ impl AccountStore {
     /// 的浏览器都能读到它。
     pub(crate) fn to_plugin_public_account(&self, record: &StoredAccount) -> Value {
         let mut public = Map::new();
-        public.insert("name".to_string(), record.get("name").cloned().unwrap_or(Value::Null));
+        public.insert(
+            "name".to_string(),
+            record.get("name").cloned().unwrap_or(Value::Null),
+        );
         public.insert("tokenTail".to_string(), Value::Null);
         // 插件拥有提供商专属展示字段；用户备注以账号顶层记录为准。
         if let Some(Value::Object(extra)) = record.get(PUBLIC_KEY) {
@@ -558,21 +615,43 @@ impl AccountStore {
         // 身份、启用状态与队列元数据归网关，不能被插件展示字段覆盖。
         public.insert("id".to_string(), Value::String(record.id().to_string()));
         public.insert("provider".to_string(), Value::String(record.provider()));
-        if let Some(region) = crate::server::core::providers::qoder::endpoints::Region::from_provider_id(&record.provider()) {
-            public.insert("edition".to_string(), Value::String(region.edition().to_string()));
-            public.insert("editionLabel".to_string(), Value::String(region.label().to_string()));
+        if let Some(region) =
+            crate::server::core::providers::qoder::endpoints::Region::from_provider_id(
+                &record.provider(),
+            )
+        {
+            public.insert(
+                "edition".to_string(),
+                Value::String(region.edition().to_string()),
+            );
+            public.insert(
+                "editionLabel".to_string(),
+                Value::String(region.label().to_string()),
+            );
         }
-        public.insert("source".to_string(), record.get("source").cloned().unwrap_or(Value::Null));
-        public.insert("nameCustom".to_string(), Value::Bool(record.get("nameCustom").map(js_truthy).unwrap_or(false)));
+        public.insert(
+            "source".to_string(),
+            record.get("source").cloned().unwrap_or(Value::Null),
+        );
+        public.insert(
+            "nameCustom".to_string(),
+            Value::Bool(record.get("nameCustom").map(js_truthy).unwrap_or(false)),
+        );
         public.insert("enabled".to_string(), Value::Bool(record.enabled()));
         public.insert("priority".to_string(), Value::from(record.priority()));
         public.insert("addedAt".to_string(), Value::from(record.added_at()));
         public.insert("updatedAt".to_string(), Value::from(record.updated_at()));
         public.insert(
             "rateLimits".to_string(),
-            record.get("rateLimits").cloned().unwrap_or_else(|| Value::Object(Map::new())),
+            record
+                .get("rateLimits")
+                .cloned()
+                .unwrap_or_else(|| Value::Object(Map::new())),
         );
-        public.insert("proxy".to_string(), describe_account_proxy(Some(&record.proxy())));
+        public.insert(
+            "proxy".to_string(),
+            describe_account_proxy(Some(&record.proxy())),
+        );
         if record.get("nameCustom").map(js_truthy).unwrap_or(false) {
             let name = record.name();
             if !name.trim().is_empty() {

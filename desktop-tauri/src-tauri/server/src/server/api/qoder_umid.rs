@@ -32,7 +32,10 @@ const PROVIDER: &str = "qoder-intl";
 /// 把一次界面动作转成插件的 `admin.action`。
 async fn call_action(state: &ServerState, action: &str) -> Result<Value, (i32, String)> {
     let Some(adapter) = crate::server::core::providers::adapter::adapter_by_id(PROVIDER) else {
-        return Err((400, "Qoder 的提供商插件没有安装，无法查询设备组件".to_string()));
+        return Err((
+            400,
+            "Qoder 的提供商插件没有安装，无法查询设备组件".to_string(),
+        ));
     };
     adapter
         .admin_action(state.store(), "", action, &Value::Null)

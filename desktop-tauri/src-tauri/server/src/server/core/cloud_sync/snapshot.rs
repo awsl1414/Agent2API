@@ -55,7 +55,12 @@ pub(crate) const SNAPSHOT_FORMAT: &str = "agent2api-cloud-sync-snapshot";
 pub(crate) const SNAPSHOT_VERSION: u32 = 1;
 
 /// 进快照的表（顺序即插入顺序：账号先于其它，便于失败时一眼看出走到哪一步）
-pub(crate) const SYNCED_TABLES: &[&str] = &["accounts", "account_usage_records", "checkin_records", "account_limiter_events"];
+pub(crate) const SYNCED_TABLES: &[&str] = &[
+    "accounts",
+    "account_usage_records",
+    "checkin_records",
+    "account_limiter_events",
+];
 
 /// 非保留配置键里**不进快照**的项（理由见模块头三类排除）。
 const EXCLUDED_CONFIG_KEYS: &[&str] = &[
@@ -143,12 +148,15 @@ impl Snapshot {
 pub(crate) fn build(db: &Db) -> Result<Snapshot, String> {
     let exported_at = logging::now_ms();
     db.with_mut(|conn| {
-        let tx = conn.transaction().map_err(|error| format!("开启同步快照事务失败: {error}"))?;
+        let tx = conn
+            .transaction()
+            .map_err(|error| format!("开启同步快照事务失败: {error}"))?;
         let snapshot = build_conn(&tx, exported_at)?;
-        tx.commit().map_err(|error| format!("结束同步快照事务失败: {error}"))?;
+        tx.commit()
+            .map_err(|error| format!("结束同步快照事务失败: {error}"))?;
         Ok(snapshot)
     })
-        .ok_or_else(|| "数据库连接不可用，无法生成同步快照".to_string())?
+    .ok_or_else(|| "数据库连接不可用，无法生成同步快照".to_string())?
 }
 
 fn build_conn(conn: &Connection, exported_at: i64) -> Result<Snapshot, String> {
@@ -198,10 +206,7 @@ fn read_table(conn: &Connection, table: &str) -> Result<Vec<Map<String, Value>>,
         .collect::<Vec<_>>()
         .join(", ");
     let mut stmt = conn
-        .prepare(&format!(
-            "SELECT {quoted} FROM {}",
-            quote_identifier(table)
-        ))
+        .prepare(&format!("SELECT {quoted} FROM {}", quote_identifier(table)))
         .map_err(|error| format!("读取 {table} 失败: {error}"))?;
     let mut rows = stmt
         .query([])
@@ -300,12 +305,13 @@ pub(crate) fn apply(
         ));
     }
 
-    let applied = db.with_mut(|conn| {
-        db.invalidate_accounts();
-        let applied = apply_conn(conn, snapshot, key);
-        db.invalidate_accounts();
-        applied
-    })
+    let applied = db
+        .with_mut(|conn| {
+            db.invalidate_accounts();
+            let applied = apply_conn(conn, snapshot, key);
+            db.invalidate_accounts();
+            applied
+        })
         .ok_or_else(|| "数据库连接不可用，无法应用同步快照".to_string())?;
     db.invalidate_accounts();
     applied
@@ -389,7 +395,10 @@ fn insert_row(
     row: &Map<String, Value>,
 ) -> Result<(), String> {
     // 只取两边都有的列；顺序按当前表的列顺序（与占位符一一对应）
-    let used: Vec<&String> = columns.iter().filter(|column| row.contains_key(*column)).collect();
+    let used: Vec<&String> = columns
+        .iter()
+        .filter(|column| row.contains_key(*column))
+        .collect();
     if used.is_empty() {
         return Ok(());
     }
@@ -445,7 +454,10 @@ fn json_to_sql(value: &Value) -> rusqlite::types::Value {
 /// 一份可读的留影。这里存的是**同一份 JSON 快照**（不是 SQL）—— 云同步只会
 /// 改业务数据，回滚也该只涉及业务数据；用 SQL 整库形态反而会让人以为能拿它
 /// 恢复日志。
-pub(crate) fn safety_backup(snapshot: &Snapshot, config_dir: &std::path::Path) -> Result<String, String> {
+pub(crate) fn safety_backup(
+    snapshot: &Snapshot,
+    config_dir: &std::path::Path,
+) -> Result<String, String> {
     let dir = config_dir.join("backups");
     std::fs::create_dir_all(&dir).map_err(|error| format!("创建备份目录失败: {error}"))?;
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
@@ -504,10 +516,12 @@ pub(crate) fn build_manifest(
 /// 读一个 kv 键的原始值（调试 / 展示用）
 #[allow(dead_code)]
 pub(crate) fn kv_value(conn: &Connection, key: &str) -> Option<String> {
-    conn.query_row("SELECT value FROM kv WHERE key = ?1", [key], |row| row.get(0))
-        .optional()
-        .ok()
-        .flatten()
+    conn.query_row("SELECT value FROM kv WHERE key = ?1", [key], |row| {
+        row.get(0)
+    })
+    .optional()
+    .ok()
+    .flatten()
 }
 
 #[cfg(test)]

@@ -52,8 +52,8 @@ use rusqlite::Connection;
 
 use super::backup::backup_legacy_file;
 use super::LegacyOutcome;
-use crate::server::logging;
 use crate::paths;
+use crate::server::logging;
 
 /// 迁移项的可读名（`LegacyOutcome.label` 与「待迁移项清单」共用同一个字面量）。
 pub(super) const LABEL: &str = "桌面设置";
@@ -100,7 +100,10 @@ pub(super) fn import_settings(conn: &Connection, dir: &Path) -> Option<LegacyOut
     if !legacy_parses(&text) {
         logging::console_line(
             "[Storage]",
-            &format!("❌ 桌面设置迁移失败：{} 不是合法的设置 JSON（文件保留原处）", path.display()),
+            &format!(
+                "❌ 桌面设置迁移失败：{} 不是合法的设置 JSON（文件保留原处）",
+                path.display()
+            ),
         );
         return None;
     }

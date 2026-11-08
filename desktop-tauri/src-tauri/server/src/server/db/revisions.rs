@@ -29,7 +29,10 @@ impl AccountRevisions {
 
     // 钩子在 SQL 提交前触发；回滚也保留失效信号，读取方只缓存锁外取得的已提交快照。
     pub fn changed(&self, rowid: i64) {
-        let mut journal = self.journal.lock().unwrap_or_else(|error| error.into_inner());
+        let mut journal = self
+            .journal
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         journal.revision = journal.revision.wrapping_add(1);
         let revision = journal.revision;
         journal.rows.push_back((revision, rowid));
@@ -42,7 +45,10 @@ impl AccountRevisions {
     }
 
     pub fn invalidate(&self) {
-        let mut journal = self.journal.lock().unwrap_or_else(|error| error.into_inner());
+        let mut journal = self
+            .journal
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         journal.revision = journal.revision.wrapping_add(1);
         journal.reset_at = journal.revision;
         journal.rows.clear();
@@ -50,12 +56,25 @@ impl AccountRevisions {
     }
 
     pub fn since(&self, revision: Option<u64>) -> AccountChanges {
-        let journal = self.journal.lock().unwrap_or_else(|error| error.into_inner());
-        let rows = revision.filter(|revision| *revision >= journal.reset_at)
-            .map(|revision| journal.rows.iter()
-                .filter(|(at, _)| *at > revision)
-                .map(|(_, rowid)| *rowid)
-                .collect::<BTreeSet<_>>().into_iter().collect());
-        AccountChanges { revision: journal.revision, rows }
+        let journal = self
+            .journal
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let rows = revision
+            .filter(|revision| *revision >= journal.reset_at)
+            .map(|revision| {
+                journal
+                    .rows
+                    .iter()
+                    .filter(|(at, _)| *at > revision)
+                    .map(|(_, rowid)| *rowid)
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect()
+            });
+        AccountChanges {
+            revision: journal.revision,
+            rows,
+        }
     }
 }

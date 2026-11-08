@@ -59,10 +59,10 @@ pub use super::accounts_batch::batch_accounts;
 
 use crate::server::core::account_store::AccountStoreError;
 use crate::server::core::billing::checkin;
-use crate::server::core::proxies::ProxyConfigError;
 use crate::server::core::providers::adapter::adapter_for;
 use crate::server::core::providers::zcode;
 use crate::server::core::providers::ProviderKind;
+use crate::server::core::proxies::ProxyConfigError;
 use crate::server::errors::management_error;
 use crate::server::http::{ok_json, parse_body, query_param};
 use crate::server::logging;
@@ -94,7 +94,9 @@ async fn add_plugin_account(
     import_name: Option<&str>,
     account_source: &str,
 ) -> Response {
-    use crate::server::core::proxies::{normalize_account_proxy, resolve_account_proxy, ResolvedProxy};
+    use crate::server::core::proxies::{
+        normalize_account_proxy, resolve_account_proxy, ResolvedProxy,
+    };
     // 缺省不覆盖存量出口；显式 null/direct 是需要落库的直连选择。
     let proxy_config = match payload.get("proxy") {
         Some(value) if !value.is_null() && !value.is_object() => {
@@ -118,11 +120,16 @@ async fn add_plugin_account(
                 return management_error(400, "账号代理未能解析，未回退直连");
             };
             if resolution.error().is_some() {
-                return management_error(400, "账号代理无法解析，请检查所选代理是否存在且已启用；未回退直连");
+                return management_error(
+                    400,
+                    "账号代理无法解析，请检查所选代理是否存在且已启用；未回退直连",
+                );
             }
             match ResolvedProxy::from_json(&resolution.to_json()) {
                 Ok(Some(proxy)) => Some(proxy),
-                _ => return management_error(400, "账号代理出口无效，请检查主机与端口；未回退直连"),
+                _ => {
+                    return management_error(400, "账号代理出口无效，请检查主机与端口；未回退直连")
+                }
             }
         }
     };
@@ -134,7 +141,11 @@ async fn add_plugin_account(
         password: proxy.password,
     });
 
-    let source = if payload.get("importDesktop").and_then(Value::as_bool).unwrap_or(false) {
+    let source = if payload
+        .get("importDesktop")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
         agent2api_provider_protocol::NormalizeSource::Desktop
     } else if let Some(content) = payload
         .get("authFileContent")
@@ -167,13 +178,19 @@ async fn add_plugin_account(
         if crate::server::core::providers::is_scoped_runtime_provider(provider) {
             if let Some(fields) = manual_payload.as_object_mut() {
                 if fields.get("methodIndex").is_some() {
-                    for key in ["provider", "name", "proxy"] { fields.remove(key); }
+                    for key in ["provider", "name", "proxy"] {
+                        fields.remove(key);
+                    }
                 } else if account_source == "builtin" {
-                    for key in ["name", "proxy"] { fields.remove(key); }
+                    for key in ["name", "proxy"] {
+                        fields.remove(key);
+                    }
                 }
             }
         }
-        agent2api_provider_protocol::NormalizeSource::Manual { payload: manual_payload }
+        agent2api_provider_protocol::NormalizeSource::Manual {
+            payload: manual_payload,
+        }
     };
 
     let input = agent2api_provider_protocol::NormalizeInput {
@@ -268,19 +285,21 @@ fn decode_segment(value: &str) -> String {
 ///
 /// 用 `any(...)` 注册（接受任意方法），因为 Node 的判定里有「PATCH/DELETE 落到
 /// `<id>` 分支」这种跨方法的路径匹配 —— 交给 axum 的方法路由反而会把它拆错。
-pub async fn accounts_entry(State(state): State<ServerState>, request: axum::extract::Request) -> Response {
+pub async fn accounts_entry(
+    State(state): State<ServerState>,
+    request: axum::extract::Request,
+) -> Response {
     let method = request.method().clone();
     let full_path = request.uri().path().to_string();
     // 原始查询串（未解码的原文，由用到它的分支自行 `query_param` 解码）。
     // 目前只有 `GET /api/accounts/usage?id=<id>` 用它 —— 那一支是「用户手点某一行
     // 的余额按钮」，与批量的区别见 `core::usage_query::query_all` 的说明。
     let query = request.uri().query().unwrap_or("").to_string();
-    let body = match axum::body::to_bytes(request.into_body(), crate::server::http::MAX_BODY_SIZE)
-        .await
-    {
-        Ok(bytes) => bytes,
-        Err(error) => return management_error(413, format!("请求体读取失败或过大: {error}")),
-    };
+    let body =
+        match axum::body::to_bytes(request.into_body(), crate::server::http::MAX_BODY_SIZE).await {
+            Ok(bytes) => bytes,
+            Err(error) => return management_error(413, format!("请求体读取失败或过大: {error}")),
+        };
     // `suffix` 为空 = 精确命中 `/api/accounts`（列表/新增）；其它情况（含 `/api/accounts/`
     // 这个只有尾斜杠的形态）都是子路径 —— Node 版用 `path === '/api/accounts'` 严格
     // 判等，所以 `/api/accounts/` 落到最后的 404 分支，这里必须保留这个区分
@@ -296,7 +315,10 @@ pub async fn accounts_entry(State(state): State<ServerState>, request: axum::ext
 /// `/pool/test`、`/pool/sync-clash`（「网络代理」页的代理池 CRUD + 启停 + 测试
 /// + Clash 同步，见 `api::proxies` 的模块头）。池那几条的 id 走 body，不做
 /// 路径段 —— 判定的写法因此还是一张 (方法, 剩余路径) 的表，与原来的两条完全同形。
-pub async fn proxies_entry(State(state): State<ServerState>, request: axum::extract::Request) -> Response {
+pub async fn proxies_entry(
+    State(state): State<ServerState>,
+    request: axum::extract::Request,
+) -> Response {
     let method = request.method().clone();
     let full_path = request.uri().path().to_string();
     let rest = full_path
@@ -304,12 +326,11 @@ pub async fn proxies_entry(State(state): State<ServerState>, request: axum::extr
         .unwrap_or("")
         .trim_start_matches('/')
         .to_string();
-    let body = match axum::body::to_bytes(request.into_body(), crate::server::http::MAX_BODY_SIZE)
-        .await
-    {
-        Ok(bytes) => bytes,
-        Err(error) => return management_error(413, format!("请求体读取失败或过大: {error}")),
-    };
+    let body =
+        match axum::body::to_bytes(request.into_body(), crate::server::http::MAX_BODY_SIZE).await {
+            Ok(bytes) => bytes,
+            Err(error) => return management_error(413, format!("请求体读取失败或过大: {error}")),
+        };
     match (method.as_str(), rest.as_str()) {
         ("GET", "") => super::proxies::list_proxies(&state).await,
         ("POST", "test") => super::proxies::test_proxy(&state, &body).await,
@@ -323,10 +344,7 @@ pub async fn proxies_entry(State(state): State<ServerState>, request: axum::extr
         ("GET", "settings") => super::proxies::settings_get().await,
         ("POST", "settings") => super::proxies::settings_save(&body).await,
         // 已注册路径上的其它方法：Node 的 tryHandleProxies 落到它自己的 404 信封
-        _ => management_error(
-            404,
-            format!("Not found: {} {full_path}", method.as_str()),
-        ),
+        _ => management_error(404, format!("Not found: {} {full_path}", method.as_str())),
     }
 }
 
@@ -375,7 +393,9 @@ pub async fn dispatch(
         ("GET", "sorting") => return super::accounts_sort::get_sorting(&state),
         ("PUT", "sorting") => return super::accounts_sort::save_sorting(&state, body),
         ("GET", "export") => return export_accounts(&state),
-        ("POST", "export-files") => return super::accounts_export::account_files(&state, body).await,
+        ("POST", "export-files") => {
+            return super::accounts_export::account_files(&state, body).await
+        }
         ("POST", "import") => return import_accounts(&state, body).await,
         ("POST", "current") => return set_current(&state, body).await,
         ("POST", "batch") => return batch_accounts(&state, body).await,
@@ -385,9 +405,7 @@ pub async fn dispatch(
         ("POST", "refresh-expiring") => return refresh_expiring_accounts(&state).await,
         // 余额 / 积分查询（四家混查）实现在 `api::accounts_usage`（拆分见那里的模块头）。
         // `?id=` 是「手点某一行积分按钮」的单查形态，语义见 accounts_usage 的说明。
-        ("GET", "usage") => {
-            return super::accounts_usage::accounts_usage(&state, query).await
-        }
+        ("GET", "usage") => return super::accounts_usage::accounts_usage(&state, query).await,
         // 定时查询那一轮的结果快照（形状同 usage，多一个 `at`）
         ("GET", "usage/snapshot") => {
             return super::accounts_usage::accounts_usage_snapshot(&state).await
@@ -560,7 +578,7 @@ pub async fn dispatch(
 /// match：新增 provider 时编译器会强制给出分支；注册表里没有的 id（前端比后端
 /// 新、或手改的请求）仍走 ④ —— 老客户端不带 provider 字段，未知 id 不能报错。
 pub async fn add_account(state: &ServerState, body: &Bytes) -> Response {
-    let payload = match parse_json_body(&body, "上传内容不是有效 JSON") {
+    let payload = match parse_json_body(body, "上传内容不是有效 JSON") {
         Ok(value) => value,
         Err(response) => return response,
     };
@@ -575,7 +593,9 @@ pub async fn add_account(state: &ServerState, body: &Bytes) -> Response {
         .and_then(Value::as_str)
         .map(str::to_string);
     let import_name = name.as_deref();
-    if let Some(response) = super::accounts_export::import_account_file(state, provider, &payload, import_name) {
+    if let Some(response) =
+        super::accounts_export::import_account_file(state, provider, &payload, import_name)
+    {
         return response;
     }
     if crate::server::core::providers::availability::is_suspended(provider) {
@@ -625,7 +645,15 @@ pub async fn add_account(state: &ServerState, body: &Bytes) -> Response {
         } else {
             "builtin"
         };
-        return add_plugin_account(state, adapter.as_ref(), provider, &payload, import_name, source).await;
+        return add_plugin_account(
+            state,
+            adapter.as_ref(),
+            provider,
+            &payload,
+            import_name,
+            source,
+        )
+        .await;
     }
     // ── 兜底分派：**每个分支都直接返回**（没有内置落库路径了）──────
     // 本版本不再内置任何一家的账号实现，所以这里的每个 arm 都是 503 指路。
@@ -637,19 +665,19 @@ pub async fn add_account(state: &ServerState, body: &Bytes) -> Response {
         // 登录态 / 文件导入 / 续期 / 目录 / 余额 / 签到 / 新手任务），这里只留
         // 拒绝路径 —— 装上插件时上面的 `serves_provider` 分流会先带走。
         Some(crate::server::core::providers::ProviderKind::Raccoon) => {
-            return management_error(
+            management_error(
                 503,
                 "小浣熊的账号管理需要安装提供商插件：本版本不再内置该家的凭证解析与桌面端读取实现",
-            );
+            )
         }
         // CatPaw：实现已整体搬到插件（凭证归一化、桌面端实时登录态、余额凭证、
         // 会话协议转发）。装上插件时上面的 `serves_provider` 分流会先带走，
         // 三种来源（文件 / 桌面端 / 粘贴）都由插件的 `account.normalize` 处理。
         Some(crate::server::core::providers::ProviderKind::CatPaw) => {
-            return management_error(
+            management_error(
                 503,
                 "CatPaw 的账号管理需要安装提供商插件：本版本不再内置该家的凭证解析与桌面端读取实现",
-            );
+            )
         }
         // AutoClaw（两个地区）：实现已整体搬到插件（凭证解析 / safeStorage 解密 /
         // 桌面端实时登录态 / 续期 / 转发 / 短信与 OAuth 登录），这里只留拒绝路径
@@ -658,19 +686,19 @@ pub async fn add_account(state: &ServerState, body: &Bytes) -> Response {
             crate::server::core::providers::ProviderKind::AutoClaw
             | crate::server::core::providers::ProviderKind::AutoClawIntl,
         ) => {
-            return management_error(
+            management_error(
                 503,
                 "AutoClaw 的账号管理需要安装提供商插件：本版本不再内置该家的凭证解析与登录实现",
-            );
+            )
         }
         // CodeArts：实现已整体搬到插件（AK/SK/STS 凭据解析、DPoP + PKCE 登录、
         // 目录三源、余额、每日福利），这里只留拒绝路径 —— 装上插件时上面的
         // `serves_provider` 分流会先带走。
         Some(crate::server::core::providers::ProviderKind::CodeArts) => {
-            return management_error(
+            management_error(
                 503,
                 "CodeArts 的账号需要安装提供商插件：本版本不再内置该家的凭据解析与登录实现",
-            );
+            )
         }
         // Qoder（两个地区）：实现已整体搬到插件（设备授权登录、PAT 换证、
         // 续期、目录、会话式转发、额度、签到、风控组件），这里只留拒绝路径
@@ -679,10 +707,10 @@ pub async fn add_account(state: &ServerState, body: &Bytes) -> Response {
             crate::server::core::providers::ProviderKind::Qoder
             | crate::server::core::providers::ProviderKind::QoderIntl,
         ) => {
-            return management_error(
+            management_error(
                 503,
                 "Qoder 的账号管理需要安装提供商插件：本版本不再内置该家的设备授权与凭据解析实现",
-            );
+            )
         }
         // Accio（两个地区）：实现已整体搬到插件（含粘贴凭证归一化、网页登录、
         // 续期与转发），这里只留拒绝路径 —— 装上插件时上面的 `serves_provider`
@@ -691,10 +719,10 @@ pub async fn add_account(state: &ServerState, body: &Bytes) -> Response {
             crate::server::core::providers::ProviderKind::Accio
             | crate::server::core::providers::ProviderKind::AccioCn,
         ) => {
-            return management_error(
+            management_error(
                 503,
                 "Accio 的账号管理需要安装提供商插件：本版本不再内置该家的凭证解析与登录实现",
-            );
+            )
         }
         // Cline：实现已整体搬到插件（设备授权登录、凭证解析、续期、目录、
         // 伪装头、余额、转发），这里只留拒绝路径 —— 装上插件时上面的
@@ -703,10 +731,10 @@ pub async fn add_account(state: &ServerState, body: &Bytes) -> Response {
             crate::server::core::providers::ProviderKind::ClineFree
             | crate::server::core::providers::ProviderKind::ClinePass,
         ) => {
-            return management_error(
+            management_error(
                 503,
                 "Cline 的账号管理需要安装提供商插件：本版本不再内置该家的设备授权登录与凭证解析实现",
-            );
+            )
         }
         // ZCode（两个地区）：实现已整体搬到插件（CLI 轮询登录、编码套餐凭证
         // 换取、活动套餐通道、领取、余额、验证码令牌池、目录、转发），这里只留
@@ -715,19 +743,19 @@ pub async fn add_account(state: &ServerState, body: &Bytes) -> Response {
             crate::server::core::providers::ProviderKind::Zcode
             | crate::server::core::providers::ProviderKind::ZcodeIntl,
         ) => {
-            return management_error(
+            management_error(
                 503,
                 "ZCode 的账号管理需要安装提供商插件：本版本不再内置该家的 CLI 登录与凭证换取实现",
-            );
+            )
         }
         // Trae：实现已整体搬到插件（网页登录、凭据解析、续期、目录、转发、
         // 额度、签到），这里只留拒绝路径 —— 装上插件时上面的 `serves_provider`
         // 分流会先带走。
         Some(crate::server::core::providers::ProviderKind::Trae) => {
-            return management_error(
+            management_error(
                 503,
                 "Trae 的账号管理需要安装提供商插件：本版本不再内置该家的网页登录与凭据解析实现",
-            );
+            )
         }
         // Loomy（讯飞）：实现已整体搬到插件（粘贴 session、短信登录、续期、
         // 转发、额度、签到、新手任务），这里只留拒绝路径 —— 装上插件时上面的
@@ -737,72 +765,72 @@ pub async fn add_account(state: &ServerState, body: &Bytes) -> Response {
         // 「没装插件也能加进一个 Loomy 账号，但转发与签到全部 503」——
         // 账号能建、功能全无，用户看不出为什么。与其他家统一成同一条 503。
         Some(crate::server::core::providers::ProviderKind::Loomy) => {
-            return management_error(
+            management_error(
                 503,
                 "Loomy 的账号管理需要安装提供商插件：本版本不再内置该家的凭证解析与短信登录实现",
-            );
+            )
         }
         // KukuAI（百度文库库库 AI）：实现已整体搬到插件（三态凭证解析——粘贴
         // Cookie / 本机客户端 Cookies 数据库 / 文件导入——加真实校验与网页登录），
         // 这里只留拒绝路径。装上插件时上面的 `serves_provider` 分流会先带走。
         Some(crate::server::core::providers::ProviderKind::Kuku) => {
-            return management_error(
+            management_error(
                 503,
                 "KukuAI 的账号管理需要安装提供商插件：本版本不再内置该家的 Cookie 解析与校验实现",
-            );
+            )
         }
         // MonkeyCode（长亭科技）：实现已整体搬到插件（session 探活、image_id
         // 发现、目录、会话转发），这里只留拒绝路径。装上插件时上面的
         // `serves_provider` 分流会先带走。
         Some(crate::server::core::providers::ProviderKind::MonkeyCode)
         | Some(crate::server::core::providers::ProviderKind::MonkeyCodeIntl) => {
-            return management_error(
+            management_error(
                 503,
                 "MonkeyCode 的账号管理需要安装提供商插件：本版本不再内置该家的 session 校验实现",
-            );
+            )
         }
         // Command Code：实现已整体搬到插件（API Key 归一化 / 形态检查 / 探活 /
         // 目录 / NDJSON 转发）。装上插件时上面的 `serves_provider` 分流会先带走。
         Some(crate::server::core::providers::ProviderKind::CommandCode) => {
-            return management_error(
+            management_error(
                 503,
                 "Command Code 的账号管理需要安装提供商插件：本版本不再内置该家的 API Key 校验与转发实现",
-            );
+            )
         }
         // Antigravity（Google 的 AI IDE）：实现已整体搬到插件（授权码登录 +
         // refresh token 归一化 + 探活 + 转发 + 余额），这里只留拒绝路径。
         Some(crate::server::core::providers::ProviderKind::Antigravity) => {
-            return management_error(
+            management_error(
                 503,
                 "Antigravity 的账号管理需要安装提供商插件：本版本不再内置该家的凭证解析与探活实现",
-            );
+            )
         }
         // OfficeAce（华为云果办 / OfficeClaw）：实现已整体搬到插件（含自助
         // OAuth 登录与续期），这里只留拒绝路径 —— 装上插件时上面的
         // `serves_provider` 分流会先带走。
         Some(crate::server::core::providers::ProviderKind::OfficeAce) => {
-            return management_error(
+            management_error(
                 503,
                 "OfficeAce 的账号管理需要安装提供商插件：本版本不再内置该家的凭证解析与登录实现",
-            );
+            )
         }
         // OrcaTerm（腾讯云遨驰终端桌面客户端）：实现已整体搬到插件，这里不再
         // 保留内置分支 —— 装上插件时上面的 `serves_provider` 分流会带走，
         // 没装插件时落到这里，如实拒绝而不是走一条没有执行体的落库路径。
         Some(crate::server::core::providers::ProviderKind::OrcaTerm) => {
-            return management_error(
+            management_error(
                 503,
                 "OrcaTerm 的账号管理需要安装提供商插件：本版本不再内置该家的凭证解析与探活实现",
-            );
+            )
         }
         // 智谱清言（`chatglm.cn`）：实现已整体搬到插件（访客换证 / 粘贴令牌 /
         // 导入本机登录态三条路径、续期、目录、转发、余额、签到、任务中心），
         // 这里只留拒绝路径 —— 装上插件时上面的 `serves_provider` 分流会先带走。
         Some(crate::server::core::providers::ProviderKind::Chatglm) => {
-            return management_error(
+            management_error(
                 503,
                 "智谱清言的账号管理需要安装提供商插件：本版本不再内置该家的访客换证、令牌校验与本机登录态读取实现",
-            );
+            )
         }
         // ModelScope（魔搭）的两个站点：实现已整体搬到插件（`ms-` 令牌探活取
         // 身份、转发、目录、魔粒、签到），这里只留拒绝路径 —— 装上插件时上面的
@@ -811,18 +839,18 @@ pub async fn add_account(state: &ServerState, body: &Bytes) -> Response {
             crate::server::core::providers::ProviderKind::Modelscope
             | crate::server::core::providers::ProviderKind::ModelscopeIntl,
         ) => {
-            return management_error(
+            management_error(
                 503,
                 "ModelScope 的账号管理需要安装提供商插件：本版本不再内置该家的令牌探活与凭证解析实现",
-            );
+            )
         }
         // AtomCode：实现已整体搬到插件（令牌对归一化、目录、转发、额度、续期、
         // 领取）。装上插件时上面的 `serves_provider` 分流会先带走。
         Some(crate::server::core::providers::ProviderKind::Atomcode) => {
-            return management_error(
+            management_error(
                 503,
                 "AtomCode 的账号管理需要安装提供商插件：本版本不再内置该家的凭证解析实现",
-            );
+            )
         }
         // LobsterAI：**没有粘贴路径**（如实拒绝，而不是落一条用不了的账号）。
         // 它的凭证里有两个 `keyfrom` 与一个 `uuid`，只在换码那一刻由上游下发 ——
@@ -831,10 +859,10 @@ pub async fn add_account(state: &ServerState, body: &Bytes) -> Response {
         // 装上插件时上面的 `serves_provider` 分流会先带走（插件的
         // `normalize_account` 对同样的问题给同一条文案）。
         Some(crate::server::core::providers::ProviderKind::LobsterAi) => {
-            return management_error(
+            management_error(
                 400,
                 "LobsterAI 只能通过「网页登录」添加：它的续期需要换码时下发的 uuid 与 keyfrom，粘贴给不出这三项",
-            );
+            )
         }
         // WorkBuddy 系的两家（国内版 / 国际版）：实现已整体搬到插件
         // （会话凭证解析 / 桌面端登录态读取 / 续期 / 转发），这里只留拒绝路径。
@@ -870,7 +898,7 @@ pub fn export_accounts(state: &ServerState) -> Response {
 // ─── POST /api/accounts/import ──────────────────────────────
 
 pub async fn import_accounts(state: &ServerState, body: &Bytes) -> Response {
-    let payload = match parse_json_body(&body, "请求内容不是有效 JSON") {
+    let payload = match parse_json_body(body, "请求内容不是有效 JSON") {
         Ok(value) => value,
         Err(response) => return response,
     };
@@ -901,7 +929,7 @@ fn envelope_data(payload: &Value) -> Option<Value> {
 // ─── POST /api/accounts/current ─────────────────────────────
 
 pub async fn set_current(state: &ServerState, body: &Bytes) -> Response {
-    let payload = match parse_json_body(&body, "请求内容不是有效 JSON") {
+    let payload = match parse_json_body(body, "请求内容不是有效 JSON") {
         Ok(value) => value,
         Err(response) => return response,
     };
@@ -946,7 +974,7 @@ pub async fn set_current(state: &ServerState, body: &Bytes) -> Response {
 /// 不是转发链路上的 provider 契约（那条契约的 `refresh_access_token` 是转发时的
 /// 同账号重试语义）。分派点只有这一处。
 pub async fn refresh_account(state: &ServerState, body: &Bytes) -> Response {
-    let payload = match parse_json_body(&body, "请求内容不是有效 JSON") {
+    let payload = match parse_json_body(body, "请求内容不是有效 JSON") {
         Ok(value) => value,
         Err(response) => return response,
     };
@@ -977,8 +1005,7 @@ pub async fn refresh_account(state: &ServerState, body: &Bytes) -> Response {
     // 标准账号按顶层 provider 选择真实 adapter，不探测 secret 或占位 kind。
     if let Some(provider) = state.store().account_provider_of(&id) {
         if crate::server::core::providers::is_executable_provider(&provider) {
-            let Some(adapter) =
-                crate::server::core::providers::adapter::adapter_by_id(&provider)
+            let Some(adapter) = crate::server::core::providers::adapter::adapter_by_id(&provider)
             else {
                 return management_error(400, format!("未知的提供商：{provider}"));
             };
@@ -1003,11 +1030,7 @@ pub async fn refresh_account(state: &ServerState, body: &Bytes) -> Response {
     // Qoder（两个地区各查一次 —— 账号集合按 provider 隔离，同一 id 不可能
     // 同时属于两家，与 Accio / AutoClaw 同一条遍历）
     for region in crate::server::core::providers::qoder::endpoints::Region::ALL {
-        if state
-            .store()
-            .qoder_account_record(region, &id)
-            .is_some()
-        {
+        if state.store().qoder_account_record(region, &id).is_some() {
             return refresh_provider_account(state, &id, region.kind()).await;
         }
     }
@@ -1016,7 +1039,9 @@ pub async fn refresh_account(state: &ServerState, body: &Bytes) -> Response {
     // 的错误（沙箱端到端实测抓到的原文是
     // `auth/token/refresh 失败: client key [] not found`）。
     if state.store().account_provider_of(&id).as_deref()
-        == Some(crate::server::core::providers::kind_id(ProviderKind::CodeArts))
+        == Some(crate::server::core::providers::kind_id(
+            ProviderKind::CodeArts,
+        ))
     {
         return refresh_provider_account(state, &id, ProviderKind::CodeArts).await;
     }
@@ -1222,7 +1247,6 @@ pub async fn refresh_expiring_accounts(state: &ServerState) -> Response {
 ///   （定时签到与手动签到必须共用同一段逻辑）。
 /// 本文件只剩 `accounts_checkin` 一个转发壳。
 
-
 /// POST /api/accounts/checkin
 ///
 /// 串行签到：避免多账号同时打上游触发 11-128 风控。
@@ -1300,7 +1324,7 @@ pub async fn patch_account(state: &ServerState, id: &str, body: &Bytes) -> Respo
     if id.is_empty() {
         return management_error(400, "缺少账号 id");
     }
-    let patch = match parse_json_body(&body, "请求内容不是有效 JSON") {
+    let patch = match parse_json_body(body, "请求内容不是有效 JSON") {
         Ok(value) => value,
         Err(response) => return response,
     };
@@ -1314,7 +1338,7 @@ pub async fn patch_account(state: &ServerState, id: &str, body: &Bytes) -> Respo
     // 键报错（它按字段白名单取值，未知键本就被忽略）。
     let mut balance_changes: Vec<String> = Vec::new();
     if let Some(value) = patch.get("balanceToken") {
-        if state.store().catpaw_account_record(&id).is_none() {
+        if state.store().catpaw_account_record(id).is_none() {
             // 「账号不存在」与「账号存在但不是 CatPaw」要分开说：前者让用户刷新页面，
             // 后者告诉他这个字段不属于这家（静默忽略会让用户以为存进去了）。
             let known = state
@@ -1334,7 +1358,7 @@ pub async fn patch_account(state: &ServerState, id: &str, body: &Bytes) -> Respo
                 store_error(AccountStoreError::new("账号不存在", 404))
             };
         }
-        match state.store().update_catpaw_balance_token(&id, value) {
+        match state.store().update_catpaw_balance_token(id, value) {
             Ok(changes) => balance_changes = changes,
             Err(error) => return store_error(error),
         }
@@ -1344,7 +1368,7 @@ pub async fn patch_account(state: &ServerState, id: &str, body: &Bytes) -> Respo
     // `apply_patch`，在这里显式落盘并做取值校验（认不出的值 400，而不是
     // 静默退回默认通道）。
     if let Some(value) = patch.get(zcode::PLAN_FIELD) {
-        if state.store().zcode_account_record(&id).is_none() {
+        if state.store().zcode_account_record(id).is_none() {
             let known = state
                 .store()
                 .list_accounts()
@@ -1362,7 +1386,7 @@ pub async fn patch_account(state: &ServerState, id: &str, body: &Bytes) -> Respo
                 store_error(AccountStoreError::new("账号不存在", 404))
             };
         }
-        match state.store().update_zcode_plan(&id, value) {
+        match state.store().update_zcode_plan(id, value) {
             Ok(changes) => balance_changes.extend(changes),
             Err(error) => return store_error(error),
         }
@@ -1375,11 +1399,14 @@ pub async fn patch_account(state: &ServerState, id: &str, body: &Bytes) -> Respo
     // `baseUrl` 是账号上的**覆盖项**（缺省时转发回落到提供商的地址）：界面用它
     // 表达「改回跟随提供商」（传 null），也是 issue #455 里那份看不见、改不掉的
     // 旧地址的清理入口。
-    if patch.get("apiKey").is_some() || patch.get("noAuth").is_some() || patch.get("baseUrl").is_some() {
+    if patch.get("apiKey").is_some()
+        || patch.get("noAuth").is_some()
+        || patch.get("baseUrl").is_some()
+    {
         // `custom_account_provider` 一次回答两件事：账号在不在、属不属于自定义家
         // （判据是记录里的 `provider` 前缀，不要求提供商本身还在配置里，
         // 见那个函数的说明）—— 与 balanceToken / zcodePlan 的两次查询同口径
-        if state.store().custom_account_provider(&id).is_none() {
+        if state.store().custom_account_provider(id).is_none() {
             let known = state
                 .store()
                 .list_accounts()
@@ -1392,7 +1419,10 @@ pub async fn patch_account(state: &ServerState, id: &str, body: &Bytes) -> Respo
                 })
                 .unwrap_or(false);
             return if known {
-                management_error(400, "只有自定义提供商的账号有 API Key / 无需鉴权 / 上游地址这几项")
+                management_error(
+                    400,
+                    "只有自定义提供商的账号有 API Key / 无需鉴权 / 上游地址这几项",
+                )
             } else {
                 store_error(AccountStoreError::new("账号不存在", 404))
             };
@@ -1407,7 +1437,10 @@ pub async fn patch_account(state: &ServerState, id: &str, body: &Bytes) -> Respo
             }
         }
         if !scoped.is_empty() {
-            match state.store().update_custom_credentials(&id, &Value::Object(scoped)) {
+            match state
+                .store()
+                .update_custom_credentials(id, &Value::Object(scoped))
+            {
                 Ok(changes) => balance_changes.extend(changes),
                 Err(error) => return store_error(error),
             }
@@ -1416,7 +1449,7 @@ pub async fn patch_account(state: &ServerState, id: &str, body: &Bytes) -> Respo
         // 校验后写入。与凭证互不影响，失败也不该把已改好的凭证一起报成失败 ——
         // 但两者都在同一次保存里，按「先凭证后地址」的顺序各自报错即可
         if let Some(value) = patch.get("baseUrl") {
-            match state.store().update_custom_base_url(&id, value) {
+            match state.store().update_custom_base_url(id, value) {
                 Ok(changes) => balance_changes.extend(changes),
                 Err(error) => return store_error(error),
             }
@@ -1429,7 +1462,7 @@ pub async fn patch_account(state: &ServerState, id: &str, body: &Bytes) -> Respo
     // 落库即被整行加密信封包住（见 `account_store::sql` 的模块头）；响应侧
     // 永远只有 `has*` 标记（见 `store_view::balance_query_public`）。
     if let Some(value) = patch.get("balanceQuery") {
-        if state.store().custom_account_provider(&id).is_none() {
+        if state.store().custom_account_provider(id).is_none() {
             let known = state
                 .store()
                 .list_accounts()
@@ -1447,12 +1480,12 @@ pub async fn patch_account(state: &ServerState, id: &str, body: &Bytes) -> Respo
                 store_error(AccountStoreError::new("账号不存在", 404))
             };
         }
-        match state.store().update_custom_balance_query(&id, value) {
+        match state.store().update_custom_balance_query(id, value) {
             Ok(changes) => balance_changes.extend(changes),
             Err(error) => return store_error(error),
         }
     }
-    match state.store().update_account(&id, &patch) {
+    match state.store().update_account(id, &patch) {
         Ok((account, mut changes)) => {
             changes.extend(balance_changes);
             // 改代理成功后对账：新引用的补监听器、旧引用失去的回收端口
@@ -1507,7 +1540,7 @@ pub async fn move_account(state: &ServerState, id: &str, body: &Bytes) -> Respon
     if id.is_empty() {
         return management_error(400, "缺少账号 id");
     }
-    let payload = match parse_json_body(&body, "请求内容不是有效 JSON") {
+    let payload = match parse_json_body(body, "请求内容不是有效 JSON") {
         Ok(value) => value,
         Err(response) => return response,
     };
@@ -1516,7 +1549,7 @@ pub async fn move_account(state: &ServerState, id: &str, body: &Bytes) -> Respon
     } else {
         "up"
     };
-    match state.store().move_account(&id, direction) {
+    match state.store().move_account(id, direction) {
         Ok(result) => {
             if result.get("moved").and_then(Value::as_bool) == Some(false) {
                 let reason = result
@@ -1565,7 +1598,9 @@ pub fn clear_rate_limits(state: &ServerState, id: &str, body: &Bytes) -> Respons
             "[Accounts]",
             &format!(
                 "🧹 已清除账号 {id} 的限流标记（{}）",
-                model.map(|value| value.to_string()).unwrap_or_else(|| format!("{cleared} 个模型"))
+                model
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| format!("{cleared} 个模型"))
             ),
         );
     }
@@ -1581,9 +1616,7 @@ pub fn delete_account(state: &ServerState, id: &str) -> Response {
     // 引用快照要在删除**之前**取：被删账号撇下的引用要靠对账回收端口
     // （最后一个引用消失 → 这个节点的监听器该收了）
     match state.store().remove_account(id) {
-        Ok(()) => {
-            ok_json(json!({ "list": state.store().list_visible_accounts() }))
-        }
+        Ok(()) => ok_json(json!({ "list": state.store().list_visible_accounts() })),
         Err(error) => store_error(error),
     }
 }

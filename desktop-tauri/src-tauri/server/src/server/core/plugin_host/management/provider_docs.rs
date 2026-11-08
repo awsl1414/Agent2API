@@ -194,7 +194,10 @@ pub(super) fn snapshot(packs: &[plugin_host::PackSummary]) -> Vec<PackDocumentat
                 .iter()
                 .filter(|provider| {
                     !crate::server::core::providers::availability::is_suspended(&provider.id)
-                        && !notes.providers.get(&provider.id).is_some_and(|notes| notes.hidden)
+                        && !notes
+                            .providers
+                            .get(&provider.id)
+                            .is_some_and(|notes| notes.hidden)
                 })
                 .map(|provider| {
                     let info = infos.iter().find(|info| info.id.as_str() == provider.id);

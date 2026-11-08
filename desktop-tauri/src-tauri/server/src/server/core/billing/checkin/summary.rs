@@ -12,9 +12,7 @@ fn text(value: Option<&Value>) -> Option<&str> {
 pub(crate) fn failure_of(row: &Value) -> Option<String> {
     let claim = row.get("claim");
     let error = text(row.get("error"));
-    if error.is_none()
-        && (day_completed(row) || claim.is_some_and(claim_pending))
-    {
+    if error.is_none() && (day_completed(row) || claim.is_some_and(claim_pending)) {
         return None;
     }
     let message = error

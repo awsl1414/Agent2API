@@ -54,8 +54,8 @@ use serde_json::{Map, Value};
 
 mod attempt;
 pub use attempt::{
-    AttemptDetail, RetryEvent, MAX_ATTEMPT_DETAILS, MAX_ATTEMPT_ERROR_CHARS,
-    MAX_ATTEMPT_ACCOUNT_CHARS, MAX_ATTEMPT_RETRY_REASON_CHARS, MAX_ATTEMPT_NOTICE_CHARS,
+    AttemptDetail, RetryEvent, MAX_ATTEMPT_ACCOUNT_CHARS, MAX_ATTEMPT_DETAILS,
+    MAX_ATTEMPT_ERROR_CHARS, MAX_ATTEMPT_NOTICE_CHARS, MAX_ATTEMPT_RETRY_REASON_CHARS,
 };
 
 use crate::server::logging;
@@ -78,7 +78,12 @@ pub struct UsageTokens {
 
 /// 「输入 token 数」的别名表（含驼峰形态）。**表序就是优先序**：多项都命中时按表序
 /// 取第一个**正数**（见 [`first_positive`]），不是求和、也不是取末位。
-const PROMPT_KEYS: &[&str] = &["prompt_tokens", "input_tokens", "promptTokens", "inputTokens"];
+const PROMPT_KEYS: &[&str] = &[
+    "prompt_tokens",
+    "input_tokens",
+    "promptTokens",
+    "inputTokens",
+];
 /// 「输出 token 数」的别名表。
 const COMPLETION_KEYS: &[&str] = &[
     "completion_tokens",
@@ -161,7 +166,13 @@ pub fn extract_usage(usage: &Value) -> Option<UsageTokens> {
         .or_else(|| first_positive(object, CACHE_READ_KEYS))
         .unwrap_or(0);
     let credit = first_amount(object, CREDIT_KEYS);
-    Some(UsageTokens { prompt, completion, total, cache_read, credit })
+    Some(UsageTokens {
+        prompt,
+        completion,
+        total,
+        cache_read,
+        credit,
+    })
 }
 
 /// 从一个 JSON 对象里按积分别名取读数。
@@ -202,11 +213,7 @@ fn positive_field(value: Option<&Value>) -> Option<i64> {
         Value::Number(number) => number
             .as_i64()
             .or_else(|| number.as_f64().map(|number| number as i64)),
-        Value::String(text) => text
-            .trim()
-            .parse::<f64>()
-            .ok()
-            .map(|number| number as i64),
+        Value::String(text) => text.trim().parse::<f64>().ok().map(|number| number as i64),
         _ => None,
     };
     raw.filter(|number| *number > 0)
@@ -224,7 +231,9 @@ fn positive_field(value: Option<&Value>) -> Option<i64> {
 fn first_amount(object: &Map<String, Value>, keys: &[&str]) -> Option<f64> {
     let mut zero = None;
     for key in keys {
-        let Some(value) = amount_field(object.get(*key)) else { continue };
+        let Some(value) = amount_field(object.get(*key)) else {
+            continue;
+        };
         if value > 0.0 {
             return Some(value);
         }
@@ -629,9 +638,7 @@ impl RequestTelemetry {
     }
 
     /// 取采集器（未开启调试模式时为 None，调用点据此完全跳过采集）
-    pub fn capture(
-        &self,
-    ) -> Option<Arc<crate::server::core::debug_traffic::TrafficCapture>> {
+    pub fn capture(&self) -> Option<Arc<crate::server::core::debug_traffic::TrafficCapture>> {
         self.capture
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -796,7 +803,9 @@ impl RequestTelemetry {
     }
 
     pub fn note_quota_channel(&self, account: Option<&Value>) {
-        self.lock().quota_channel = account.map(crate::server::core::limiter::counter::channel_of).unwrap_or_default();
+        self.lock().quota_channel = account
+            .map(crate::server::core::limiter::counter::channel_of)
+            .unwrap_or_default();
     }
 
     /// 给**最后一条**尝试明细补上实际发出的体字节数。
@@ -831,7 +840,11 @@ impl RequestTelemetry {
             return;
         };
         last.retries.push(RetryEvent {
-            reason: if debug { reason.to_string() } else { truncate_chars(reason, MAX_ATTEMPT_RETRY_REASON_CHARS) },
+            reason: if debug {
+                reason.to_string()
+            } else {
+                truncate_chars(reason, MAX_ATTEMPT_RETRY_REASON_CHARS)
+            },
             status,
             delay_ms,
         });
@@ -875,7 +888,11 @@ impl RequestTelemetry {
             reason.to_string()
         };
         last.retries.push(RetryEvent {
-            reason: if debug { label } else { truncate_chars(&label, MAX_ATTEMPT_RETRY_REASON_CHARS) },
+            reason: if debug {
+                label
+            } else {
+                truncate_chars(&label, MAX_ATTEMPT_RETRY_REASON_CHARS)
+            },
             status,
             delay_ms,
         });
@@ -899,7 +916,11 @@ impl RequestTelemetry {
             return;
         };
         if last.notice.is_none() {
-            last.notice = Some(if debug { notice.to_string() } else { truncate_chars(notice, MAX_ATTEMPT_NOTICE_CHARS) });
+            last.notice = Some(if debug {
+                notice.to_string()
+            } else {
+                truncate_chars(notice, MAX_ATTEMPT_NOTICE_CHARS)
+            });
         }
         // 在途回写：提示同样是「这一轮怎么走的」的一部分
         self.flush_live(&guard);
@@ -927,7 +948,8 @@ impl RequestTelemetry {
         if status.is_some() {
             last.status = status;
         }
-        if last.response_at.is_none() && error.is_none()
+        if last.response_at.is_none()
+            && error.is_none()
             && status.is_none_or(|status| (200..300).contains(&status))
         {
             last.response_at = Some(logging::now_ms());
@@ -936,7 +958,11 @@ impl RequestTelemetry {
         // 上游返回空 body 时 read_upstream_error 会给出空 message，
         // 那不该渲染成「失败：」后面跟着一片空白
         if let Some(text) = error.filter(|text| !text.is_empty()) {
-            last.error = Some(if debug { text.to_string() } else { truncate_chars(text, MAX_ATTEMPT_ERROR_CHARS) });
+            last.error = Some(if debug {
+                text.to_string()
+            } else {
+                truncate_chars(text, MAX_ATTEMPT_ERROR_CHARS)
+            });
         }
         // 阶段：这一轮**失败**收场 → 重试中（退避 / 换号前的过渡）。
         // 紧随其后的三种出口都由下一轮或收尾接管：换号走 `note_attempt_started`
@@ -965,7 +991,12 @@ impl RequestTelemetry {
         }
         let mut guard = self.lock();
         guard.upstream_model = model.to_string();
-        if let Some(last) = guard.current_attempt_mut().filter(|last| last.finished_at.is_none()) { last.model = model.to_string(); }
+        if let Some(last) = guard
+            .current_attempt_mut()
+            .filter(|last| last.finished_at.is_none())
+        {
+            last.model = model.to_string();
+        }
         // 在途回写：上游真名是发送体定稿那一刻就确定的，比请求真正发出去还早
         // —— 模型列因此能在转发期间就显示「⬆️ 上游 / ⬇️ 下游」两行
         self.flush_live(&guard);
@@ -978,7 +1009,12 @@ impl RequestTelemetry {
         let level = level.filter(|text| !text.is_empty()).unwrap_or_default();
         let mut guard = self.lock();
         guard.upstream_reasoning = level.clone();
-        if let Some(last) = guard.current_attempt_mut().filter(|last| last.finished_at.is_none()) { last.reasoning = level; }
+        if let Some(last) = guard
+            .current_attempt_mut()
+            .filter(|last| last.finished_at.is_none())
+        {
+            last.reasoning = level;
+        }
         // 在途回写：与模型名同一时刻定稿，进行中行的模型列一并显示等级
         self.flush_live(&guard);
     }
@@ -1120,7 +1156,10 @@ mod usage_extraction {
             "cache_read_input_tokens": 4800,
         });
         let tokens = extract_usage(&usage).expect("对象就该出值");
-        assert_eq!(4800, tokens.cache_read, "嵌套那份是废值，不该当「命中 0」用掉");
+        assert_eq!(
+            4800, tokens.cache_read,
+            "嵌套那份是废值，不该当「命中 0」用掉"
+        );
         assert_eq!(1200, tokens.prompt, "其余三项照常");
     }
 
@@ -1140,7 +1179,10 @@ mod usage_extraction {
         assert_eq!(34, tokens.prompt, "字符串数字要落数");
         assert_eq!(12, tokens.completion, "12.0 这类浮点截断成 12");
         assert_eq!(46, tokens.total, "total 缺值时按 prompt + completion 补");
-        assert_eq!(7, tokens.cache_read, "驼峰/浮点之外的容器键也走同一张别名表");
+        assert_eq!(
+            7, tokens.cache_read,
+            "驼峰/浮点之外的容器键也走同一张别名表"
+        );
     }
 
     /// 非正值（0 与负数）都当废值：不写进聚合，也不占住别名表。
@@ -1159,7 +1201,10 @@ mod usage_extraction {
         });
         let tokens = extract_usage(&usage).expect("对象就该出值");
         assert_eq!(0, tokens.completion, "负的输出去落 0，别把负数带进聚合");
-        assert_eq!(90, tokens.total, "total 为 0 是废值，回落 prompt + completion");
+        assert_eq!(
+            90, tokens.total,
+            "total 为 0 是废值，回落 prompt + completion"
+        );
         assert_eq!(0, tokens.cache_read, "负的命中同样是废值");
 
         // 负值必须让位：同一含义的另一项有真值时，读得到的是真值而不是 0
@@ -1169,7 +1214,11 @@ mod usage_extraction {
             "cache_read_tokens": -12,
             "cached_tokens": 33,
         });
-        assert_eq!(33, extract_usage(&masked).unwrap().cache_read, "废值不许扮演「有值」");
+        assert_eq!(
+            33,
+            extract_usage(&masked).unwrap().cache_read,
+            "废值不许扮演「有值」"
+        );
     }
 
     /// 反空跑：两项**都是正数**时按别名表的顺序取第一项，不是求和也不是取末位。
@@ -1208,7 +1257,10 @@ mod usage_extraction {
         let tokens = extract_usage(&usage).expect("对象就该出值");
         assert_eq!(500, tokens.prompt, "驼峰的 inputTokens 就是 prompt");
         assert_eq!(20, tokens.completion);
-        assert_eq!(610, tokens.total, "读的是 totalTokens，不是兜底加出来的 520");
+        assert_eq!(
+            610, tokens.total,
+            "读的是 totalTokens，不是兜底加出来的 520"
+        );
         assert_eq!(300, tokens.cache_read, "容器内同样按「第一个正数」挑");
     }
 

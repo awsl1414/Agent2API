@@ -127,10 +127,15 @@ async fn forward_chat(
     // 收尾、后续轮的内容整段被丢）；非流式则在这里把聚合体问完整。
     match (continuation, outcome) {
         (Some(context), Ok(ForwardOutcome::Stream { status, stream })) => {
-            Ok(ForwardOutcome::Stream { status, stream: context.stream(stream) })
+            Ok(ForwardOutcome::Stream {
+                status,
+                stream: context.stream(stream),
+            })
         }
         (Some(context), Ok(ForwardOutcome::Completion { body })) => {
-            Ok(ForwardOutcome::Completion { body: context.complete(body).await })
+            Ok(ForwardOutcome::Completion {
+                body: context.complete(body).await,
+            })
         }
         (_, result) => result,
     }
@@ -159,7 +164,11 @@ pub async fn responses_endpoint(
         Err(response) => return response,
     };
     // 协议翻译前识别，保留原始文本块边界。
-    let compact_client = compact_routing::client_for_request(&source.behavior_client, &raw, RequestFormat::Responses);
+    let compact_client = compact_routing::client_for_request(
+        &source.behavior_client,
+        &raw,
+        RequestFormat::Responses,
+    );
     // 原始请求体留一份：回程要用它回显请求侧字段（instructions / tools / …），
     // 而下面会把 payload 改写成 Chat 形态
     let original = raw.clone();
@@ -174,7 +183,14 @@ pub async fn responses_endpoint(
         Ok(body) => body,
         Err(message) => {
             let error = GatewayError::bad_request(message);
-            record_early_failure(&state, started_at, &pipeline::model_field_text(&raw), &client_reasoning, &source, &error);
+            record_early_failure(
+                &state,
+                started_at,
+                &pipeline::model_field_text(&raw),
+                &client_reasoning,
+                &source,
+                &error,
+            );
             return error.payload_response();
         }
     };
@@ -190,10 +206,24 @@ pub async fn responses_endpoint(
 
     // 模型解析走公共管道（默认模型回落 / 别名映射 / 目录校验）。
     // 第三参是这把 Key 的可用模型白名单（None = 不限制），同 /v1/chat/completions
-    let requested_model = match super::request_prepare::resolve_client_model(&state, &mut chat_body, scope.as_ref(), compact_client).await {
+    let requested_model = match super::request_prepare::resolve_client_model(
+        &state,
+        &mut chat_body,
+        scope.as_ref(),
+        compact_client,
+    )
+    .await
+    {
         Ok(model) => model,
         Err(error) => {
-            record_early_failure(&state, started_at, &pipeline::model_field_text(&raw), &client_reasoning, &source, &error);
+            record_early_failure(
+                &state,
+                started_at,
+                &pipeline::model_field_text(&raw),
+                &client_reasoning,
+                &source,
+                &error,
+            );
             return error.payload_response();
         }
     };
@@ -202,7 +232,11 @@ pub async fn responses_endpoint(
         "[Model]",
         &format!(
             "← POST {path} model={} stream={stream} bytes={} ua={user_agent}",
-            if requested_model.is_empty() { "(未指定)" } else { &requested_model },
+            if requested_model.is_empty() {
+                "(未指定)"
+            } else {
+                &requested_model
+            },
             body.len(),
         ),
     );
@@ -230,7 +264,8 @@ pub async fn responses_endpoint(
         &client_reasoning,
         &source,
         false,
-    ).await;
+    )
+    .await;
     // 在途回写（与 /v1/chat/completions 同一处时点与理由，见
     // `pipeline::live_row_sink`）
     telemetry.set_live_sink(pipeline::live_row_sink(
@@ -276,12 +311,18 @@ pub async fn responses_endpoint(
     };
 
     match outcome {
-        Ok(ForwardOutcome::Stream { status, stream: source }) => {
+        Ok(ForwardOutcome::Stream {
+            status,
+            stream: source,
+        }) => {
             let status = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
             let model = requested_model.clone();
             let request = original.clone();
             // 状态码进记账上下文（明细里记的必须是客户端实际看到的那个码）
-            let context = RecordContext { status: i64::from(status.as_u16()), ..context };
+            let context = RecordContext {
+                status: i64::from(status.as_u16()),
+                ..context
+            };
             if stream {
                 let mut machine = responses::ResponsesStream::new(&model, &request);
                 let transformed = pipeline::transformed_stream(
@@ -363,13 +404,24 @@ pub async fn messages_endpoint(
     };
     let stream = raw.get("stream").and_then(Value::as_bool).unwrap_or(false);
 
-    let compact_client = compact_routing::client_for_request(&source.behavior_client, &raw, RequestFormat::Anthropic);
+    let compact_client = compact_routing::client_for_request(
+        &source.behavior_client,
+        &raw,
+        RequestFormat::Anthropic,
+    );
     // 协议翻译
     let mut chat_body = match anthropic::chat_from_anthropic(&raw) {
         Ok(body) => body,
         Err(message) => {
             let error = GatewayError::bad_request(message);
-            record_early_failure(&state, started_at, &pipeline::model_field_text(&raw), "", &source, &error);
+            record_early_failure(
+                &state,
+                started_at,
+                &pipeline::model_field_text(&raw),
+                "",
+                &source,
+                &error,
+            );
             return anthropic_error_response(&error);
         }
     };
@@ -377,10 +429,24 @@ pub async fn messages_endpoint(
     // 下游等级从**翻译后的 chat 体**读：Anthropic 的 thinking/output_config →
     // reasoning_effort 是网关自己的映射（anthropic_effort），比通用并集链更准
     let client_reasoning = pipeline::client_reasoning_of(&chat_body);
-    let requested_model = match super::request_prepare::resolve_client_model(&state, &mut chat_body, scope.as_ref(), compact_client).await {
+    let requested_model = match super::request_prepare::resolve_client_model(
+        &state,
+        &mut chat_body,
+        scope.as_ref(),
+        compact_client,
+    )
+    .await
+    {
         Ok(model) => model,
         Err(error) => {
-            record_early_failure(&state, started_at, &pipeline::model_field_text(&raw), &client_reasoning, &source, &error);
+            record_early_failure(
+                &state,
+                started_at,
+                &pipeline::model_field_text(&raw),
+                &client_reasoning,
+                &source,
+                &error,
+            );
             return anthropic_error_response(&error);
         }
     };
@@ -389,7 +455,11 @@ pub async fn messages_endpoint(
         "[Model]",
         &format!(
             "← POST {path} model={} stream={stream} bytes={} ua={user_agent}",
-            if requested_model.is_empty() { "(未指定)" } else { &requested_model },
+            if requested_model.is_empty() {
+                "(未指定)"
+            } else {
+                &requested_model
+            },
             body.len(),
         ),
     );
@@ -420,7 +490,8 @@ pub async fn messages_endpoint(
         &client_reasoning,
         &source,
         false,
-    ).await;
+    )
+    .await;
     // 在途回写（与 /v1/chat/completions 同一处时点与理由，见
     // `pipeline::live_row_sink`）
     telemetry.set_live_sink(pipeline::live_row_sink(
@@ -466,10 +537,16 @@ pub async fn messages_endpoint(
     };
 
     match outcome {
-        Ok(ForwardOutcome::Stream { status, stream: source }) => {
+        Ok(ForwardOutcome::Stream {
+            status,
+            stream: source,
+        }) => {
             let status = StatusCode::from_u16(status).unwrap_or(StatusCode::OK);
             let model = requested_model.clone();
-            let context = RecordContext { status: i64::from(status.as_u16()), ..context };
+            let context = RecordContext {
+                status: i64::from(status.as_u16()),
+                ..context
+            };
             if stream {
                 let mut machine = anthropic::AnthropicStream::new(&model, Some(input_estimate));
                 let transformed = pipeline::transformed_stream(

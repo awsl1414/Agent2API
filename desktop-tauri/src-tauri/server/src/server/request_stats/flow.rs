@@ -54,12 +54,18 @@ pub struct FlowQuery {
 }
 
 fn value_at(conn: &Connection, row_id: i64) -> rusqlite::Result<Value> {
-    conn.query_row(&format!("SELECT {}, row_id AS trace_key FROM requests WHERE row_id = ?1", sql::REQUEST_COLUMNS),
-        params![row_id], |row| {
+    conn.query_row(
+        &format!(
+            "SELECT {}, row_id AS trace_key FROM requests WHERE row_id = ?1",
+            sql::REQUEST_COLUMNS
+        ),
+        params![row_id],
+        |row| {
             let mut value = entry_json(&sql::decode_request(row)?);
             value["traceKey"] = row_id.to_string().into();
             Ok(value)
-        })
+        },
+    )
 }
 
 impl RequestStats {
@@ -138,11 +144,14 @@ impl RequestStats {
                     "requests": requests, "running": running, "sessions": sessions, "unknownRequests": unknown, "now": now, "since": since }))
             })
         };
-        let mut result = loaded.unwrap_or_else(|| json!({ "available": false, "paths": [], "entries": [], "matched": 0, "now": now }));
+        let mut result = loaded.unwrap_or_else(
+            || json!({ "available": false, "paths": [], "entries": [], "matched": 0, "now": now }),
+        );
         if let Some(paths) = result["paths"].as_array_mut() {
             for path in paths {
                 path["clientLabel"] = json!(crate::server::core::client::display_name(
-                    path["client"].as_str().unwrap_or(""), path["clientLabel"].as_str().unwrap_or(""),
+                    path["client"].as_str().unwrap_or(""),
+                    path["clientLabel"].as_str().unwrap_or(""),
                 ));
             }
         }

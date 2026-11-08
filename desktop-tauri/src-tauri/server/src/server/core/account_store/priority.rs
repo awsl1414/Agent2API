@@ -137,9 +137,7 @@ pub fn grouped_queue_order(entries: &[QueueEntry<'_>]) -> Vec<String> {
         }
     }
     for (_, list) in groups.iter_mut() {
-        list.sort_by(|a, b| {
-            by_priority_order((a.priority, a.added_at), (b.priority, b.added_at))
-        });
+        list.sort_by(|a, b| by_priority_order((a.priority, a.added_at), (b.priority, b.added_at)));
     }
     // 组序用组内第一位定：`sort_by` 是稳定排序，两个组的队首完全并列时保持
     // 传入顺序（调用方按物理行序读出来，与旧实现的数组顺序一致）

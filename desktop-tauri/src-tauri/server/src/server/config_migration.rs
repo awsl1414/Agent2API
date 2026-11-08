@@ -136,7 +136,10 @@ pub fn migrate_config_dir() -> Result<MigrationOutcome, String> {
     }
 
     match publish(&legacy, &staging, &target) {
-        Ok(Publish::Published) => Ok(MigrationOutcome::Migrated { from: legacy, to: target }),
+        Ok(Publish::Published) => Ok(MigrationOutcome::Migrated {
+            from: legacy,
+            to: target,
+        }),
         // 拷贝期间正式目录被别的进程建出来：以已存在的目录为准，本次不再迁移，
         // 也不算失败（旧目录同样原样保留）。清掉本次暂存目录即可。
         Ok(Publish::TargetAppeared) => {
@@ -276,7 +279,10 @@ fn staging_name(target_name: &str) -> String {
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or(0);
-    format!("{target_name}{STAGING_SUFFIX}-{}-{nanos}", std::process::id())
+    format!(
+        "{target_name}{STAGING_SUFFIX}-{}-{nanos}",
+        std::process::id()
+    )
 }
 
 /// 清理**可确认属于本程序**的历史暂存目录（上次迁移中途崩溃/断电留下）。

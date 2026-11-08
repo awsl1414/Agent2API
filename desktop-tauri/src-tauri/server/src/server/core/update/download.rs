@@ -45,9 +45,17 @@ impl UpdateManager {
         self.start_download_inner(url, name, false)
     }
 
-    pub(super) fn start_download_inner(&self, url: &str, name: &str, systemd: bool) -> Result<Value, UpdateError> {
+    pub(super) fn start_download_inner(
+        &self,
+        url: &str,
+        name: &str,
+        systemd: bool,
+    ) -> Result<Value, UpdateError> {
         if !systemd && self.lock().service_update_active {
-            return Err(UpdateError::with_status(409, "服务端一键更新正在进行，不能另起下载"));
+            return Err(UpdateError::with_status(
+                409,
+                "服务端一键更新正在进行，不能另起下载",
+            ));
         }
         if let Some(task) = self.lock().task.clone().filter(|task| task.active) {
             return Ok(task.to_json());
@@ -66,7 +74,10 @@ impl UpdateManager {
         let snapshot = {
             let mut guard = self.lock();
             if !systemd && guard.service_update_active {
-                return Err(UpdateError::with_status(409, "服务端一键更新正在进行，不能另起下载"));
+                return Err(UpdateError::with_status(
+                    409,
+                    "服务端一键更新正在进行，不能另起下载",
+                ));
             }
             if let Some(task) = guard.task.as_ref().filter(|task| task.active) {
                 return Ok(task.to_json());
@@ -165,7 +176,8 @@ impl UpdateManager {
         ];
         // 镜像不可同时提供程序与信任依据；只有官方 HTTPS API 的摘要才能放行。
         let candidates = source::download_candidates(target.as_str(), expected.is_some(), &headers)
-            .await.map_err(UpdateError::new)?;
+            .await
+            .map_err(UpdateError::new)?;
         if expected.is_none() && candidates.len() == 1 {
             logging::verbose("[Update]", "未取得官方校验值，安装包仅使用原始源下载");
         }
@@ -184,16 +196,23 @@ impl UpdateManager {
             let response = match client::fetch_candidate(candidate, &headers, None).await {
                 Ok(response) => response,
                 Err(error) => {
-                    candidate.observe(source::failed_state(&error), started.elapsed().as_millis() as u64, false);
+                    candidate.observe(
+                        source::failed_state(&error),
+                        started.elapsed().as_millis() as u64,
+                        false,
+                    );
                     last_error = UpdateError::new(error);
                     continue;
                 }
             };
             if candidate.is_rate_limited(&response) {
                 candidate.observe("rateLimited", started.elapsed().as_millis() as u64, false);
-                return Err(UpdateError::new(source::GithubSettings::Update.rate_limit_message(
-                    source::retry_deadline(response.headers(), response.status().as_u16()),
-                )));
+                return Err(UpdateError::new(
+                    source::GithubSettings::Update.rate_limit_message(source::retry_deadline(
+                        response.headers(),
+                        response.status().as_u16(),
+                    )),
+                ));
             }
             if response.status().as_u16() != 200 {
                 last_error = UpdateError::new(format!(

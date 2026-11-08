@@ -47,7 +47,7 @@ pub(super) fn seed_extra_aliases(
                 && mapping
                     .provider
                     .as_deref()
-                    .map_or(true, |owner| owner.eq_ignore_ascii_case(provider))
+                    .is_none_or(|owner| owner.eq_ignore_ascii_case(provider))
         });
         if exists {
             continue;
@@ -57,7 +57,7 @@ pub(super) fn seed_extra_aliases(
                 && mapping
                     .provider
                     .as_deref()
-                    .map_or(true, |owner| owner.eq_ignore_ascii_case(provider))
+                    .is_none_or(|owner| owner.eq_ignore_ascii_case(provider))
         });
         rules.mappings.push(Mapping {
             alias: alias.to_string(),

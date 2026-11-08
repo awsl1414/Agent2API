@@ -191,7 +191,7 @@ pub async fn get_center(State(state): State<ServerState>) -> Response {
 
     let mut provider_rows: Vec<Value> = checkin_providers
         .iter()
-        .zip(buckets.into_iter())
+        .zip(buckets)
         .map(|(id, rows)| {
             let done = rows
                 .iter()
@@ -200,7 +200,9 @@ pub async fn get_center(State(state): State<ServerState>) -> Response {
             // 插件申报的链路信息（说明 / 执行档位 / 附加 UI 钩子）。
             // 没申报的旧插件不带这几个键，界面走自己的兜底（与申报前一致）。
             let declared = crate::server::core::plugin_host::checkin_of(id);
-            let manual_plans = declared.as_ref().is_some_and(|declared| declared.daily && declared.plans);
+            let manual_plans = declared
+                .as_ref()
+                .is_some_and(|declared| declared.daily && declared.plans);
             let mut row = json!({
                 "id": id,
                 "label": auto_checkin::provider_label(id),
@@ -213,7 +215,10 @@ pub async fn get_center(State(state): State<ServerState>) -> Response {
                 if let Some(object) = row.as_object_mut() {
                     object.insert(
                         "description".to_string(),
-                        declared.description.map(Value::String).unwrap_or(Value::Null),
+                        declared
+                            .description
+                            .map(Value::String)
+                            .unwrap_or(Value::Null),
                     );
                     object.insert(
                         "modes".to_string(),
@@ -228,7 +233,8 @@ pub async fn get_center(State(state): State<ServerState>) -> Response {
             row
         })
         .collect();
-    provider_rows.sort_by_key(|row| row.get("totalCount").and_then(Value::as_u64).unwrap_or(0) == 0);
+    provider_rows
+        .sort_by_key(|row| row.get("totalCount").and_then(Value::as_u64).unwrap_or(0) == 0);
     let today_done: u64 = provider_rows
         .iter()
         .map(|row| row.get("doneCount").and_then(Value::as_u64).unwrap_or(0))

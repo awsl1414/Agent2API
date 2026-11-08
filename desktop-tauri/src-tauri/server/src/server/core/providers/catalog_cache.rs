@@ -172,22 +172,34 @@ pub fn save_migrated(scope: &str, cached: CachedCatalog) -> Option<CachedCatalog
         let mut all = read_all(conn).unwrap_or_default();
         if let Some(entry) = all.get(scope) {
             if let Some(models) = entry.get("models").and_then(Value::as_array) {
-                if models.iter().any(|model| model.get("id").and_then(Value::as_str)
-                    .is_some_and(|id| !id.trim().is_empty()))
-                {
-                    return (CachedCatalog {
-                        models: models.clone(),
-                        fetched_at: entry.get("fetchedAt").and_then(Value::as_i64).unwrap_or(0),
-                    }, true);
+                if models.iter().any(|model| {
+                    model
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .is_some_and(|id| !id.trim().is_empty())
+                }) {
+                    return (
+                        CachedCatalog {
+                            models: models.clone(),
+                            fetched_at: entry.get("fetchedAt").and_then(Value::as_i64).unwrap_or(0),
+                        },
+                        true,
+                    );
                 }
             }
         }
-        all.insert(scope.to_string(), json!({ "models": cached.models, "fetchedAt": cached.fetched_at }));
+        all.insert(
+            scope.to_string(),
+            json!({ "models": cached.models, "fetchedAt": cached.fetched_at }),
+        );
         let written = write_all(conn, &all);
         (cached, written)
     })?;
     if !written {
-        logging::verbose("[Models]", &format!("旧模型清单迁移写入失败（{scope}）：本次仍沿用旧缓存"));
+        logging::verbose(
+            "[Models]",
+            &format!("旧模型清单迁移写入失败（{scope}）：本次仍沿用旧缓存"),
+        );
     }
     Some(catalog)
 }
@@ -195,7 +207,9 @@ pub fn save_migrated(scope: &str, cached: CachedCatalog) -> Option<CachedCatalog
 /// 库里存在的非空缓存及拉取时刻；不代表该目录已装入当前插件。
 pub fn cached_scopes() -> Vec<(String, i64)> {
     let Some(db) = db() else { return Vec::new() };
-    let Some(all) = db.with(read_all).flatten() else { return Vec::new() };
+    let Some(all) = db.with(read_all).flatten() else {
+        return Vec::new();
+    };
     all.iter()
         .filter_map(|(scope, entry)| {
             let models = entry.get("models").and_then(Value::as_array)?;
@@ -231,11 +245,16 @@ pub fn age_text(fetched_at: i64) -> String {
 /// 读出整份缓存对象（键不存在 / 值坏 → `None`，由调用方按「没有缓存」处理）。
 fn read_all(conn: &Connection) -> Option<Map<String, Value>> {
     let text: Option<String> = conn
-        .query_row("SELECT value FROM kv WHERE key = ?1", params![KV_KEY], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT value FROM kv WHERE key = ?1",
+            params![KV_KEY],
+            |row| row.get(0),
+        )
         .ok();
-    serde_json::from_str::<Value>(&text?).ok()?.as_object().cloned()
+    serde_json::from_str::<Value>(&text?)
+        .ok()?
+        .as_object()
+        .cloned()
 }
 
 /// 整份写回（单行 UPSERT）。

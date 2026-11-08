@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 mod required;
-pub(super) use required::required_release;
 pub(crate) use super::packages::MAX_PACK_BYTES;
+pub(super) use required::required_release;
 
 use crate::server::core::update::client::{
     fetch_candidate, fetch_json, fetch_public, github_headers,
@@ -130,13 +130,7 @@ async fn fetch(url: &str) -> Result<reqwest::Response, String> {
                 0,
             )
         {
-            let _ = guard.finish(
-                false,
-                message.clone(),
-                None,
-                retry_at,
-                60_000,
-            );
+            let _ = guard.finish(false, message.clone(), None, retry_at, 60_000);
         }
         return Err(message);
     }
@@ -345,7 +339,14 @@ pub async fn release_for(
     detail: Option<&PluginDetail>,
     current: Option<&str>,
 ) -> Result<Option<ReleaseAssets>, String> {
-    release_for_channels(repo, id, detail, current, super::settings::current().channels()).await
+    release_for_channels(
+        repo,
+        id,
+        detail,
+        current,
+        super::settings::current().channels(),
+    )
+    .await
 }
 
 pub(super) async fn release_for_channels(
@@ -478,7 +479,10 @@ pub async fn download(
 ) -> Result<Vec<u8>, String> {
     crate::server::core::update::assert_downloadable(&asset.url).map_err(|error| error.message)?;
     if asset.size > MAX_PACK_BYTES as u64 {
-        return Err(format!("插件包超过 {} MiB 上限", MAX_PACK_BYTES / (1024 * 1024)));
+        return Err(format!(
+            "插件包超过 {} MiB 上限",
+            MAX_PACK_BYTES / (1024 * 1024)
+        ));
     }
     let headers = vec![
         ("User-Agent".to_string(), "agent2api-plugin".to_string()),
@@ -502,9 +506,12 @@ pub async fn download(
         };
         if candidate.is_rate_limited(&response) {
             candidate.observe("rateLimited", started.elapsed().as_millis() as u64, false);
-            return Err(source::GithubSettings::Plugin.rate_limit_message(
-                source::retry_deadline(response.headers(), response.status().as_u16()),
-            ));
+            return Err(
+                source::GithubSettings::Plugin.rate_limit_message(source::retry_deadline(
+                    response.headers(),
+                    response.status().as_u16(),
+                )),
+            );
         }
         if response.status().as_u16() != 200 {
             last_error = format!(
@@ -559,7 +566,10 @@ async fn read_download(
     let declared = response.content_length().unwrap_or(0);
     let total = if asset.size > 0 { asset.size } else { declared };
     if total > MAX_PACK_BYTES as u64 || declared > MAX_PACK_BYTES as u64 {
-        return Err(format!("插件包超过 {} MiB 上限", MAX_PACK_BYTES / (1024 * 1024)));
+        return Err(format!(
+            "插件包超过 {} MiB 上限",
+            MAX_PACK_BYTES / (1024 * 1024)
+        ));
     }
     use futures::StreamExt;
     let mut stream = response.bytes_stream();
@@ -572,7 +582,10 @@ async fn read_download(
         let Some(chunk) = chunk else { break };
         let chunk = chunk.map_err(|error| format!("下载中断：{error}"))?;
         if buffer.len().saturating_add(chunk.len()) > MAX_PACK_BYTES {
-            return Err(format!("插件包超过 {} MiB 上限", MAX_PACK_BYTES / (1024 * 1024)));
+            return Err(format!(
+                "插件包超过 {} MiB 上限",
+                MAX_PACK_BYTES / (1024 * 1024)
+            ));
         }
         buffer.extend_from_slice(&chunk);
         progress(buffer.len() as u64, total);

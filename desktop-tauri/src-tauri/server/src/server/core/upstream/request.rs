@@ -91,9 +91,15 @@ impl UpstreamErrorDetail {
     /// 适配器入参形态：`{code, message}`（键名与上游 JSON 一致，
     /// 于是适配器可以直接用 `error_body.get("code")` 读，不需要中间结构体）
     pub fn to_value(&self) -> Value {
-        let mut body = self.payload.clone().filter(Value::is_object).unwrap_or_else(|| json!({}));
+        let mut body = self
+            .payload
+            .clone()
+            .filter(Value::is_object)
+            .unwrap_or_else(|| json!({}));
         if let Some(object) = body.as_object_mut() {
-            if let Some(code) = self.code { object.insert("code".into(), Value::from(code)); }
+            if let Some(code) = self.code {
+                object.insert("code".into(), Value::from(code));
+            }
             object.insert("message".into(), Value::String(self.message.clone()));
         }
         body
@@ -148,7 +154,11 @@ pub async fn read_upstream_error(
         }
         parsed = Some(payload);
     }
-    UpstreamErrorDetail { code, message, payload: parsed }
+    UpstreamErrorDetail {
+        code,
+        message,
+        payload: parsed,
+    }
 }
 
 /// 发一次上游请求（不读 body，保留原始响应给流式转发与错误解析）。
@@ -173,7 +183,8 @@ pub(super) async fn send_chat_with_client(
     client: &reqwest::Client,
 ) -> Result<reqwest::Response, UpstreamRequestError> {
     let multipart = plan.headers.iter().any(|(key, value)| {
-        key.eq_ignore_ascii_case("content-type") && value.eq_ignore_ascii_case("multipart/form-data")
+        key.eq_ignore_ascii_case("content-type")
+            && value.eq_ignore_ascii_case("multipart/form-data")
     });
     let mut builder = client.post(&plan.url);
     if multipart {
@@ -237,12 +248,21 @@ pub(super) async fn send_chat_with_client(
             let mut certificate_error = false;
             while let Some(error) = cause {
                 let message = error.to_string().to_ascii_lowercase();
-                certificate_error |= message.contains("certificate") || message.contains("invalid peer")
-                    || message.contains("unknownissuer") || message.contains("certnotvalid");
+                certificate_error |= message.contains("certificate")
+                    || message.contains("invalid peer")
+                    || message.contains("unknownissuer")
+                    || message.contains("certnotvalid");
                 cause = error.source();
             }
-            let network_failure = !certificate_error && !error.is_builder() && (error.is_connect() || error.is_timeout());
-            Err(UpstreamRequestError { message, reason, safe_to_retry, network_failure })
+            let network_failure = !certificate_error
+                && !error.is_builder()
+                && (error.is_connect() || error.is_timeout());
+            Err(UpstreamRequestError {
+                message,
+                reason,
+                safe_to_retry,
+                network_failure,
+            })
         }
         Err(_elapsed) => {
             let seconds = headers_budget.as_secs();
@@ -301,7 +321,10 @@ pub fn new_request_id() -> String {
         .unwrap_or(0);
     let pid = std::process::id() as u64;
     let first = mix(b"wb-request-id-a", nanos ^ pid);
-    let second = mix(b"wb-request-id-b", counter.wrapping_mul(0x9E37_79B9_7F4A_7C15));
+    let second = mix(
+        b"wb-request-id-b",
+        counter.wrapping_mul(0x9E37_79B9_7F4A_7C15),
+    );
     bytes[..8].copy_from_slice(&first.to_be_bytes());
     bytes[8..].copy_from_slice(&second.to_be_bytes());
     // 版本位 4 + 变体位 10xx（RFC 4122）

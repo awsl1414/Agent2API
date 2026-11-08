@@ -17,24 +17,38 @@ pub(super) struct Activity {
 impl Activity {
     pub fn acquire(self: &Arc<Self>) -> Option<Arc<UsageLease>> {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-        if state.paused || state.retired { return None; }
+        if state.paused || state.retired {
+            return None;
+        }
         state.users += 1;
-        Some(Arc::new(UsageLease { activity: self.clone() }))
+        Some(Arc::new(UsageLease {
+            activity: self.clone(),
+        }))
     }
 
     pub fn pause(self: &Arc<Self>) -> Option<PauseGuard> {
         let mut state = self.state.lock().unwrap_or_else(|error| error.into_inner());
-        if state.users != 0 || state.paused { return None; }
+        if state.users != 0 || state.paused {
+            return None;
+        }
         state.paused = true;
-        Some(PauseGuard { activity: self.clone() })
+        Some(PauseGuard {
+            activity: self.clone(),
+        })
     }
 
     pub fn retire(&self) {
-        self.state.lock().unwrap_or_else(|error| error.into_inner()).retired = true;
+        self.state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .retired = true;
     }
 
     pub fn retired(&self) -> bool {
-        self.state.lock().unwrap_or_else(|error| error.into_inner()).retired
+        self.state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .retired
     }
 }
 
@@ -44,7 +58,11 @@ pub(super) struct UsageLease {
 
 impl Drop for UsageLease {
     fn drop(&mut self) {
-        let mut state = self.activity.state.lock().unwrap_or_else(|error| error.into_inner());
+        let mut state = self
+            .activity
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         state.users = state.users.saturating_sub(1);
     }
 }
@@ -55,7 +73,11 @@ pub(super) struct PauseGuard {
 
 impl Drop for PauseGuard {
     fn drop(&mut self) {
-        self.activity.state.lock().unwrap_or_else(|error| error.into_inner()).paused = false;
+        self.activity
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .paused = false;
     }
 }
 
@@ -75,7 +97,9 @@ impl Drop for OpeningStream {
             // 取消帧必须排在请求帧之后；尚未写出的调用不能永远占住在途凭证。
             if let Some(written) = written {
                 if !written.await.unwrap_or(false) {
-                    if let Ok(mut streams) = host.streams.lock() { streams.remove(&id); }
+                    if let Ok(mut streams) = host.streams.lock() {
+                        streams.remove(&id);
+                    }
                     return;
                 }
             }
@@ -92,10 +116,14 @@ pub(super) enum AvailabilityError {
 impl AvailabilityError {
     pub fn gateway(self) -> GatewayError {
         match self {
-            Self::Updating => GatewayError::with_status(503, "插件正在更新，等待切换超时，请稍后重试")
-                .with_code("plugin_updating"),
-            Self::Unavailable => GatewayError::with_status(503, "提供商插件当前不可用，请检查插件状态")
-                .with_code("plugin_unavailable"),
+            Self::Updating => {
+                GatewayError::with_status(503, "插件正在更新，等待切换超时，请稍后重试")
+                    .with_code("plugin_updating")
+            }
+            Self::Unavailable => {
+                GatewayError::with_status(503, "提供商插件当前不可用，请检查插件状态")
+                    .with_code("plugin_unavailable")
+            }
         }
     }
 }

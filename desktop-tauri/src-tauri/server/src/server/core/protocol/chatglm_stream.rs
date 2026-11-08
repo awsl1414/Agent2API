@@ -739,16 +739,17 @@ mod tests {
         ));
         let frames = machine.finish();
         let raw = String::from_utf8_lossy(&frames[0]).to_string();
-        assert!(raw.contains("截断") || raw.contains("upstream_error"), "实际: {raw}");
+        assert!(
+            raw.contains("截断") || raw.contains("upstream_error"),
+            "实际: {raw}"
+        );
     }
 
     /// 一个内容都没有就 finish → 空响应报错（不记成空回答成功）
     #[test]
     fn empty_stream_reports_error() {
         let mut machine = ChatFromChatglmStream::new("m");
-        let frames = machine.push(&sse(
-            r#"{"status":"finish","parts":[{"content":[]}]}"#,
-        ));
+        let frames = machine.push(&sse(r#"{"status":"finish","parts":[{"content":[]}]}"#));
         let raw = String::from_utf8_lossy(&frames[0]).to_string();
         assert!(raw.contains("空响应"), "实际: {raw}");
     }

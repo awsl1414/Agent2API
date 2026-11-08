@@ -29,9 +29,15 @@ impl Default for Retention {
 impl Retention {
     pub(super) fn normalized(self) -> Self {
         Self {
-            request_days: self.request_days.clamp(RETENTION_MIN_DAYS, RETENTION_MAX_DAYS),
-            request_count: self.request_count.clamp(RETENTION_MIN_COUNT, RETENTION_MAX_COUNT),
-            daily_days: self.daily_days.clamp(RETENTION_MIN_DAYS, RETENTION_MAX_DAYS),
+            request_days: self
+                .request_days
+                .clamp(RETENTION_MIN_DAYS, RETENTION_MAX_DAYS),
+            request_count: self
+                .request_count
+                .clamp(RETENTION_MIN_COUNT, RETENTION_MAX_COUNT),
+            daily_days: self
+                .daily_days
+                .clamp(RETENTION_MIN_DAYS, RETENTION_MAX_DAYS),
         }
     }
 }
@@ -46,7 +52,9 @@ impl RetentionBounds {
     pub(super) fn of(retention: Retention) -> Self {
         let now_day = today();
         Self {
-            requests_ms: local_midnight_ms(now_day - ChronoDuration::days(retention.request_days - 1)),
+            requests_ms: local_midnight_ms(
+                now_day - ChronoDuration::days(retention.request_days - 1),
+            ),
             request_count: retention.request_count,
             daily_key: date_key(now_day - ChronoDuration::days(retention.daily_days - 1)),
         }

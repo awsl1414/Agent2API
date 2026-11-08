@@ -100,9 +100,20 @@ pub fn write(
         .cloned()
         .unwrap_or_default();
     for model in &profile.models {
-        let source_protocol = profile.native.settings.get("protocol").and_then(Value::as_str).unwrap_or(&profile.protocol);
-        let index = models.iter().position(|value| value.get("name").and_then(Value::as_str) == Some(&model.id)
-            && (value.pointer("/capabilities/chat_completions").and_then(Value::as_bool) == Some(false)) == (source_protocol == "responses"));
+        let source_protocol = profile
+            .native
+            .settings
+            .get("protocol")
+            .and_then(Value::as_str)
+            .unwrap_or(&profile.protocol);
+        let index = models.iter().position(|value| {
+            value.get("name").and_then(Value::as_str) == Some(&model.id)
+                && (value
+                    .pointer("/capabilities/chat_completions")
+                    .and_then(Value::as_bool)
+                    == Some(false))
+                    == (source_protocol == "responses")
+        });
         let mut item = index
             .map(|i| models[i].clone())
             .unwrap_or_else(|| json!({}));

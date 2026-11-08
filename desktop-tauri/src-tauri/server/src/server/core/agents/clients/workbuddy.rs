@@ -84,7 +84,11 @@ pub fn read(value: &Value) -> Result<Vec<Profile>, String> {
     Ok(profiles)
 }
 
-pub fn write(value: &mut Value, profile: &Profile, warnings: &mut Vec<String>) -> Result<(), String> {
+pub fn write(
+    value: &mut Value,
+    profile: &Profile,
+    warnings: &mut Vec<String>,
+) -> Result<(), String> {
     let original = entries(value)?.clone();
     let imported = profile.native.entry.as_array().cloned().unwrap_or_default();
     let mut result = original.clone();

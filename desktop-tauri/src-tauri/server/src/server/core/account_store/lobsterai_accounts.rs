@@ -77,7 +77,10 @@ mod tests {
         let record = StoredAccount::from_map({
             let mut map = Map::new();
             map.insert("id".into(), Value::String("lobsterai-42".into()));
-            map.insert("provider".into(), Value::String(LOBSTERAI_PROVIDER_ID.into()));
+            map.insert(
+                "provider".into(),
+                Value::String(LOBSTERAI_PROVIDER_ID.into()),
+            );
             map.insert("accessToken".into(), Value::String("at".into()));
             map.insert("refreshToken".into(), Value::String("rt".into()));
             map.insert("uuid".into(), Value::String("u-1".into()));
@@ -123,7 +126,13 @@ mod tests {
             "latestKeyfrom": "lk",
         });
         let record = StoredAccount::from_map(map.as_object().cloned().unwrap_or_default());
-        assert_eq!(record.get("firstKeyfrom"), Some(&Value::String("fk".into())));
-        assert_eq!(record.get("latestKeyfrom"), Some(&Value::String("lk".into())));
+        assert_eq!(
+            record.get("firstKeyfrom"),
+            Some(&Value::String("fk".into()))
+        );
+        assert_eq!(
+            record.get("latestKeyfrom"),
+            Some(&Value::String("lk".into()))
+        );
     }
 }

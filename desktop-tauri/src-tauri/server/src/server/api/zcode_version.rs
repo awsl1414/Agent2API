@@ -100,7 +100,10 @@ pub async fn put_version(State(_state): State<ServerState>, body: Bytes) -> Resp
         Value::String(trimmed.to_string())
     };
     if !config::update_raw_field(KEY, next) {
-        crate::server::logging::log("[Config]", "⚠️  ZCode 客户端版本号写入失败，本次运行内仍生效");
+        crate::server::logging::log(
+            "[Config]",
+            "⚠️  ZCode 客户端版本号写入失败，本次运行内仍生效",
+        );
     }
     crate::server::logging::log(
         "[Config]",

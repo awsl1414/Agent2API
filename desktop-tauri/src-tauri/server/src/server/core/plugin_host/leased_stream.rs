@@ -21,11 +21,17 @@ impl Stream for LeasedStream {
     }
 }
 
-pub(crate) fn hold_adapter(outcome: ForwardOutcome, adapter: Arc<dyn ProviderAdapter>) -> ForwardOutcome {
+pub(crate) fn hold_adapter(
+    outcome: ForwardOutcome,
+    adapter: Arc<dyn ProviderAdapter>,
+) -> ForwardOutcome {
     match outcome {
         ForwardOutcome::Stream { status, stream } => ForwardOutcome::Stream {
             status,
-            stream: Box::new(LeasedStream { inner: stream, _adapter: adapter }),
+            stream: Box::new(LeasedStream {
+                inner: stream,
+                _adapter: adapter,
+            }),
         },
         completion => completion,
     }

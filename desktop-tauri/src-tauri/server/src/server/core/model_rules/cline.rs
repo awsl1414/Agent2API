@@ -62,24 +62,44 @@ pub fn seed_cline_defaults(provider: &str, ids: &[String]) -> Option<String> {
         let pool = Pool::from_provider_id(provider).unwrap_or(Pool::Pass);
         for id in ids {
             let id = id.trim();
-            if id.is_empty() { continue; }
+            if id.is_empty() {
+                continue;
+            }
             seed_extra_aliases(rules, provider, id, ids, &mut added);
-            if rules.is_seeded(provider, id) { continue; }
+            if rules.is_seeded(provider, id) {
+                continue;
+            }
             rules.seeded.push(format!("{provider}:{id}"));
-            let Some(alias) = friendly_alias(pool, id) else { continue };
-            if !alias_valid(alias) || ids.iter().any(|id| id.eq_ignore_ascii_case(alias)) { continue; }
-            if rules.mappings.iter().any(|mapping| mapping.alias.eq_ignore_ascii_case(alias)
-                && mapping.provider.as_deref().map_or(true, |owner| owner.eq_ignore_ascii_case(provider)))
-            { continue; }
+            let Some(alias) = friendly_alias(pool, id) else {
+                continue;
+            };
+            if !alias_valid(alias) || ids.iter().any(|id| id.eq_ignore_ascii_case(alias)) {
+                continue;
+            }
+            if rules.mappings.iter().any(|mapping| {
+                mapping.alias.eq_ignore_ascii_case(alias)
+                    && mapping
+                        .provider
+                        .as_deref()
+                        .is_none_or(|owner| owner.eq_ignore_ascii_case(provider))
+            }) {
+                continue;
+            }
             rules.mappings.push(Mapping {
-                alias: alias.to_string(), target: id.to_string(), provider: Some(provider.to_string()),
-                reasoning: None, enabled: true,
+                alias: alias.to_string(),
+                target: id.to_string(),
+                provider: Some(provider.to_string()),
+                reasoning: None,
+                enabled: true,
             });
             added.push(format!("{alias} → {id}"));
         }
         Ok(added)
-    }).ok()?;
-    if added.is_empty() { return None; }
+    })
+    .ok()?;
+    if added.is_empty() {
+        return None;
+    }
     Some(format!("🧩 Cline 模型默认映射: [{}]", added.join(", ")))
 }
 
@@ -206,4 +226,3 @@ fn is_cline_channel(model_id: &str) -> bool {
         .iter()
         .any(|prefix| model_id.starts_with(prefix))
 }
-

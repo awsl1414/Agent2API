@@ -82,8 +82,7 @@ fn derive_key(password: &str, salt: &[u8], iterations: u32) -> [u8; KEY_LEN] {
     type HmacSha256 = Hmac<sha2::Sha256>;
 
     // PBKDF2 的第一个块（dkLen = 32 = 一个 SHA-256 输出长度，只需一轮）
-    let mut mac = HmacSha256::new_from_slice(password.as_bytes())
-        .expect("HMAC 接受任意长度的密钥");
+    let mut mac = HmacSha256::new_from_slice(password.as_bytes()).expect("HMAC 接受任意长度的密钥");
     mac.update(salt);
     mac.update(&1u32.to_be_bytes());
     let mut block = mac.finalize().into_bytes();
@@ -91,8 +90,8 @@ fn derive_key(password: &str, salt: &[u8], iterations: u32) -> [u8; KEY_LEN] {
     result.copy_from_slice(&block);
 
     for _ in 1..iterations {
-        let mut mac = HmacSha256::new_from_slice(password.as_bytes())
-            .expect("HMAC 接受任意长度的密钥");
+        let mut mac =
+            HmacSha256::new_from_slice(password.as_bytes()).expect("HMAC 接受任意长度的密钥");
         mac.update(&block);
         block = mac.finalize().into_bytes();
         for (slot, byte) in result.iter_mut().zip(block.iter()) {
@@ -158,7 +157,10 @@ pub(crate) fn open_key(raw: &[u8], password: &str) -> Result<[u8; KEY_LEN], Stri
     let envelope: KeyEnvelope = serde_json::from_slice(raw)
         .map_err(|_| "远端密钥文件的格式不认识（不是本功能生成的 account.key.enc）".to_string())?;
     if envelope.format != ENVELOPE_FORMAT {
-        return Err(format!("远端密钥文件格式不兼容（format = {}）", envelope.format));
+        return Err(format!(
+            "远端密钥文件格式不兼容（format = {}）",
+            envelope.format
+        ));
     }
     if envelope.version != ENVELOPE_VERSION {
         return Err(format!(
@@ -190,9 +192,9 @@ pub(crate) fn open_key(raw: &[u8], password: &str) -> Result<[u8; KEY_LEN], Stri
         .map_err(|_| "派生密钥长度不受 AES-256 支持".to_string())?;
     let nonce = Nonce::<U12>::try_from(nonce_bytes.as_slice())
         .map_err(|_| "远端密钥文件的 nonce 长度异常".to_string())?;
-    let plaintext = cipher.decrypt(&nonce, ciphertext.as_slice()).map_err(|_| {
-        "同步密码不正确（无法解开远端保存的账号密钥）".to_string()
-    })?;
+    let plaintext = cipher
+        .decrypt(&nonce, ciphertext.as_slice())
+        .map_err(|_| "同步密码不正确（无法解开远端保存的账号密钥）".to_string())?;
     let key: [u8; KEY_LEN] = plaintext
         .as_slice()
         .try_into()
@@ -202,9 +204,7 @@ pub(crate) fn open_key(raw: &[u8], password: &str) -> Result<[u8; KEY_LEN], Stri
     // 这里能当场发现，而不是等应用快照后账号全部解不开。
     let actual = crypto::fingerprint_of(&key);
     if actual != envelope.key_fingerprint {
-        return Err(
-            "远端密钥文件自校验失败（指纹不一致），文件可能已损坏，请重新上传".to_string(),
-        );
+        return Err("远端密钥文件自校验失败（指纹不一致），文件可能已损坏，请重新上传".to_string());
     }
     Ok(key)
 }
@@ -229,12 +229,8 @@ pub(crate) fn install_key(key_bytes: &[u8]) -> Result<Option<String>, String> {
     let backup_name = if path.exists() {
         let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
         let backup = path.with_file_name(format!("account.key.bak-{stamp}"));
-        std::fs::rename(&path, &backup).map_err(|error| {
-            format!(
-                "备份原账号密钥失败（{}）：{error}",
-                path.display()
-            )
-        })?;
+        std::fs::rename(&path, &backup)
+            .map_err(|error| format!("备份原账号密钥失败（{}）：{error}", path.display()))?;
         Some(
             backup
                 .file_name()

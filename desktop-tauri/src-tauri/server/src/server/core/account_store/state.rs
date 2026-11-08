@@ -147,7 +147,9 @@ impl StoredAccount {
 
     /// [`Self::identity_field`] 的字符串形态（缺失 / 非字符串给空串）。
     fn identity_text(&self, key: &str) -> String {
-        self.identity_field(key).map(|value| as_text(Some(value))).unwrap_or_default()
+        self.identity_field(key)
+            .map(|value| as_text(Some(value)))
+            .unwrap_or_default()
     }
 
     /// 所属提供商 id（`"workbuddy"` / `"raccoon"`，契约见 `core::providers`）。
@@ -196,7 +198,11 @@ impl StoredAccount {
     /// 账号类型：缺省视为个人版（对应 Node 版 `type || 'personal'`）
     pub fn account_type(&self) -> String {
         let value = self.identity_text("type");
-        if value.is_empty() { "personal".to_string() } else { value }
+        if value.is_empty() {
+            "personal".to_string()
+        } else {
+            value
+        }
     }
 
     pub fn enterprise_id(&self) -> String {
@@ -240,7 +246,11 @@ impl StoredAccount {
     /// `resolve_edition(None)` 会回落 `cn`，国际版账号被当成国内版反查。
     pub fn edition(&self) -> Option<String> {
         let value = self.identity_text("edition");
-        if value.is_empty() { None } else { Some(value) }
+        if value.is_empty() {
+            None
+        } else {
+            Some(value)
+        }
     }
 
     /// 记录里显式保存的 prefixPath。
@@ -250,26 +260,32 @@ impl StoredAccount {
         match self.fields.get("prefixPath") {
             Some(Value::String(text)) => Some(text.clone()),
             // 顶层没有这个键（插件落库形态）时回落子对象；空串同样是有效值。
-            _ => ["pluginPublic", "pluginSecret"]
-                .iter()
-                .find_map(|holder| {
-                    self.fields
-                        .get(*holder)
-                        .and_then(|object| object.get("prefixPath"))
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
-                }),
+            _ => ["pluginPublic", "pluginSecret"].iter().find_map(|holder| {
+                self.fields
+                    .get(*holder)
+                    .and_then(|object| object.get("prefixPath"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            }),
         }
     }
 
     pub fn endpoint(&self) -> Option<String> {
         let value = self.identity_text("endpoint");
-        if value.is_empty() { None } else { Some(value) }
+        if value.is_empty() {
+            None
+        } else {
+            Some(value)
+        }
     }
 
     pub fn platform(&self) -> Option<String> {
         let value = self.identity_text("platform");
-        if value.is_empty() { None } else { Some(value) }
+        if value.is_empty() {
+            None
+        } else {
+            Some(value)
+        }
     }
 
     // ── 运营属性 ────────────────────────────────────────────
@@ -283,9 +299,7 @@ impl StoredAccount {
             _ => None,
         };
         match parsed {
-            Some(number) if number.is_finite() => {
-                normalize_priority_value(number.round() as i64)
-            }
+            Some(number) if number.is_finite() => normalize_priority_value(number.round() as i64),
             _ => fallback,
         }
     }
@@ -344,7 +358,8 @@ impl StoredAccount {
     }
 
     pub fn set_claim_at(&mut self, value: i64) {
-        self.fields.insert("claimAt".to_string(), Value::from(value));
+        self.fields
+            .insert("claimAt".to_string(), Value::from(value));
     }
 
     /// 最近一次领取到的套餐 id（`zcode-v3-start-plan-trust-0928` 这类带日期段的串）。
@@ -471,13 +486,21 @@ impl StoredAccount {
     pub fn zcode_plan(&self) -> String {
         let key = crate::server::core::providers::zcode::PLAN_FIELD;
         let value = as_text(self.fields.get(key));
-        if !value.trim().is_empty() { value }
-        else { as_text(self.fields.get("pluginSecret").and_then(|secret| secret.get(key))) }
+        if !value.trim().is_empty() {
+            value
+        } else {
+            as_text(
+                self.fields
+                    .get("pluginSecret")
+                    .and_then(|secret| secret.get(key)),
+            )
+        }
     }
 
     pub fn set_zcode_plan(&mut self, value: &str) {
         let key = crate::server::core::providers::zcode::PLAN_FIELD;
-        self.fields.insert(key.to_string(), Value::String(value.to_string()));
+        self.fields
+            .insert(key.to_string(), Value::String(value.to_string()));
         for field in ["pluginSecret", "pluginPublic"] {
             if let Some(Value::Object(fields)) = self.fields.get_mut(field) {
                 fields.insert(key.to_string(), Value::String(value.to_string()));
@@ -538,8 +561,13 @@ impl StoredAccount {
     /// `pluginSecret`，网关不解析 —— 见 `account_store::plugin_accounts`）。
     /// 漏了它，插件家的账号会在选路第一级就被当成「没有凭证」全部跳过。
     pub fn has_credentials(&self) -> bool {
-        self.has_token() || self.is_desktop() || self.has_api_key() || self.has_jwt()
-            || self.no_auth() || self.has_officeace_key() || self.has_plugin_secret()
+        self.has_token()
+            || self.is_desktop()
+            || self.has_api_key()
+            || self.has_jwt()
+            || self.no_auth()
+            || self.has_officeace_key()
+            || self.has_plugin_secret()
     }
 
     /// 记录里是否有非空的 `pluginSecret`（插件家的不透明凭证）。
@@ -709,9 +737,9 @@ fn positive_number(value: Option<&Value>) -> Option<f64> {
 /// 所以这里按 i64 取整保存（毫秒时间戳用整数表达即可）。
 fn integer_of(value: Option<&Value>) -> i64 {
     match value {
-        Some(Value::Number(number)) => number.as_i64().unwrap_or_else(|| {
-            number.as_f64().map(|float| float as i64).unwrap_or(0)
-        }),
+        Some(Value::Number(number)) => number
+            .as_i64()
+            .unwrap_or_else(|| number.as_f64().map(|float| float as i64).unwrap_or(0)),
         Some(Value::String(text)) => text.trim().parse::<i64>().unwrap_or(0),
         _ => 0,
     }
@@ -813,7 +841,10 @@ mod tests {
         // 空串 / 全空白同样不算
         let mut blank = Map::new();
         blank.insert("modelAppKey".to_string(), Value::String("K".to_string()));
-        blank.insert("modelAppSecret".to_string(), Value::String("  ".to_string()));
+        blank.insert(
+            "modelAppSecret".to_string(),
+            Value::String("  ".to_string()),
+        );
         assert!(!StoredAccount::from_map(blank).has_officeace_key());
 
         // 别家的记录不受影响：只有 accessToken 的记录仍是「有凭证」
@@ -821,6 +852,9 @@ mod tests {
         plain.insert("accessToken".to_string(), Value::String("T".to_string()));
         let plain = StoredAccount::from_map(plain);
         assert!(plain.has_credentials());
-        assert!(!plain.has_officeace_key(), "别家不该被判成有 OfficeAce 凭据");
+        assert!(
+            !plain.has_officeace_key(),
+            "别家不该被判成有 OfficeAce 凭据"
+        );
     }
 }

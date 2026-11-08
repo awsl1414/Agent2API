@@ -213,8 +213,8 @@ pub fn load() -> AppSettings {
 /// 本函数不再碰它 —— 若它还在（用户把备份改回原名），那是迁移项的事，
 /// 不是每次保存都去同步两份（两份会各说各话，正是要避免的那种状态）。
 pub fn save(settings: &AppSettings) -> Result<(), String> {
-    let text = serde_json::to_string(settings)
-        .map_err(|error| format!("设置序列化失败: {error}"))?;
+    let text =
+        serde_json::to_string(settings).map_err(|error| format!("设置序列化失败: {error}"))?;
     sql::write(&file_path(), &text)
 }
 

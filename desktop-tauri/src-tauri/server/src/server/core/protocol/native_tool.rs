@@ -201,7 +201,11 @@ pub fn choice_target(choice: &Value) -> Option<String> {
                 return Some(nested);
             }
             let flat = super::string_field(choice, "name");
-            if flat.is_empty() { None } else { Some(flat) }
+            if flat.is_empty() {
+                None
+            } else {
+                Some(flat)
+            }
         }
     }
 }
@@ -215,8 +219,7 @@ pub fn is_native_choice(choice: &Value) -> bool {
         return false;
     }
     let kind = super::string_field(choice, "type").to_ascii_lowercase();
-    !kind.is_empty()
-        && !matches!(kind.as_str(), "function" | "auto" | "none" | "required")
+    !kind.is_empty() && !matches!(kind.as_str(), "function" | "auto" | "none" | "required")
 }
 
 /// `tool_choice` 是否与本次剔除的声明冲突：是则返回一句原因。
@@ -294,5 +297,11 @@ fn strip_with<F: Fn(&Value) -> bool>(body: &Value, should_drop: F) -> Option<(Va
     if dropped.is_empty() && choice.is_none() {
         return None;
     }
-    Some((next, Downgrade { tools: dropped, choice }))
+    Some((
+        next,
+        Downgrade {
+            tools: dropped,
+            choice,
+        },
+    ))
 }

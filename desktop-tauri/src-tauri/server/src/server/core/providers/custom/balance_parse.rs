@@ -82,7 +82,12 @@ pub(super) fn shorten(text: &str, max: usize) -> String {
 }
 
 /// 一行明细（`balance` 为 None 时不产出 —— 见模块头的「缺键不写」）
-pub(super) fn wallet(kind: &str, display_name: &str, balance: Option<f64>, unit: &str) -> Option<Value> {
+pub(super) fn wallet(
+    kind: &str,
+    display_name: &str,
+    balance: Option<f64>,
+    unit: &str,
+) -> Option<Value> {
     let balance = balance?;
     Some(json!({
         "type": kind,
@@ -119,7 +124,7 @@ pub(super) fn parse_sub2api(payload: &Value) -> Option<Value> {
     let remaining = number_at(data, "remaining")
         .or_else(|| number_at(data, "balance"))
         .or_else(|| quota.and_then(|map| number_at(map, "remaining")))
-        .or_else(|| match (total, used) {
+        .or(match (total, used) {
             (Some(total), Some(used)) => Some(total - used),
             _ => None,
         });
@@ -154,7 +159,9 @@ pub(super) fn parse_deepseek(payload: &Value) -> Option<Value> {
     let mut primary: Option<(f64, String)> = None;
     for item in infos {
         let Some(info) = map_of(item) else { continue };
-        let Some(amount) = number_at(info, "total_balance") else { continue };
+        let Some(amount) = number_at(info, "total_balance") else {
+            continue;
+        };
         let currency = info
             .get("currency")
             .and_then(Value::as_str)
@@ -168,10 +175,20 @@ pub(super) fn parse_deepseek(payload: &Value) -> Option<Value> {
         if let Some(row) = wallet("total_balance", &currency, Some(amount), &currency) {
             wallets.push(row);
         }
-        if let Some(row) = wallet("granted_balance", &format!("{currency} · 赠送余额"), number_at(info, "granted_balance"), &currency) {
+        if let Some(row) = wallet(
+            "granted_balance",
+            &format!("{currency} · 赠送余额"),
+            number_at(info, "granted_balance"),
+            &currency,
+        ) {
             wallets.push(row);
         }
-        if let Some(row) = wallet("topped_up_balance", &format!("{currency} · 充值余额"), number_at(info, "topped_up_balance"), &currency) {
+        if let Some(row) = wallet(
+            "topped_up_balance",
+            &format!("{currency} · 充值余额"),
+            number_at(info, "topped_up_balance"),
+            &currency,
+        ) {
             wallets.push(row);
         }
     }
@@ -179,9 +196,7 @@ pub(super) fn parse_deepseek(payload: &Value) -> Option<Value> {
         Some((amount, currency)) => (Some(amount), currency),
         None => (None, "CNY".to_string()),
     };
-    if available.is_none() {
-        return None;
-    }
+    available?;
     Some(document(available, &unit, wallets, payload))
 }
 
@@ -218,28 +233,26 @@ fn usage_window(window: &Map<String, Value>) -> UsageWindow {
             _ => None,
         },
     });
-    let resets_at_ms = [
-        "resetsAt",
-        "resets_at",
-        "reset_at",
-        "resetAt",
-        "expires_at",
-    ]
-    .iter()
-    .find_map(|key| window.get(*key))
-    .and_then(|value| match value {
-        // 字符串形态可能是 RFC 3339，也可能是纯数字（秒 / 毫秒），两种都收
-        Value::String(text) => {
-            let trimmed = text.trim();
-            match trimmed.parse::<f64>() {
-                Ok(number) => Some(number),
-                Err(_) => rfc3339_to_ms(trimmed).map(|ms| ms as f64 / 1000.0),
+    let resets_at_ms = ["resetsAt", "resets_at", "reset_at", "resetAt", "expires_at"]
+        .iter()
+        .find_map(|key| window.get(*key))
+        .and_then(|value| match value {
+            // 字符串形态可能是 RFC 3339，也可能是纯数字（秒 / 毫秒），两种都收
+            Value::String(text) => {
+                let trimmed = text.trim();
+                match trimmed.parse::<f64>() {
+                    Ok(number) => Some(number),
+                    Err(_) => rfc3339_to_ms(trimmed).map(|ms| ms as f64 / 1000.0),
+                }
             }
-        }
-        other => number_of(Some(other)),
-    })
-    .and_then(|number| unix_to_ms(Some(&json!(number))));
-    UsageWindow { remaining_percent: used_percent.map(|used| (100.0 - used).clamp(0.0, 100.0)), used_percent, resets_at_ms }
+            other => number_of(Some(other)),
+        })
+        .and_then(|number| unix_to_ms(Some(&json!(number))));
+    UsageWindow {
+        remaining_percent: used_percent.map(|used| (100.0 - used).clamp(0.0, 100.0)),
+        used_percent,
+        resets_at_ms,
+    }
 }
 
 /// ISO 8601（RFC 3339）→ 毫秒时间戳；认不出给 None。
@@ -276,16 +289,22 @@ pub(super) fn parse_opencode(payload: &Value) -> Option<Value> {
         ("weekly", "每周", "weekly"),
         ("monthly", "每月", "monthly"),
     ] {
-        let Some(window) = usage.get(key).and_then(map_of) else { continue };
+        let Some(window) = usage.get(key).and_then(map_of) else {
+            continue;
+        };
         reads.push((key, label, code, usage_window(window)));
     }
     if reads.is_empty() {
         return None;
     }
-    let exhausted = reads
+    let exhausted = reads.iter().any(|(key, _, _, window)| {
+        (*key == "weekly" || *key == "monthly")
+            && window.used_percent.map(|used| used >= 100.0) == Some(true)
+    });
+    let rolling = reads
         .iter()
-        .any(|(key, _, _, window)| (*key == "weekly" || *key == "monthly") && window.used_percent.map(|used| used >= 100.0) == Some(true));
-    let rolling = reads.iter().find(|(key, _, _, _)| *key == "rolling").map(|(_, _, _, window)| window);
+        .find(|(key, _, _, _)| *key == "rolling")
+        .map(|(_, _, _, window)| window);
     let primary = rolling.or_else(|| reads.first().map(|(_, _, _, window)| window));
     let available = if exhausted {
         Some(0.0)
@@ -306,7 +325,10 @@ pub(super) fn parse_opencode(payload: &Value) -> Option<Value> {
         row.insert("window".to_string(), Value::String((*code).to_string()));
         if let Some(remaining) = window.remaining_percent {
             row.insert("remainingPercent".to_string(), json!(remaining));
-            row.insert("view".to_string(), Value::String(format!("剩 {}%", percent_text(remaining))));
+            row.insert(
+                "view".to_string(),
+                Value::String(format!("剩 {}%", percent_text(remaining))),
+            );
         }
         if let Some(used) = window.used_percent {
             row.insert("usedPercent".to_string(), json!(used));
@@ -317,8 +339,12 @@ pub(super) fn parse_opencode(payload: &Value) -> Option<Value> {
         windows.push(Value::Object(row));
         // 明细行只在**读到数值**时才产出（「缺键不写」），展示串带上重置时刻：
         // 这一家的窗口都是「到点回满」，剩余多少与什么时候回满是同一个问题的两面
-        let Some(remaining) = window.remaining_percent else { continue };
-        let Some(mut row) = wallet(key, label, Some(remaining), "%") else { continue };
+        let Some(remaining) = window.remaining_percent else {
+            continue;
+        };
+        let Some(mut row) = wallet(key, label, Some(remaining), "%") else {
+            continue;
+        };
         let mut parts = vec![format!("剩 {}%", percent_text(remaining))];
         if let Some(used) = window.used_percent {
             parts.push(format!("已用 {}%", percent_text(used)));
@@ -385,7 +411,8 @@ pub(super) fn new_api_display(payload: &Value) -> Option<QuotaDisplay> {
         };
     }
     let usd_exchange_rate = number_at(data, "usd_exchange_rate").unwrap_or(1.0);
-    let custom_currency_exchange_rate = number_at(data, "custom_currency_exchange_rate").unwrap_or(1.0);
+    let custom_currency_exchange_rate =
+        number_at(data, "custom_currency_exchange_rate").unwrap_or(1.0);
     if display_type == "CNY" && !(usd_exchange_rate > 0.0) {
         return None;
     }
@@ -408,13 +435,17 @@ pub(super) fn new_api_display(payload: &Value) -> Option<QuotaDisplay> {
 
 /// 原始配额 → 展示口径（源实现 `displayedAmountRemaining` 的同一条换算链）
 pub(super) fn new_api_display_amount(quota: f64, display: Option<&QuotaDisplay>) -> (f64, String) {
-    let Some(display) = display else { return (quota, "quota".to_string()) };
+    let Some(display) = display else {
+        return (quota, "quota".to_string());
+    };
     if display.quota_per_unit <= 0.0 {
         return (quota, "quota".to_string());
     }
     let amount_usd = quota / display.quota_per_unit;
     match display.display_type.as_str() {
-        "CNY" if display.usd_exchange_rate > 0.0 => (amount_usd * display.usd_exchange_rate, "CNY".to_string()),
+        "CNY" if display.usd_exchange_rate > 0.0 => {
+            (amount_usd * display.usd_exchange_rate, "CNY".to_string())
+        }
         "CUSTOM" if display.custom_currency_exchange_rate > 0.0 => (
             amount_usd * display.custom_currency_exchange_rate,
             if display.custom_currency_symbol.is_empty() {
@@ -495,12 +526,14 @@ pub(super) fn parse_zhipu(
             .unwrap_or_else(|| {
                 format!(
                     "智谱余额接口返回错误（code={}）：{message}",
-                    code.map(|value| value.to_string()).unwrap_or_else(|| "?".to_string())
+                    code.map(|value| value.to_string())
+                        .unwrap_or_else(|| "?".to_string())
                 )
             }));
     }
     let data = body.get("data").and_then(map_of);
-    let balance = data.and_then(|map| number_at(map, "balance"))
+    let balance = data
+        .and_then(|map| number_at(map, "balance"))
         .or_else(|| data.and_then(|map| number_at(map, "availableBalance")));
     let Some(balance) = balance else {
         return Err("智谱余额响应里没有余额字段".to_string());
@@ -508,9 +541,19 @@ pub(super) fn parse_zhipu(
     let wallets = data
         .map(|map| {
             vec![
-                wallet("rechargeAmount", "充值余额", number_at(map, "rechargeAmount"), unit),
+                wallet(
+                    "rechargeAmount",
+                    "充值余额",
+                    number_at(map, "rechargeAmount"),
+                    unit,
+                ),
                 wallet("giveAmount", "赠送余额", number_at(map, "giveAmount"), unit),
-                wallet("frozenBalance", "冻结金额", number_at(map, "frozenBalance"), unit),
+                wallet(
+                    "frozenBalance",
+                    "冻结金额",
+                    number_at(map, "frozenBalance"),
+                    unit,
+                ),
             ]
             .into_iter()
             .flatten()
@@ -593,7 +636,12 @@ pub(super) fn parse_sensenova(payload: &Value) -> Option<Value> {
                 wallets.push(row);
             }
         }
-        if let Some(row) = wallet("grant", &format!("{} · 活动返赠", pool.name), pool.grant_balance, "积分") {
+        if let Some(row) = wallet(
+            "grant",
+            &format!("{} · 活动返赠", pool.name),
+            pool.grant_balance,
+            "积分",
+        ) {
             wallets.push(row);
         }
     }

@@ -86,7 +86,11 @@ pub(in crate::server::request_stats) fn upsert_raw(
 }
 
 pub(in crate::server::request_stats) fn count_raw(conn: &Connection) -> rusqlite::Result<usize> {
-    count_table(conn, "request_raw", &FilterPlan::of(&super::super::RequestQuery::default()))
+    count_table(
+        conn,
+        "request_raw",
+        &FilterPlan::of(&super::super::RequestQuery::default()),
+    )
 }
 
 fn raw_stats(conn: &Connection) -> rusqlite::Result<(usize, i64)> {
@@ -98,8 +102,14 @@ fn raw_stats(conn: &Connection) -> rusqlite::Result<(usize, i64)> {
     Ok((count.max(0) as usize, bytes.max(0)))
 }
 
-pub(in crate::server::request_stats) fn count_upstream_raw(conn: &Connection) -> rusqlite::Result<usize> {
-    count_table(conn, "debug_traffic", &FilterPlan::of(&super::super::RequestQuery::default()))
+pub(in crate::server::request_stats) fn count_upstream_raw(
+    conn: &Connection,
+) -> rusqlite::Result<usize> {
+    count_table(
+        conn,
+        "debug_traffic",
+        &FilterPlan::of(&super::super::RequestQuery::default()),
+    )
 }
 
 pub(in crate::server::request_stats) fn trim_raw_rows(

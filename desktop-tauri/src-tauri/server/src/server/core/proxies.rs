@@ -30,7 +30,10 @@ pub struct ProxyConfigError {
 
 impl ProxyConfigError {
     pub fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into(), status_code: 400 }
+        Self {
+            message: message.into(),
+            status_code: 400,
+        }
     }
 }
 
@@ -150,14 +153,18 @@ pub fn normalize_account_proxy(input: &Value) -> Result<Option<Value>, ProxyConf
     }
 
     if source == "subscription" {
-        return Err(ProxyConfigError::new(crate::server::core::proxy_pool::RETIRED_HINT));
+        return Err(ProxyConfigError::new(
+            crate::server::core::proxy_pool::RETIRED_HINT,
+        ));
     }
     if source == "clash" {
         let listener_uid = clean_string(object.get("listenerUid"), MAX_LABEL_LENGTH);
         if listener_uid.is_empty() {
             return Err(ProxyConfigError::new("缺少 Clash 监听器 uid"));
         }
-        return Ok(Some(json!({ "source": "clash", "listenerUid": listener_uid })));
+        return Ok(Some(
+            json!({ "source": "clash", "listenerUid": listener_uid }),
+        ));
     }
     // 代理池引用：只存条目 id（形状校验；条目是否存在 / 是否禁用留给**解析**时
     // 报错 —— 与本模块的纯逻辑定位一致，也不让「保存账号」依赖代理池的读库）
@@ -174,7 +181,11 @@ pub fn normalize_account_proxy(input: &Value) -> Result<Option<Value>, ProxyConf
 
     let protocol = {
         let cleaned = clean_string(object.get("protocol"), 10).to_lowercase();
-        if cleaned.is_empty() { "http".to_string() } else { cleaned }
+        if cleaned.is_empty() {
+            "http".to_string()
+        } else {
+            cleaned
+        }
     };
     if protocol != "http" && protocol != "socks5" {
         return Err(ProxyConfigError::new("代理协议只支持 http 或 socks5"));
@@ -265,7 +276,11 @@ impl ResolvedProxy {
         };
         let protocol = {
             let protocol = text("protocol");
-            if protocol.is_empty() { "http".to_string() } else { protocol }
+            if protocol.is_empty() {
+                "http".to_string()
+            } else {
+                protocol
+            }
         };
         Ok(Some(ResolvedProxy {
             source: text("source"),
@@ -395,7 +410,9 @@ pub fn resolve_account_proxy(config: Option<&Value>) -> Option<ProxyResolution> 
     // 于是落到「不支持的代理来源: undefined」—— 手工编辑账号记录
     // 写错形状时就是这条文案，照抄不改成更「友好」的提示
     let Some(object) = config.as_object() else {
-        return Some(ProxyResolution::Failed("不支持的代理来源: undefined".to_string()));
+        return Some(ProxyResolution::Failed(
+            "不支持的代理来源: undefined".to_string(),
+        ));
     };
     // source 缺失时同样是 undefined（Node 是 `config.source` 直接进模板串）。
     // 这条文案会显示在账号列表的「代理异常」气泡里，所以必须逐字一致 ——
@@ -445,7 +462,11 @@ pub fn resolve_account_proxy(config: Option<&Value>) -> Option<ProxyResolution> 
         // host 原样透出：非字符串时 Node 会把数字/布尔照透给 JSON，但那种值
         // 无法用作主机名，这里统一给空串 —— 调用方（session_proxy）见到空 host
         // 就回退直连并记日志，比带着 `host: 123` 去连一个好
-        let host = object.get("host").and_then(Value::as_str).unwrap_or("").to_string();
+        let host = object
+            .get("host")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         let port = valid_port(object.get("port"));
         // label 缺省时按 JS 模板串拼接（未设置的值渲染成 undefined）；
         // 显式给了真值就用它（Node 是 `config.label || \`...\``，数字/布尔这类
@@ -487,29 +508,46 @@ pub fn resolve_account_proxy(config: Option<&Value>) -> Option<ProxyResolution> 
 
     let snapshot = crate::server::core::clash::clash_snapshot();
     if !snapshot.available {
-        let detail = snapshot.error.as_ref()
+        let detail = snapshot
+            .error
+            .as_ref()
             .map(|error| format!("（{error}）"))
             .unwrap_or_default();
-        return Some(ProxyResolution::Failed(format!("Clash Verge 配置不可用{detail}")));
+        return Some(ProxyResolution::Failed(format!(
+            "Clash Verge 配置不可用{detail}"
+        )));
     }
-    let listener_uid = object.get("listenerUid").and_then(Value::as_str).unwrap_or("");
+    let listener_uid = object
+        .get("listenerUid")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let (port, label) = if listener_uid == CLASH_MIXED_UID {
         let Some(port) = snapshot.mixed_port else {
-            return Some(ProxyResolution::Failed("Clash Verge 未启用混合端口".to_string()));
+            return Some(ProxyResolution::Failed(
+                "Clash Verge 未启用混合端口".to_string(),
+            ));
         };
         (port, format!("Clash 混合端口 {port}"))
     } else {
-        let Some(listener) = snapshot.listeners.iter().find(|item| item.uid == listener_uid) else {
+        let Some(listener) = snapshot
+            .listeners
+            .iter()
+            .find(|item| item.uid == listener_uid)
+        else {
             return Some(ProxyResolution::Failed(format!(
                 "Clash Verge 中找不到监听器「{listener_uid}」（可能已在 Clash 中删除）"
             )));
         };
         if !listener.enabled {
             return Some(ProxyResolution::Failed(format!(
-                "Clash Verge 监听器「{}」已禁用", listener.name
+                "Clash Verge 监听器「{}」已禁用",
+                listener.name
             )));
         }
-        (listener.port, format!("{}（:{}）", listener.name, listener.port))
+        (
+            listener.port,
+            format!("{}（:{}）", listener.name, listener.port),
+        )
     };
     Some(ProxyResolution::Resolved(ResolvedProxy {
         source: "clash".to_string(),
@@ -540,10 +578,12 @@ pub fn resolve_account_proxy_rotating(
         return None;
     }
     if is_rotate_config(config) {
-        return Some(match crate::server::core::proxy_rotate::next(config, rotate_key) {
-            Ok(proxy) => ProxyResolution::Resolved(proxy),
-            Err(reason) => ProxyResolution::Failed(reason),
-        });
+        return Some(
+            match crate::server::core::proxy_rotate::next(config, rotate_key) {
+                Ok(proxy) => ProxyResolution::Resolved(proxy),
+                Err(reason) => ProxyResolution::Failed(reason),
+            },
+        );
     }
     resolve_account_proxy(Some(config))
 }

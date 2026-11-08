@@ -113,7 +113,11 @@ pub const PROTOCOL_RESPONSES: &str = "responses";
 pub const PROTOCOL_ANTHROPIC: &str = "anthropic";
 
 /// 全部合法协议（校验用；顺序即错误文案与前端下拉的顺序）
-pub const PROTOCOLS: &[&str] = &[PROTOCOL_CHAT_COMPLETIONS, PROTOCOL_RESPONSES, PROTOCOL_ANTHROPIC];
+pub const PROTOCOLS: &[&str] = &[
+    PROTOCOL_CHAT_COMPLETIONS,
+    PROTOCOL_RESPONSES,
+    PROTOCOL_ANTHROPIC,
+];
 
 /// 展示名长度上限（字符数；1~64 是契约）
 const MAX_NAME_CHARS: usize = 64;
@@ -228,9 +232,7 @@ fn read_items() -> Vec<Value> {
     // 对外契约是「按 createdAt 升序」。存储里本来就应当是这个顺序（create 追加），
     // 但手改配置/旧版本写入可能乱序，所以读取时**总是**重排一次 —— 稳定排序，
     // 同一个 createdAt（毫秒相同）保持原有相对顺序。
-    items.sort_by_key(|item| {
-        item.get("createdAt").and_then(Value::as_i64).unwrap_or(0)
-    });
+    items.sort_by_key(|item| item.get("createdAt").and_then(Value::as_i64).unwrap_or(0));
     items
 }
 
@@ -310,7 +312,7 @@ fn balance_scheme_of_record(object: &Map<String, Value>) -> String {
         .get("balanceScheme")
         .and_then(Value::as_str)
         .map(str::trim)
-        .filter(|text| BALANCE_SCHEMES.iter().any(|scheme| *scheme == *text));
+        .filter(|text| BALANCE_SCHEMES.contains(text));
     if let Some(scheme) = stored {
         return scheme.to_string();
     }
@@ -401,15 +403,16 @@ pub fn balance_scheme_of(provider_id: &str) -> Option<String> {
 /// 长度有限的查询串（如 `?beta=true`）；坏值一律按无特判处理 —— 导入的
 /// 定义不该因为一个畸形后缀整条被拒，丢弃后转发仍然可用。
 fn url_suffix_of(value: Option<&Value>) -> String {
-    let text = value
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .unwrap_or("");
+    let text = value.and_then(Value::as_str).map(str::trim).unwrap_or("");
     let usable = text.starts_with('?')
         && text.len() >= 2
         && text.len() <= MAX_URL_SUFFIX_CHARS
         && !text.chars().any(char::is_whitespace);
-    if usable { text.to_string() } else { String::new() }
+    if usable {
+        text.to_string()
+    } else {
+        String::new()
+    }
 }
 
 /// 读侧归一：静态额外头。只收「键值都是非空字符串」的条目（上限
@@ -421,24 +424,25 @@ fn headers_of(value: Option<&Value>) -> Map<String, Value> {
         return out;
     };
     for entry in entries.iter().take(MAX_HEADER_ENTRIES * 2) {
-        let Some(object) = entry.as_object() else { continue };
+        let Some(object) = entry.as_object() else {
+            continue;
+        };
         // 数组形态 [{name, value}] 与对象形态 {"Name": "value"} 都收：
         // 对象形态是创建/编辑的入参形态，数组形态留给将来的编辑器
-        let pairs: Vec<(String, String)> = if let Some(name) =
-            object.get("name").and_then(Value::as_str)
-        {
-            match object.get("value").and_then(Value::as_str) {
-                Some(value) => vec![(name.to_string(), value.to_string())],
-                None => vec![],
-            }
-        } else {
-            object
-                .iter()
-                .filter_map(|(key, value)| {
-                    value.as_str().map(|text| (key.clone(), text.to_string()))
-                })
-                .collect()
-        };
+        let pairs: Vec<(String, String)> =
+            if let Some(name) = object.get("name").and_then(Value::as_str) {
+                match object.get("value").and_then(Value::as_str) {
+                    Some(value) => vec![(name.to_string(), value.to_string())],
+                    None => vec![],
+                }
+            } else {
+                object
+                    .iter()
+                    .filter_map(|(key, value)| {
+                        value.as_str().map(|text| (key.clone(), text.to_string()))
+                    })
+                    .collect()
+            };
         for (key, value) in pairs {
             let key = truncate_chars(key.trim(), MAX_HEADER_NAME_CHARS);
             let value = truncate_chars(value.trim(), MAX_HEADER_VALUE_CHARS);
@@ -485,18 +489,29 @@ fn client_emulation_of(value: Option<&Value>) -> String {
 /// 「能显示、能使用」，把脏值裁进合法范围比整条消失好定位。
 fn model_entries_of(value: Option<&Value>) -> Vec<Value> {
     let mut entries: Vec<Value> = Vec::new();
-    for item in value.and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]) {
+    for item in value
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+    {
         let Some(object) = item.as_object() else {
             continue;
         };
         let id = truncate_chars(
-            object.get("id").and_then(Value::as_str).map(str::trim).unwrap_or(""),
+            object
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or(""),
             MAX_MODEL_ID_CHARS,
         );
         if id.is_empty() {
             continue;
         }
-        if entries.iter().any(|model| model_id(model).eq_ignore_ascii_case(&id)) {
+        if entries
+            .iter()
+            .any(|model| model_id(model).eq_ignore_ascii_case(&id))
+        {
             continue;
         }
         let mut entry = json!({
@@ -530,25 +545,45 @@ fn model_entries_of(value: Option<&Value>) -> Vec<Value> {
 /// 请求命中它）。两者都在才算一条可用的映射。
 fn mapping_entries_of(value: Option<&Value>) -> Vec<Value> {
     let mut entries: Vec<Value> = Vec::new();
-    for item in value.and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]) {
+    for item in value
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+    {
         let Some(object) = item.as_object() else {
             continue;
         };
         let alias = truncate_chars(
-            object.get("alias").and_then(Value::as_str).map(str::trim).unwrap_or(""),
+            object
+                .get("alias")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or(""),
             MAX_ALIAS_CHARS,
         );
         let target = truncate_chars(
-            object.get("target").and_then(Value::as_str).map(str::trim).unwrap_or(""),
+            object
+                .get("target")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or(""),
             MAX_MODEL_ID_CHARS,
         );
         if alias.is_empty() || target.is_empty() {
             continue;
         }
-        if entries.iter().any(|mapping| mapping.get("alias").and_then(Value::as_str)
-            .is_some_and(|id| id.eq_ignore_ascii_case(&alias))
-            && mapping.get("target").and_then(Value::as_str).is_some_and(|id| id.eq_ignore_ascii_case(&target)))
-        { continue; }
+        if entries.iter().any(|mapping| {
+            mapping
+                .get("alias")
+                .and_then(Value::as_str)
+                .is_some_and(|id| id.eq_ignore_ascii_case(&alias))
+                && mapping
+                    .get("target")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| id.eq_ignore_ascii_case(&target))
+        }) {
+            continue;
+        }
         entries.push(json!({
             "alias": alias,
             "target": target,
@@ -636,11 +671,7 @@ pub fn is_custom_provider_id(id: &str) -> bool {
 
 /// 自定义提供商的展示名；不存在返回 None（调用方决定回退到什么）。
 pub fn label_of(id: &str) -> Option<String> {
-    get(id).and_then(|item| {
-        item.get("name")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-    })
+    get(id).and_then(|item| item.get("name").and_then(Value::as_str).map(str::to_string))
 }
 
 /// 自定义提供商的协议；不存在返回 None。
@@ -665,12 +696,7 @@ pub fn create(payload: &Value) -> Result<Value, String> {
         .ok_or_else(|| "请求体必须是 JSON 对象".to_string())?;
     let name = normalize_name(object.get("name"))?;
     let protocol = normalize_protocol(object.get("protocol"))?;
-    let base_url = normalize_base_url(
-        object
-            .get("baseUrl")
-            .and_then(Value::as_str)
-            .unwrap_or(""),
-    )?;
+    let base_url = normalize_base_url(object.get("baseUrl").and_then(Value::as_str).unwrap_or(""))?;
     let preset_key = presets::validate(object.get("presetKey"))?;
     let id = new_provider_id()?;
     let mut item = json!({
@@ -857,27 +883,57 @@ pub fn set_models(id: &str, models: Value, mappings: Value) -> Result<Value, Gat
     if id.is_empty() {
         return Err(GatewayError::bad_request("缺少提供商 id"));
     }
-    let models_raw = models.as_array().ok_or_else(|| GatewayError::bad_request("models 必须是数组"))?;
-    let mappings_raw = mappings.as_array().ok_or_else(|| GatewayError::bad_request("mappings 必须是数组"))?;
+    let models_raw = models
+        .as_array()
+        .ok_or_else(|| GatewayError::bad_request("models 必须是数组"))?;
+    let mappings_raw = mappings
+        .as_array()
+        .ok_or_else(|| GatewayError::bad_request("mappings 必须是数组"))?;
     let models = validate_model_entries(models_raw).map_err(GatewayError::bad_request)?;
     let mappings = validate_mapping_entries(mappings_raw).map_err(GatewayError::bad_request)?;
-    config::try_update_raw_field(KEY_CUSTOM_PROVIDERS, |value| {
-        let items = value.as_array_mut().ok_or_else(|| GatewayError::with_status(404, format!("自定义提供商不存在: {id}")))?;
-        let stored = items.iter_mut().find(|item| item.get("id").and_then(Value::as_str) == Some(id))
-            .ok_or_else(|| GatewayError::with_status(404, format!("自定义提供商不存在: {id}")))?;
-        let previous = stored.as_object().map(item_of).unwrap_or(Value::Null);
-        let groups = config::routing_profiles();
-        if models.iter().filter_map(|item| item.get("id").and_then(Value::as_str))
-            .chain(mappings.iter().filter_map(|item| item.get("alias").and_then(Value::as_str)))
-            .any(|model| groups.group_for_model(model).is_some()) {
-            return Err(GatewayError::with_status(409, "模型或映射的对外 ID 已被自定义路由组占用"));
-        }
-        bindings::validate_change(&previous, &models, &mappings)?;
-        let map = stored.as_object_mut().ok_or_else(|| GatewayError::bad_request("自定义提供商记录损坏"))?;
-        map.insert("models".to_string(), Value::Array(models.clone()));
-        map.insert("mappings".to_string(), Value::Array(mappings.clone()));
-        Ok(item_of(map))
-    }, || GatewayError::new("保存失败：配置写入未成功，本次修改未生效；请检查磁盘空间与配置目录权限"))
+    config::try_update_raw_field(
+        KEY_CUSTOM_PROVIDERS,
+        |value| {
+            let items = value.as_array_mut().ok_or_else(|| {
+                GatewayError::with_status(404, format!("自定义提供商不存在: {id}"))
+            })?;
+            let stored = items
+                .iter_mut()
+                .find(|item| item.get("id").and_then(Value::as_str) == Some(id))
+                .ok_or_else(|| {
+                    GatewayError::with_status(404, format!("自定义提供商不存在: {id}"))
+                })?;
+            let previous = stored.as_object().map(item_of).unwrap_or(Value::Null);
+            let groups = config::routing_profiles();
+            if models
+                .iter()
+                .filter_map(|item| item.get("id").and_then(Value::as_str))
+                .chain(
+                    mappings
+                        .iter()
+                        .filter_map(|item| item.get("alias").and_then(Value::as_str)),
+                )
+                .any(|model| groups.group_for_model(model).is_some())
+            {
+                return Err(GatewayError::with_status(
+                    409,
+                    "模型或映射的对外 ID 已被自定义路由组占用",
+                ));
+            }
+            bindings::validate_change(&previous, &models, &mappings)?;
+            let map = stored
+                .as_object_mut()
+                .ok_or_else(|| GatewayError::bad_request("自定义提供商记录损坏"))?;
+            map.insert("models".to_string(), Value::Array(models.clone()));
+            map.insert("mappings".to_string(), Value::Array(mappings.clone()));
+            Ok(item_of(map))
+        },
+        || {
+            GatewayError::new(
+                "保存失败：配置写入未成功，本次修改未生效；请检查磁盘空间与配置目录权限",
+            )
+        },
+    )
 }
 
 /// 「这个名字由哪些自定义家提供」（`catalog::providers_for_model` 的自定义段）。
@@ -895,10 +951,18 @@ pub fn set_models(id: &str, models: Value, mappings: Value) -> Result<Value, Gat
 /// 转发热路径每请求调用一两次，无需缓存。
 pub fn carriers_of_model(name: &str) -> Vec<String> {
     let name = name.trim();
-    if name.is_empty() { return Vec::new(); }
-    read_items().into_iter()
+    if name.is_empty() {
+        return Vec::new();
+    }
+    read_items()
+        .into_iter()
         .filter(|provider| bindings::resolve(provider, name).is_some())
-        .filter_map(|provider| provider.get("id").and_then(Value::as_str).map(str::to_string))
+        .filter_map(|provider| {
+            provider
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
         .collect()
 }
 
@@ -923,7 +987,8 @@ pub fn carriers_of_model(name: &str) -> Vec<String> {
 /// 调用就会出现「A 条映射改了名、B 条映射的等级被注入」的串味。
 pub fn wire_model_for(provider_id: &str, requested_name: &str) -> (String, Option<String>) {
     let requested = requested_name.trim();
-    get(provider_id).and_then(|provider| bindings::resolve(&provider, requested))
+    get(provider_id)
+        .and_then(|provider| bindings::resolve(&provider, requested))
         .unwrap_or_else(|| (requested.to_string(), None))
 }
 
@@ -961,8 +1026,8 @@ pub async fn fetch_upstream_models(
     provider_id: &str,
     store: &AccountStore,
 ) -> Result<Vec<String>, String> {
-    let provider = get(provider_id)
-        .ok_or_else(|| format!("自定义提供商不存在: {}", provider_id.trim()))?;
+    let provider =
+        get(provider_id).ok_or_else(|| format!("自定义提供商不存在: {}", provider_id.trim()))?;
     let protocol = provider
         .get("protocol")
         .and_then(Value::as_str)
@@ -981,12 +1046,10 @@ pub async fn fetch_upstream_models(
     } else {
         format!("{base_url}/models")
     };
-    let credential = store
-        .first_custom_credential(provider_id)
-        .ok_or_else(|| {
-            "请先添加账号：拉取模型清单需要一条启用且可用（填了 apiKey，或声明了无需鉴权）的账号"
-                .to_string()
-        })?;
+    let credential = store.first_custom_credential(provider_id).ok_or_else(|| {
+        "请先添加账号：拉取模型清单需要一条启用且可用（填了 apiKey，或声明了无需鉴权）的账号"
+            .to_string()
+    })?;
     let client = egress::client_for(credential.proxy.as_ref());
     let mut builder = client
         .get(&url)
@@ -1003,16 +1066,17 @@ pub async fn fetch_upstream_models(
             builder.header("Authorization", format!("Bearer {api_key}"))
         };
     }
-    let response = builder.send().await.map_err(|error| {
-        format!("上游请求失败: {}", egress::describe_error_detail(&error))
-    })?;
+    let response = builder
+        .send()
+        .await
+        .map_err(|error| format!("上游请求失败: {}", egress::describe_error_detail(&error)))?;
     let status = response.status().as_u16();
     let text = response.text().await.unwrap_or_default();
     if !response_ok(status) {
         return Err(format!("上游返回 {status}: {text}"));
     }
-    let payload: Value = serde_json::from_str(&text)
-        .map_err(|error| format!("上游响应不是合法 JSON: {error}"))?;
+    let payload: Value =
+        serde_json::from_str(&text).map_err(|error| format!("上游响应不是合法 JSON: {error}"))?;
     let ids = payload
         .get("data")
         .and_then(Value::as_array)
@@ -1053,9 +1117,7 @@ fn validate_model_entries(raw: &[Value]) -> Result<Vec<Value>, String> {
             return Err(format!("models 第 {} 项缺少模型 id", position + 1));
         }
         if id.chars().count() > MAX_MODEL_ID_CHARS {
-            return Err(format!(
-                "模型 id 过长（最多 {MAX_MODEL_ID_CHARS} 个字符）"
-            ));
+            return Err(format!("模型 id 过长（最多 {MAX_MODEL_ID_CHARS} 个字符）"));
         }
         let reasoning = validate_reasoning(object.get("reasoning"))?;
         // 能力位覆盖（可选；校验见 validate_capabilities）—— 它是整表替换里
@@ -1065,7 +1127,12 @@ fn validate_model_entries(raw: &[Value]) -> Result<Vec<Value>, String> {
         let enabled = match object.get("enabled") {
             None => true,
             Some(Value::Bool(enabled)) => *enabled,
-            Some(_) => return Err(format!("models 第 {} 项的 enabled 必须是布尔值", position + 1)),
+            Some(_) => {
+                return Err(format!(
+                    "models 第 {} 项的 enabled 必须是布尔值",
+                    position + 1
+                ))
+            }
         };
         let duplicated = entries.iter().any(|known| {
             known
@@ -1109,13 +1176,19 @@ fn validate_mapping_entries(raw: &[Value]) -> Result<Vec<Value>, String> {
             .map(str::trim)
             .unwrap_or("");
         if alias.is_empty() {
-            return Err(format!("mappings 第 {} 项缺少映射名（alias）", position + 1));
+            return Err(format!(
+                "mappings 第 {} 项缺少映射名（alias）",
+                position + 1
+            ));
         }
         if alias.chars().count() > MAX_ALIAS_CHARS {
             return Err(format!("映射名过长（最多 {MAX_ALIAS_CHARS} 个字符）"));
         }
         if target.is_empty() {
-            return Err(format!("mappings 第 {} 项缺少目标上游模型（target）", position + 1));
+            return Err(format!(
+                "mappings 第 {} 项缺少目标上游模型（target）",
+                position + 1
+            ));
         }
         if target.chars().count() > MAX_MODEL_ID_CHARS {
             return Err(format!(
@@ -1126,12 +1199,21 @@ fn validate_mapping_entries(raw: &[Value]) -> Result<Vec<Value>, String> {
         let enabled = match object.get("enabled") {
             None => true,
             Some(Value::Bool(enabled)) => *enabled,
-            Some(_) => return Err(format!("mappings 第 {} 项的 enabled 必须是布尔值", position + 1)),
+            Some(_) => {
+                return Err(format!(
+                    "mappings 第 {} 项的 enabled 必须是布尔值",
+                    position + 1
+                ))
+            }
         };
         let duplicated = entries.iter().any(|known| {
-            known.get("alias").and_then(Value::as_str)
+            known
+                .get("alias")
+                .and_then(Value::as_str)
                 .is_some_and(|text| text.eq_ignore_ascii_case(alias))
-                && known.get("target").and_then(Value::as_str)
+                && known
+                    .get("target")
+                    .and_then(Value::as_str)
                     .is_some_and(|text| text.eq_ignore_ascii_case(target))
         });
         if duplicated {
@@ -1154,7 +1236,10 @@ fn validate_mapping_entries(raw: &[Value]) -> Result<Vec<Value>, String> {
 ///
 /// 返回**归一后的稀疏表**；缺省 / null / 归一后为空都返回 `None`
 /// （调用方不落键，见 `model_entries_of`）。
-fn validate_capabilities(value: Option<&Value>, position: usize) -> Result<Option<Map<String, Value>>, String> {
+fn validate_capabilities(
+    value: Option<&Value>,
+    position: usize,
+) -> Result<Option<Map<String, Value>>, String> {
     let Some(value) = value.filter(|item| !item.is_null()) else {
         return Ok(None);
     };
@@ -1182,9 +1267,7 @@ fn validate_reasoning(value: Option<&Value>) -> Result<String, String> {
         Some(Value::String(text)) => {
             let text = text.trim();
             if text.chars().count() > MAX_REASONING_CHARS {
-                return Err(format!(
-                    "思考等级过长（最多 {MAX_REASONING_CHARS} 个字符）"
-                ));
+                return Err(format!("思考等级过长（最多 {MAX_REASONING_CHARS} 个字符）"));
             }
             Ok(text.to_string())
         }
@@ -1211,10 +1294,7 @@ fn new_provider_id() -> Result<String, String> {
 
 /// 展示名校验：trim 后 1~64 字符（按字符数，不是字节数 —— 中文名一样受 64 限制）。
 fn normalize_name(value: Option<&Value>) -> Result<String, String> {
-    let name = value
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .unwrap_or("");
+    let name = value.and_then(Value::as_str).map(str::trim).unwrap_or("");
     if name.is_empty() {
         return Err("缺少提供商名称".to_string());
     }
@@ -1226,22 +1306,16 @@ fn normalize_name(value: Option<&Value>) -> Result<String, String> {
 
 /// 协议校验：必须是 [`PROTOCOLS`] 三选一。
 fn normalize_protocol(value: Option<&Value>) -> Result<String, String> {
-    let protocol = value
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .unwrap_or("");
+    let protocol = value.and_then(Value::as_str).map(str::trim).unwrap_or("");
     if !valid_protocol(protocol) {
-        return Err(format!(
-            "协议必须是以下之一: {}",
-            PROTOCOLS.join(" / ")
-        ));
+        return Err(format!("协议必须是以下之一: {}", PROTOCOLS.join(" / ")));
     }
     Ok(protocol.to_string())
 }
 
 /// 协议是否合法（不分配、不报错的纯判据；`item_of` 的读取容错也用它）
 fn valid_protocol(protocol: &str) -> bool {
-    PROTOCOLS.iter().any(|known| *known == protocol)
+    PROTOCOLS.contains(&protocol)
 }
 
 /// baseUrl 校验与规范化：必须是 http/https URL，去首尾空白并**去掉末尾斜杠**。
@@ -1261,7 +1335,8 @@ pub fn normalize_base_url(raw: &str) -> Result<String, String> {
     if raw.is_empty() {
         return Err("缺少 baseUrl".to_string());
     }
-    let parsed = url::Url::parse(raw).map_err(|error| format!("baseUrl 不是合法的 URL: {error}"))?;
+    let parsed =
+        url::Url::parse(raw).map_err(|error| format!("baseUrl 不是合法的 URL: {error}"))?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err("baseUrl 必须以 http:// 或 https:// 开头".to_string());
     }
@@ -1352,7 +1427,11 @@ pub fn is_opencode_zen_account(provider_id: &str, base_url_override: Option<&str
 /// 与 `client_emulation` 整体的 opt-in 取向一致。
 pub fn migrate_base_url(raw: &str, is_opencode: bool) -> String {
     let text = raw.trim();
-    if is_opencode && text.trim_end_matches('/').eq_ignore_ascii_case(LEGACY_OPENCODE_BASE_URL) {
+    if is_opencode
+        && text
+            .trim_end_matches('/')
+            .eq_ignore_ascii_case(LEGACY_OPENCODE_BASE_URL)
+    {
         return OPENCODE_BASE_URL.to_string();
     }
     text.to_string()
@@ -1369,7 +1448,9 @@ pub fn migrate_base_url(raw: &str, is_opencode: bool) -> String {
 /// [`MAX_URL_SUFFIX_CHARS`] 的查询串（如 `?beta=true`）。转发时原样追加到
 /// 出站 URL 末尾（GLM / MiniMax 的 Claude 兼容端点要求 `?beta=true`）。
 fn validate_url_suffix(value: Option<&Value>) -> Result<String, String> {
-    let Some(value) = value else { return Ok(String::new()) };
+    let Some(value) = value else {
+        return Ok(String::new());
+    };
     let text = value.as_str().unwrap_or("").trim();
     if text.is_empty() {
         return Ok(String::new());
@@ -1390,7 +1471,9 @@ fn validate_url_suffix(value: Option<&Value>) -> Result<String, String> {
 /// 默认头上 —— **同名的默认头被覆盖**（包括 Authorization / x-api-key：那是
 /// 「换一种鉴权方式」的高级用法，覆盖后默认凭证头不再发出，由使用者负责）。
 fn validate_headers(value: Option<&Value>) -> Result<Map<String, Value>, String> {
-    let Some(value) = value else { return Ok(Map::new()) };
+    let Some(value) = value else {
+        return Ok(Map::new());
+    };
     let object = value
         .as_object()
         .ok_or_else(|| "headers 必须是 JSON 对象（{\"头名\": \"值\"}）".to_string())?;
@@ -1405,7 +1488,9 @@ fn validate_headers(value: Option<&Value>) -> Result<Map<String, Value>, String>
             return Err("headers 的头名与值都必须是非空字符串".to_string());
         }
         if key.contains(':') || key.chars().any(char::is_whitespace) {
-            return Err(format!("headers 的头名「{key}」不是合法的头名（不能含空白或冒号）"));
+            return Err(format!(
+                "headers 的头名「{key}」不是合法的头名（不能含空白或冒号）"
+            ));
         }
         if key.chars().count() > MAX_HEADER_NAME_CHARS {
             return Err(format!("headers 的头名最长 {MAX_HEADER_NAME_CHARS} 个字符"));
@@ -1422,7 +1507,9 @@ fn validate_headers(value: Option<&Value>) -> Result<Map<String, Value>, String>
 /// 工具补 `type: "custom"`。其余值一律拒绝 —— 这是请求体修正的开关，不是
 /// 自由字段，拼错的值等于静默改变转发行为。
 fn validate_tool_type(value: Option<&Value>) -> Result<String, String> {
-    let Some(value) = value else { return Ok(String::new()) };
+    let Some(value) = value else {
+        return Ok(String::new());
+    };
     let text = value.as_str().unwrap_or("").trim();
     if text.is_empty() {
         return Ok(String::new());
@@ -1438,7 +1525,9 @@ fn validate_tool_type(value: Option<&Value>) -> Result<String, String> {
 /// `validate_tool_type` 同一理由：它是请求体修正的开关，拼错等于静默改变
 /// 转发行为（而且这里改的是**请求体内容**，后果比一个头更重）。
 fn validate_client_emulation(value: Option<&Value>) -> Result<String, String> {
-    let Some(value) = value else { return Ok(String::new()) };
+    let Some(value) = value else {
+        return Ok(String::new());
+    };
     let text = value.as_str().unwrap_or("").trim();
     if text.is_empty() {
         return Ok(String::new());
@@ -1459,7 +1548,9 @@ fn validate_client_emulation(value: Option<&Value>) -> Result<String, String> {
 /// 这个键由预置卡片提交（`ui/preset-providers.js` 的 `balance.scheme`），
 /// 界面不给用户手选（方案是「这一家是谁」的派生事实）。
 fn validate_balance_scheme(value: Option<&Value>) -> Result<String, String> {
-    let Some(value) = value else { return Ok(String::new()) };
+    let Some(value) = value else {
+        return Ok(String::new());
+    };
     let text = value.as_str().unwrap_or("").trim();
     if text.is_empty() {
         return Ok(String::new());

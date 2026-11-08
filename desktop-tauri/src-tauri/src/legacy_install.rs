@@ -124,9 +124,7 @@ mod imp {
         };
         match (exe_path_from(&value), std::env::current_exe()) {
             // 登记里记的就是当前这个可执行文件：已经是最新的，无需重建
-            (Some(registered), Ok(current)) => {
-                !same_path(&registered, &current)
-            }
+            (Some(registered), Ok(current)) => !same_path(&registered, &current),
             // 值解析不出可执行文件（被改坏）：重建一次比留着一条无效登记好
             (None, _) => true,
             // 取不到当前 exe 路径（理论上不会发生）：不动它
@@ -140,7 +138,8 @@ mod imp {
         if let (Ok(a), Ok(b)) = (left.canonicalize(), right.canonicalize()) {
             return a == b;
         }
-        left.to_string_lossy().eq_ignore_ascii_case(&right.to_string_lossy())
+        left.to_string_lossy()
+            .eq_ignore_ascii_case(&right.to_string_lossy())
     }
 
     /// 旧安装目录：`%LOCALAPPDATA%\<产品名>`，连同它对应的产品名
@@ -148,7 +147,10 @@ mod imp {
         let Some(local) = env_path("LOCALAPPDATA") else {
             return Vec::new();
         };
-        PRODUCT_NAMES.iter().map(|name| (*name, local.join(name))).collect()
+        PRODUCT_NAMES
+            .iter()
+            .map(|name| (*name, local.join(name)))
+            .collect()
     }
 
     /// 读环境变量里的目录（`%LOCALAPPDATA%` / `%APPDATA%` / `%USERPROFILE%`）
@@ -172,7 +174,9 @@ mod imp {
         let (Ok(exe), Ok(target)) = (std::env::current_exe(), dir.canonicalize()) else {
             return false;
         };
-        exe.canonicalize().map(|exe| exe.starts_with(&target)).unwrap_or(false)
+        exe.canonicalize()
+            .map(|exe| exe.starts_with(&target))
+            .unwrap_or(false)
     }
 
     /// 删除一个旧安装目录；返回「该目录是否已不存在」（删除成功或本来就没有）
@@ -181,11 +185,17 @@ mod imp {
             return true;
         }
         if !dir.is_dir() {
-            eprintln!("[Cleanup] 跳过旧安装路径（同名但不是目录）: {}", dir.display());
+            eprintln!(
+                "[Cleanup] 跳过旧安装路径（同名但不是目录）: {}",
+                dir.display()
+            );
             return false;
         }
         if running_inside(dir) {
-            eprintln!("[Cleanup] 跳过旧安装目录（当前程序正在其中运行）: {}", dir.display());
+            eprintln!(
+                "[Cleanup] 跳过旧安装目录（当前程序正在其中运行）: {}",
+                dir.display()
+            );
             return false;
         }
         if !looks_like_our_install(dir) {
@@ -265,11 +275,17 @@ mod imp {
         let Ok(bytes) = std::fs::read(shortcut) else {
             return false;
         };
-        let needle: Vec<u8> = dir.as_os_str().encode_wide().flat_map(u16::to_le_bytes).collect();
+        let needle: Vec<u8> = dir
+            .as_os_str()
+            .encode_wide()
+            .flat_map(u16::to_le_bytes)
+            .collect();
         if needle.is_empty() || bytes.len() < needle.len() {
             return false;
         }
-        bytes.windows(needle.len()).any(|window| window.eq_ignore_ascii_case(&needle))
+        bytes
+            .windows(needle.len())
+            .any(|window| window.eq_ignore_ascii_case(&needle))
     }
 
     /// 旧卸载注册项。只有「目录已经不在」时才删：目录还在（删不掉或不是我们的）
@@ -443,7 +459,10 @@ mod registry {
     }
 
     fn wide(text: &str) -> Vec<u16> {
-        OsStr::new(text).encode_wide().chain(std::iter::once(0)).collect()
+        OsStr::new(text)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
     }
 
     /// 已打开的键：Drop 时关闭，免得每条失败分支都要记得手动关
@@ -510,9 +529,15 @@ mod registry {
     pub fn read_string(root: *mut c_void, sub_key: &str, value: &str) -> Option<String> {
         let key = open(root, sub_key, KEY_QUERY_VALUE)?;
         let bytes = query(&key, value, &[REG_SZ, REG_EXPAND_SZ])?;
-        let units: Vec<u16> =
-            bytes.chunks_exact(2).map(|pair| u16::from_le_bytes([pair[0], pair[1]])).collect();
-        Some(String::from_utf16_lossy(&units).trim_end_matches('\0').to_string())
+        let units: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect();
+        Some(
+            String::from_utf16_lossy(&units)
+                .trim_end_matches('\0')
+                .to_string(),
+        )
     }
 
     /// 读二进制值（任务管理器「启动」页的启用状态用它）

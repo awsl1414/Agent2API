@@ -61,12 +61,11 @@ pub async fn entry(State(state): State<ServerState>, request: axum::extract::Req
     let method = request.method().clone();
     let full_path = request.uri().path().to_string();
     let query = request.uri().query().unwrap_or("").to_string();
-    let body = match axum::body::to_bytes(request.into_body(), crate::server::http::MAX_BODY_SIZE)
-        .await
-    {
-        Ok(bytes) => bytes,
-        Err(error) => return management_error(413, format!("请求体读取失败或过大: {error}")),
-    };
+    let body =
+        match axum::body::to_bytes(request.into_body(), crate::server::http::MAX_BODY_SIZE).await {
+            Ok(bytes) => bytes,
+            Err(error) => return management_error(413, format!("请求体读取失败或过大: {error}")),
+        };
     dispatch(&state, method, &full_path, &query, &body).await
 }
 
@@ -79,9 +78,17 @@ async fn dispatch(
     body: &Bytes,
 ) -> Response {
     if method == Method::GET && full_path == "/api/update/policy" {
-        let current = query.split('&').filter_map(|pair| pair.split_once('='))
-            .find(|(key, _)| *key == "current").map(|(_, value)| percent_decode(value)).unwrap_or_default();
-        let current = if current.is_empty() { crate::server::core::update::CURRENT_VERSION } else { &current };
+        let current = query
+            .split('&')
+            .filter_map(|pair| pair.split_once('='))
+            .find(|(key, _)| *key == "current")
+            .map(|(_, value)| percent_decode(value))
+            .unwrap_or_default();
+        let current = if current.is_empty() {
+            crate::server::core::update::CURRENT_VERSION
+        } else {
+            &current
+        };
         return ok_json(state.update().refresh_policy(current).await);
     }
     if method == Method::GET && full_path == "/api/update/check" {
@@ -122,12 +129,22 @@ async fn dispatch(
             Ok(value) => value,
             Err(error) => return management_error(400, error.message),
         };
-        let version = payload.get("version").and_then(Value::as_str).unwrap_or("").to_string();
+        let version = payload
+            .get("version")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         let updater = state.update().clone();
-        return match tokio::task::spawn_blocking(move || updater.start_windows_service_update(&version)).await {
+        return match tokio::task::spawn_blocking(move || {
+            updater.start_windows_service_update(&version)
+        })
+        .await
+        {
             Ok(Ok(data)) => ok_json(data),
             Ok(Err(error)) => update_error(error),
-            Err(error) => update_error(UpdateError::new(format!("Windows 更新任务启动失败：{error}"))),
+            Err(error) => update_error(UpdateError::new(format!(
+                "Windows 更新任务启动失败：{error}"
+            ))),
         };
     }
 
@@ -151,7 +168,10 @@ async fn dispatch(
         };
         let patch = match serde_json::from_value::<config::GithubAccessPatch>(payload) {
             Ok(patch) => patch,
-            Err(error) => return GatewayError::bad_request(format!("GitHub 访问设置无效：{error}")).into_response(),
+            Err(error) => {
+                return GatewayError::bad_request(format!("GitHub 访问设置无效：{error}"))
+                    .into_response()
+            }
         };
         return match config::set_github_access(patch) {
             Ok((settings, saved, changed)) => {
@@ -232,7 +252,10 @@ async fn dispatch(
                 }))
             }
             Err(error) => {
-                logging::log("[Update]", &format!("❌ 更新出网线路保存失败: {}", error.message));
+                logging::log(
+                    "[Update]",
+                    &format!("❌ 更新出网线路保存失败: {}", error.message),
+                );
                 GatewayError::bad_request(error.message).into_response()
             }
         };
@@ -255,7 +278,8 @@ async fn dispatch(
             Err(error) => return GatewayError::new(error.message).into_response(),
         };
         let Some(raw) = payload.get("token").cloned() else {
-            return GatewayError::bad_request("请求体缺少 token 字段（清除请传 null）").into_response();
+            return GatewayError::bad_request("请求体缺少 token 字段（清除请传 null）")
+                .into_response();
         };
         if !raw.is_null() && raw.as_str().is_none() {
             return GatewayError::bad_request("token 必须是字符串或 null").into_response();
@@ -293,7 +317,10 @@ async fn dispatch(
         };
         let patch = match serde_json::from_value::<config::UpdateChannelsPatch>(payload) {
             Ok(patch) => patch,
-            Err(error) => return GatewayError::bad_request(format!("更新通道设置无效：{error}")).into_response(),
+            Err(error) => {
+                return GatewayError::bad_request(format!("更新通道设置无效：{error}"))
+                    .into_response()
+            }
         };
         return save_channels(state, patch, false);
     }
@@ -385,7 +412,11 @@ fn save_channels(
                 state.update().invalidate_channel();
                 crate::server::core::plugin_host::settings::notify_changed(plugins_before);
             }
-            let mut result = if legacy { json!({ "enabled": channels.beta }) } else { json!(channels) };
+            let mut result = if legacy {
+                json!({ "enabled": channels.beta })
+            } else {
+                json!(channels)
+            };
             result["saved"] = json!(saved);
             ok_json(result)
         }

@@ -77,7 +77,13 @@ impl UpdateManager {
 
     fn check_key_for(&self, current: &str) -> String {
         let base = format!("updateCheck:{}", self.repository());
-        self.force_update(current).and_then(|value| value["targetVersion"].as_str().map(|target| format!("{base}:required:{target}"))).unwrap_or(base)
+        self.force_update(current)
+            .and_then(|value| {
+                value["targetVersion"]
+                    .as_str()
+                    .map(|target| format!("{base}:required:{target}"))
+            })
+            .unwrap_or(base)
     }
 
     fn check_state(&self, current: &str) -> Result<TaskState, String> {
@@ -87,7 +93,8 @@ impl UpdateManager {
     fn current_channel_result(&self, state: &TaskState) -> bool {
         state.value.as_ref().is_some_and(|value| {
             value.get("invalidated").and_then(Value::as_bool) != Some(true)
-                && (value.get("channels") == Some(&json!(config::update_channels())) || value.get("required") == Some(&json!(true)))
+                && (value.get("channels") == Some(&json!(config::update_channels()))
+                    || value.get("required") == Some(&json!(true)))
         })
     }
 
@@ -104,7 +111,9 @@ impl UpdateManager {
 
     pub fn invalidate_channel(&self) {
         self.lock().latest = None;
-        if let Err(error) = task_state::store_value(&self.check_key(), json!({ "invalidated": true })) {
+        if let Err(error) =
+            task_state::store_value(&self.check_key(), json!({ "invalidated": true }))
+        {
             logging::log("[Update]", &format!("更新通道缓存失效失败：{error}"));
         }
         if let Err(error) = task_state::schedule_now(&self.check_key()) {
@@ -126,9 +135,10 @@ impl UpdateManager {
         result["channels"] = json!(config::update_channels());
         result["checkedAt"] = json!(state.last_success_at);
         result["lastAttemptAt"] = json!(state.last_attempt_at);
-        result["lastError"] = json!(state.last_error.as_deref().map(|error| {
-            source::GithubSettings::Update.describe_error(error, state.retry_at)
-        }));
+        result["lastError"] = json!(state
+            .last_error
+            .as_deref()
+            .map(|error| { source::GithubSettings::Update.describe_error(error, state.retry_at) }));
         result["retryAt"] = json!(state.retry_at);
         result["nextCheckAt"] = json!(state.due_at());
         result["checking"] = json!(state.running());
@@ -170,7 +180,11 @@ impl UpdateManager {
         self.check_with_mode(current_version, false).await
     }
 
-    async fn check_with_mode(&self, current_version: &str, manual: bool) -> Result<Value, UpdateError> {
+    async fn check_with_mode(
+        &self,
+        current_version: &str,
+        manual: bool,
+    ) -> Result<Value, UpdateError> {
         self.resolve_repository().await;
         let required = self.force_update(current_version);
         let key = self.check_key_for(current_version);
@@ -182,8 +196,7 @@ impl UpdateManager {
         // 不提前吞掉需要进入退避的新一轮检查
         if !manual {
             if let Some(state) = task_state::read(&key).ok().filter(|state| {
-                state.last_success_at > 0
-                    && started - state.last_success_at < interval
+                state.last_success_at > 0 && started - state.last_success_at < interval
             }) {
                 return Ok(self.checked_result(current_version, &state));
             }
@@ -191,8 +204,14 @@ impl UpdateManager {
         // 手动检查仍受失败冷却约束（ManualBackoff::Respect）：这里的冷却记的是
         // GitHub 配额桶的恢复时刻，提前打只会再吃一次 403。换令牌 / 换线路那条
         // 口子走 clear_check_cooldown（见上）。
-        let guard = match task_state::claim(&key, interval, manual, task_state::ManualBackoff::Respect, MIN_CHECK_GAP_MS)
-            .map_err(|error| UpdateError::new(error))?
+        let guard = match task_state::claim(
+            &key,
+            interval,
+            manual,
+            task_state::ManualBackoff::Respect,
+            MIN_CHECK_GAP_MS,
+        )
+        .map_err(UpdateError::new)?
         {
             Claim::Acquired(guard) => guard,
             Claim::Deferred(mut state) => {
@@ -200,10 +219,12 @@ impl UpdateManager {
                 // 结果，而不是并排再打一次 GitHub —— 匿名限额不该被并发翻倍。
                 while state.running() && logging::now_ms() - started < WAIT_RUNNING_MS {
                     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                    state = task_state::read(&key).map_err(|error| UpdateError::new(error))?;
+                    state = task_state::read(&key).map_err(UpdateError::new)?;
                 }
                 // 等到了结果就复用；仍在跑（或正处于失败冷却）就如实报原因。
-                if state.running() || (state.last_error.is_some() && state.retry_at > logging::now_ms()) {
+                if state.running()
+                    || (state.last_error.is_some() && state.retry_at > logging::now_ms())
+                {
                     return Err(UpdateError::new(waiting_message(&state)));
                 }
                 if state.last_success_at > 0 && self.current_channel_result(&state) {
@@ -220,20 +241,30 @@ impl UpdateManager {
                 self.lock().latest = release.clone();
                 let result = self.build_check_result(current_version);
                 let summary = if result.get("hasUpdate").and_then(Value::as_bool) == Some(true) {
-                    format!("发现新版本 {}", result["latestVersion"].as_str().unwrap_or(""))
+                    format!(
+                        "发现新版本 {}",
+                        result["latestVersion"].as_str().unwrap_or("")
+                    )
                 } else {
                     "已完成版本检查".to_string()
                 };
                 let state = guard.finish(true, summary, Some(json!({ "release": release, "channels": channels, "required": required.is_some() })), retry_at, interval)
-                    .map_err(|error| UpdateError::new(error))?;
+                    .map_err(UpdateError::new)?;
                 if channels != config::update_channels() {
-                    task_state::schedule_now(&key).map_err(|error| UpdateError::new(error))?;
+                    task_state::schedule_now(&key).map_err(UpdateError::new)?;
                 }
                 Ok(self.checked_result(current_version, &state))
             }
             Err((error, retry_at)) => {
-                guard.finish(false, format!("检查失败：{}", error.message), None, retry_at, interval)
-                    .map_err(|error| UpdateError::new(error))?;
+                guard
+                    .finish(
+                        false,
+                        format!("检查失败：{}", error.message),
+                        None,
+                        retry_at,
+                        interval,
+                    )
+                    .map_err(UpdateError::new)?;
                 Err(error)
             }
         }
@@ -253,7 +284,11 @@ impl UpdateManager {
         // 自建更新源与 GitHub 使用同形的 Release 接口。
         let target = required.and_then(|rule| rule["targetVersion"].as_str());
         let url = if let Some(target) = target {
-            format!("{}/repos/{repository}/releases/tags/v{}", api_base(), target.trim_start_matches(['v', 'V']))
+            format!(
+                "{}/repos/{repository}/releases/tags/v{}",
+                api_base(),
+                target.trim_start_matches(['v', 'V'])
+            )
         } else if beta {
             format!(
                 "{}/repos/{repository}/releases?per_page={RELEASE_LIST_PER_PAGE}",
@@ -301,8 +336,14 @@ impl UpdateManager {
         let from_official = response.official && source::is_official_api(&url);
         let payload = response.value;
         let raw = if let Some(target) = target {
-            if payload["draft"] == true || version::compare_versions(payload["tag_name"].as_str().unwrap_or(""), target) != Some(0) {
-                return Err((UpdateError::new("索引指定的强制更新版本与发布信息不匹配"), retry_at));
+            if payload["draft"] == true
+                || version::compare_versions(payload["tag_name"].as_str().unwrap_or(""), target)
+                    != Some(0)
+            {
+                return Err((
+                    UpdateError::new("索引指定的强制更新版本与发布信息不匹配"),
+                    retry_at,
+                ));
             }
             Some(payload)
         } else if beta {
@@ -433,14 +474,31 @@ fn release_json(payload: &Value, repository: &str) -> Value {
 fn retry_deadline(headers: &reqwest::header::HeaderMap, status: u16) -> i64 {
     let now = logging::now_ms();
     let header = |name: &str| headers.get(name).and_then(|value| value.to_str().ok());
-    let retry = header("retry-after").and_then(|value| {
-        value.parse::<i64>().ok().map(|seconds| now.saturating_add(seconds.max(0).saturating_mul(1000)))
-            .or_else(|| chrono::DateTime::parse_from_rfc2822(value).ok().map(|date| date.timestamp_millis()))
-    }).unwrap_or(0);
+    let retry = header("retry-after")
+        .and_then(|value| {
+            value
+                .parse::<i64>()
+                .ok()
+                .map(|seconds| now.saturating_add(seconds.max(0).saturating_mul(1000)))
+                .or_else(|| {
+                    chrono::DateTime::parse_from_rfc2822(value)
+                        .ok()
+                        .map(|date| date.timestamp_millis())
+                })
+        })
+        .unwrap_or(0);
     let reset = if header("x-ratelimit-remaining") == Some("0") {
-        header("x-ratelimit-reset").and_then(|value| value.parse::<i64>().ok())
-            .map(|seconds| seconds.saturating_mul(1000).saturating_add(1000)).unwrap_or(0)
-    } else { 0 };
-    let minimum = if status == 403 || status == 429 { now + 60_000 } else { 0 };
+        header("x-ratelimit-reset")
+            .and_then(|value| value.parse::<i64>().ok())
+            .map(|seconds| seconds.saturating_mul(1000).saturating_add(1000))
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    let minimum = if status == 403 || status == 429 {
+        now + 60_000
+    } else {
+        0
+    };
     retry.max(reset).max(minimum)
 }

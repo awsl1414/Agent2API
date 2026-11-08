@@ -74,15 +74,24 @@ fn persist(id: &str) {
 }
 
 pub(super) fn set_stage(id: &str, stage: &str) {
-    let changed = tasks().lock().map(|mut tasks| {
-        let Some(task) = tasks.get_mut(id) else { return false };
-        if task.stage == stage { return false; }
-        task.stage = stage.to_string();
-        task.percent = None;
-        task.updated_at = logging::now_ms();
-        true
-    }).unwrap_or(false);
-    if changed { persist(id); }
+    let changed = tasks()
+        .lock()
+        .map(|mut tasks| {
+            let Some(task) = tasks.get_mut(id) else {
+                return false;
+            };
+            if task.stage == stage {
+                return false;
+            }
+            task.stage = stage.to_string();
+            task.percent = None;
+            task.updated_at = logging::now_ms();
+            true
+        })
+        .unwrap_or(false);
+    if changed {
+        persist(id);
+    }
 }
 
 pub fn active(id: &str) -> bool {
@@ -128,17 +137,26 @@ pub async fn install_prepared(prepared: packages::PreparedPack) -> Result<Value,
     let id = prepared.id().to_string();
     let guard = claim_operation(&id, InstallPolicy::Manual)?;
     let operation = Operation {
-        id: id.clone(), action: "install".to_string(), stage: "waiting".to_string(), active: true,
+        id: id.clone(),
+        action: "install".to_string(),
+        stage: "waiting".to_string(),
+        active: true,
         version: prepared.record(&super::PackRegistry::load()).version,
-        updated_at: logging::now_ms(), ..Default::default()
+        updated_at: logging::now_ms(),
+        ..Default::default()
     };
-    tasks().lock().map_err(|_| "插件任务状态不可用".to_string())?.insert(id.clone(), operation);
+    tasks()
+        .lock()
+        .map_err(|_| "插件任务状态不可用".to_string())?
+        .insert(id.clone(), operation);
     persist(&id);
     crate::spawn_task(async move {
         let result = activation::install(prepared, None).await;
         finish_operation(&id, result.as_ref(), guard, InstallPolicy::Manual);
         result
-    }).await.map_err(|error| format!("插件安装任务中断：{error}"))?
+    })
+    .await
+    .map_err(|error| format!("插件安装任务中断：{error}"))?
 }
 
 pub fn start_cached(
@@ -178,12 +196,18 @@ pub(super) fn start_required(
 }
 
 fn claim_operation(id: &str, policy: InstallPolicy) -> Result<task_state::RunGuard, String> {
-    if active(id) { return Err("这个插件正在下载或安装".to_string()); }
+    if active(id) {
+        return Err("这个插件正在下载或安装".to_string());
+    }
     match task_state::claim(
-        &record_key(id), 60_000, true,
+        &record_key(id),
+        60_000,
+        true,
         if policy.automatic() || matches!(policy, InstallPolicy::Required { .. }) {
             ManualBackoff::Respect
-        } else { ManualBackoff::Bypass },
+        } else {
+            ManualBackoff::Bypass
+        },
         1000,
     )? {
         Claim::Acquired(guard) => Ok(guard),
@@ -211,12 +235,19 @@ fn finish_operation(
         operation.result = None;
         value = serde_json::to_value(&*operation).unwrap_or(Value::Null);
     });
-    let message = value["error"].as_str().or_else(|| value["hostError"].as_str())
-        .unwrap_or("插件安装完成").to_string();
-    if !success { logging::log("[Plugin]", &message); }
+    let message = value["error"]
+        .as_str()
+        .or_else(|| value["hostError"].as_str())
+        .unwrap_or("插件安装完成")
+        .to_string();
+    if !success {
+        logging::log("[Plugin]", &message);
+    }
     let interval = if matches!(policy, InstallPolicy::Required { .. }) {
         super::compatibility::RETRY_INTERVAL_MS
-    } else { 60_000 };
+    } else {
+        60_000
+    };
     let _ = guard.finish(success, message, Some(value), 0, interval);
 }
 
@@ -254,11 +285,7 @@ fn start_asset(
     Ok(operation)
 }
 
-async fn run(
-    id: &str,
-    asset: &update::PackAsset,
-    policy: InstallPolicy,
-) -> Result<Value, String> {
+async fn run(id: &str, asset: &update::PackAsset, policy: InstallPolicy) -> Result<Value, String> {
     let bytes = update::download(asset, |received, total| {
         mutate(id, |task| {
             task.received = received;

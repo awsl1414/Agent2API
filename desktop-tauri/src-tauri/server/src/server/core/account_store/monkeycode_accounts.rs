@@ -55,7 +55,15 @@ impl AccountStore {
         let region = Region::from_provider_id(&record.provider());
         let available = record.has_token() && region.is_some();
         let mut public = Map::new();
-        for key in ["id", "provider", "name", "userId", "source", "tokenTail", "imageId"] {
+        for key in [
+            "id",
+            "provider",
+            "name",
+            "userId",
+            "source",
+            "tokenTail",
+            "imageId",
+        ] {
             public.insert(
                 key.to_string(),
                 record.get(key).cloned().unwrap_or(Value::Null),
@@ -86,7 +94,10 @@ impl AccountStore {
         // 本家没有续期协议（30 天硬限制），恒 false
         public.insert("hasRefreshToken".to_string(), Value::Bool(false));
         public.insert("desktop".to_string(), Value::Bool(false));
-        public.insert("expiresAt".to_string(), Value::from(record.expires_at().unwrap_or(0.0) as i64));
+        public.insert(
+            "expiresAt".to_string(),
+            Value::from(record.expires_at().unwrap_or(0.0) as i64),
+        );
         public.insert("priority".to_string(), Value::from(record.priority()));
         public.insert("enabled".to_string(), Value::Bool(record.enabled()));
         public.insert("addedAt".to_string(), Value::from(record.added_at()));
@@ -97,7 +108,10 @@ impl AccountStore {
         );
         public.insert(
             "rateLimits".to_string(),
-            record.get("rateLimits").cloned().unwrap_or_else(|| json!({})),
+            record
+                .get("rateLimits")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
         );
         public.insert("available".to_string(), Value::Bool(available));
         Value::Object(public)

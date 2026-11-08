@@ -35,12 +35,12 @@
 
 use serde_json::{json, Map, Value};
 
+use super::responses::ConvertError;
 use super::{
     content_parts, content_text, event_frame, is_truthy, json_text, native_tool, random_id,
-    string_field, string_value, tool_plan, SseLineBuffer, TOOL_IMAGE_PLACEHOLDER,
-    FIELD_CACHE_CONTROL, FIELD_IS_ERROR, FIELD_THINKING_BYPASS, FIELD_THINKING_BLOCKS,
+    string_field, string_value, tool_plan, SseLineBuffer, FIELD_CACHE_CONTROL, FIELD_IS_ERROR,
+    FIELD_THINKING_BLOCKS, FIELD_THINKING_BYPASS, TOOL_IMAGE_PLACEHOLDER,
 };
-use super::responses::ConvertError;
 use crate::server::logging;
 
 /// Anthropic 的 `max_tokens` 缺省值。
@@ -57,7 +57,10 @@ pub(super) const DEFAULT_MAX_TOKENS: i64 = 8192;
 /// Anthropic Messages 请求体 → Chat Completions 请求体。
 pub fn chat_from_anthropic(body: &Value) -> Result<Value, ConvertError> {
     let mut out = Map::new();
-    out.insert("model".to_string(), body.get("model").cloned().unwrap_or(Value::Null));
+    out.insert(
+        "model".to_string(),
+        body.get("model").cloned().unwrap_or(Value::Null),
+    );
 
     let mut messages: Vec<Value> = Vec::new();
     // ① system 顶层字段 → 最前的一条 system 消息
@@ -168,7 +171,11 @@ pub fn chat_from_anthropic(body: &Value) -> Result<Value, ConvertError> {
                 stored.insert(key.to_string(), value.clone());
             }
         }
-        if stored.is_empty() { None } else { Some(Value::Object(stored)) }
+        if stored.is_empty() {
+            None
+        } else {
+            Some(Value::Object(stored))
+        }
     };
     if let Some(bypass) = bypass {
         out.insert(FIELD_THINKING_BYPASS.to_string(), bypass);
@@ -192,7 +199,9 @@ fn system_text(system: &Value) -> String {
 
 /// 一个内容块上的 cache_control（没有 / 不是对象 → None）
 fn block_cache_control(part: &Value) -> Option<Value> {
-    part.get("cache_control").filter(|value| value.is_object()).cloned()
+    part.get("cache_control")
+        .filter(|value| value.is_object())
+        .cloned()
 }
 
 /// 块数组里**最后一个**带 cache_control 的断点（Anthropic 的惯例是断点打在
@@ -216,7 +225,11 @@ fn convert_message(messages: &mut Vec<Value>, message: &Value) -> Result<(), Con
     let content = message.get("content").unwrap_or(&Value::Null);
     // 字符串形态：直接一条消息
     if let Some(text) = content.as_str() {
-        let role = if role == "assistant" { "assistant" } else { "user" };
+        let role = if role == "assistant" {
+            "assistant"
+        } else {
+            "user"
+        };
         messages.push(json!({ "role": role, "content": text }));
         return Ok(());
     }
@@ -257,7 +270,11 @@ fn convert_message(messages: &mut Vec<Value>, message: &Value) -> Result<(), Con
                 let id = string_field(part, "id");
                 let arguments = {
                     let raw = json_text(part.get("input").unwrap_or(&Value::Null));
-                    if raw.is_empty() { "{}".to_string() } else { raw }
+                    if raw.is_empty() {
+                        "{}".to_string()
+                    } else {
+                        raw
+                    }
                 };
                 tool_calls.push(json!({
                     "id": if id.is_empty() { random_id("call") } else { id },
@@ -295,7 +312,11 @@ fn convert_message(messages: &mut Vec<Value>, message: &Value) -> Result<(), Con
         }
     }
 
-    let chat_role = if role == "assistant" { "assistant" } else { "user" };
+    let chat_role = if role == "assistant" {
+        "assistant"
+    } else {
+        "user"
+    };
 
     // 工具结果：每条独立成 tool 消息，且必须排在**本消息正文之前**。
     //
@@ -327,7 +348,11 @@ fn convert_message(messages: &mut Vec<Value>, message: &Value) -> Result<(), Con
         entry.insert("role".to_string(), Value::String("tool".to_string()));
         entry.insert(
             "tool_call_id".to_string(),
-            Value::String(if tool_use_id.is_empty() { random_id("call") } else { tool_use_id }),
+            Value::String(if tool_use_id.is_empty() {
+                random_id("call")
+            } else {
+                tool_use_id
+            }),
         );
         entry.insert(
             "content".to_string(),
@@ -360,14 +385,24 @@ fn convert_message(messages: &mut Vec<Value>, message: &Value) -> Result<(), Con
         let text = content_text(&Value::Array(normal.clone()));
         entry.insert(
             "content".to_string(),
-            if text.is_empty() { Value::Null } else { Value::String(text) },
+            if text.is_empty() {
+                Value::Null
+            } else {
+                Value::String(text)
+            },
         );
         if !reasoning.is_empty() {
-            entry.insert("reasoning_content".to_string(), Value::String(reasoning.clone()));
+            entry.insert(
+                "reasoning_content".to_string(),
+                Value::String(reasoning.clone()),
+            );
         }
         entry.insert("tool_calls".to_string(), Value::Array(tool_calls));
         if !thinking_blocks.is_empty() {
-            entry.insert(FIELD_THINKING_BLOCKS.to_string(), Value::Array(thinking_blocks));
+            entry.insert(
+                FIELD_THINKING_BLOCKS.to_string(),
+                Value::Array(thinking_blocks),
+            );
         }
         // 缓存断点优先取 tool_use 块上的（Claude Code 的惯例断点），否则用
         // 同一条消息里正文块的断点 —— 本来就是同一条 Anthropic 消息拆开的
@@ -387,7 +422,10 @@ fn convert_message(messages: &mut Vec<Value>, message: &Value) -> Result<(), Con
             entry.insert("reasoning_content".to_string(), Value::String(reasoning));
         }
         if chat_role == "assistant" && !thinking_blocks.is_empty() {
-            entry.insert(FIELD_THINKING_BLOCKS.to_string(), Value::Array(thinking_blocks));
+            entry.insert(
+                FIELD_THINKING_BLOCKS.to_string(),
+                Value::Array(thinking_blocks),
+            );
         }
         if let Some(cache) = normal_cache {
             entry.insert(FIELD_CACHE_CONTROL.to_string(), cache);
@@ -428,10 +466,17 @@ pub(super) fn tool_result_parts(
     content: &Value,
     convert: fn(&Value) -> Option<Value>,
 ) -> ToolResultParts {
-    let text_only = |text: String| ToolResultParts { text, images: Vec::new() };
+    let text_only = |text: String| ToolResultParts {
+        text,
+        images: Vec::new(),
+    };
     match content {
         Value::String(text) => {
-            if text.is_empty() { text_only("(empty)".to_string()) } else { text_only(text.clone()) }
+            if text.is_empty() {
+                text_only("(empty)".to_string())
+            } else {
+                text_only(text.clone())
+            }
         }
         Value::Null => text_only("(empty)".to_string()),
         Value::Array(parts) => {
@@ -446,13 +491,21 @@ pub(super) fn tool_result_parts(
                 // 只有 `search_result` / `document` 的结果）：保持原来的拍平
                 // 兜底，免得整段结果凭空消失
                 let raw = json_text(content);
-                return text_only(if raw.is_empty() { "(empty)".to_string() } else { raw });
+                return text_only(if raw.is_empty() {
+                    "(empty)".to_string()
+                } else {
+                    raw
+                });
             }
             ToolResultParts { text, images }
         }
         other => {
             let raw = json_text(other);
-            text_only(if raw.is_empty() { "(empty)".to_string() } else { raw })
+            text_only(if raw.is_empty() {
+                "(empty)".to_string()
+            } else {
+                raw
+            })
         }
     }
 }
@@ -480,7 +533,11 @@ fn image_to_chat(part: &Value) -> Option<Value> {
             if data.is_empty() {
                 return None;
             }
-            let media = if media_type.is_empty() { "image/png".to_string() } else { media_type };
+            let media = if media_type.is_empty() {
+                "image/png".to_string()
+            } else {
+                media_type
+            };
             Some(json!({
                 "type": "image_url",
                 "image_url": { "url": format!("data:{media};base64,{data}") },
@@ -581,7 +638,9 @@ fn tool_choice_to_chat(choice: &Value) -> Value {
 fn anthropic_effort(body: &Value) -> Option<String> {
     let thinking_type = {
         let raw = string_value(
-            body.get("thinking").and_then(|value| value.get("type")).unwrap_or(&Value::Null),
+            body.get("thinking")
+                .and_then(|value| value.get("type"))
+                .unwrap_or(&Value::Null),
         );
         raw.trim().to_lowercase()
     };
@@ -589,7 +648,9 @@ fn anthropic_effort(body: &Value) -> Option<String> {
         return None;
     }
     let explicit = string_value(
-        body.get("output_config").and_then(|value| value.get("effort")).unwrap_or(&Value::Null),
+        body.get("output_config")
+            .and_then(|value| value.get("effort"))
+            .unwrap_or(&Value::Null),
     );
     let explicit = explicit.trim().to_lowercase();
     if !explicit.is_empty() {
@@ -630,7 +691,10 @@ fn effort_from_budget(budget: i64) -> &'static str {
 /// Chat 的 `chat.completion` → Anthropic 的 `message` 对象。
 pub fn anthropic_from_chat(chat: &Value, model: &str) -> Value {
     let choice = chat.pointer("/choices/0");
-    let message = choice.and_then(|choice| choice.get("message")).cloned().unwrap_or(Value::Null);
+    let message = choice
+        .and_then(|choice| choice.get("message"))
+        .cloned()
+        .unwrap_or(Value::Null);
     let finish = choice
         .and_then(|choice| choice.get("finish_reason"))
         .map(string_value)
@@ -640,7 +704,11 @@ pub fn anthropic_from_chat(chat: &Value, model: &str) -> Value {
     // 思考块在前（与 Anthropic 官方顺序一致）
     let reasoning = {
         let from_field = string_field(&message, "reasoning_content");
-        if from_field.is_empty() { string_field(&message, "reasoning") } else { from_field }
+        if from_field.is_empty() {
+            string_field(&message, "reasoning")
+        } else {
+            from_field
+        }
     };
     if !reasoning.is_empty() {
         content.push(json!({ "type": "thinking", "thinking": reasoning }));
@@ -681,7 +749,11 @@ pub fn anthropic_from_chat(chat: &Value, model: &str) -> Value {
     };
     let id = {
         let raw = string_field(chat, "id");
-        if raw.is_empty() { random_id("msg") } else { raw }
+        if raw.is_empty() {
+            random_id("msg")
+        } else {
+            raw
+        }
     };
     json!({
         "id": id,
@@ -719,9 +791,7 @@ pub fn usage_to_anthropic(usage: Option<&Value>) -> Value {
     let Some(usage) = usage.filter(|value| value.is_object()) else {
         return json!({ "input_tokens": 0, "output_tokens": 0 });
     };
-    let number = |key: &str| -> i64 {
-        usage.get(key).and_then(Value::as_i64).unwrap_or(0)
-    };
+    let number = |key: &str| -> i64 { usage.get(key).and_then(Value::as_i64).unwrap_or(0) };
     let cached = usage
         .pointer("/prompt_tokens_details/cached_tokens")
         .and_then(Value::as_i64)
@@ -849,10 +919,13 @@ impl AnthropicStream {
         self.finished = true;
         out.extend(self.emit_start());
         out.extend(self.close_block());
-        let stop_reason = self
-            .stop_reason
-            .clone()
-            .unwrap_or_else(|| if self.has_tool { "tool_use".to_string() } else { "end_turn".to_string() });
+        let stop_reason = self.stop_reason.clone().unwrap_or_else(|| {
+            if self.has_tool {
+                "tool_use".to_string()
+            } else {
+                "end_turn".to_string()
+            }
+        });
         out.push(self.event(
             "message_delta",
             json!({
@@ -875,16 +948,31 @@ impl AnthropicStream {
             out.extend(self.emit_start());
             let message = {
                 let text = string_field(error, "message");
-                if text.is_empty() { string_value(error) } else { text }
+                if text.is_empty() {
+                    string_value(error)
+                } else {
+                    text
+                }
             };
             let kind = {
                 let text = string_field(error, "type");
-                if text.is_empty() { "api_error".to_string() } else { text }
+                if text.is_empty() {
+                    "api_error".to_string()
+                } else {
+                    text
+                }
             };
-            out.push(self.event("error", json!({ "error": { "type": kind, "message": message } })));
+            out.push(self.event(
+                "error",
+                json!({ "error": { "type": kind, "message": message } }),
+            ));
             return out;
         }
-        if let Some(id) = chunk.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+        if let Some(id) = chunk
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+        {
             if !self.started {
                 self.message_id = id.to_string();
             }
@@ -913,7 +1001,11 @@ impl AnthropicStream {
         // 思考增量 → thinking 块
         let reasoning = {
             let from_field = string_field(delta, "reasoning_content");
-            if from_field.is_empty() { string_field(delta, "reasoning") } else { from_field }
+            if from_field.is_empty() {
+                string_field(delta, "reasoning")
+            } else {
+                from_field
+            }
         };
         if !reasoning.is_empty() {
             out.extend(self.ensure_block("thinking"));
@@ -927,7 +1019,11 @@ impl AnthropicStream {
             ));
         }
         // 正文增量 → text 块
-        if let Some(text) = delta.get("content").and_then(Value::as_str).filter(|text| !text.is_empty()) {
+        if let Some(text) = delta
+            .get("content")
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
+        {
             out.extend(self.ensure_block("text"));
             self.block_text.push_str(text);
             out.push(self.event(
@@ -949,7 +1045,10 @@ impl AnthropicStream {
 
     fn consume_tool(&mut self, call: &Value) -> Vec<bytes::Bytes> {
         let mut out = Vec::new();
-        let name = call.pointer("/function/name").and_then(Value::as_str).unwrap_or("");
+        let name = call
+            .pointer("/function/name")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         let id = call.get("id").and_then(Value::as_str).unwrap_or("");
         // 新的工具调用（带 id/name 且与当前块不同）：关掉旧块、开新块
         let is_new = !id.is_empty() && id != self.block_tool_id;
@@ -959,7 +1058,11 @@ impl AnthropicStream {
             self.block_open = true;
             self.block_index += 1;
             self.block_type = "tool_use".to_string();
-            self.block_tool_id = if id.is_empty() { random_id("toolu") } else { id.to_string() };
+            self.block_tool_id = if id.is_empty() {
+                random_id("toolu")
+            } else {
+                id.to_string()
+            };
             self.block_tool_name = name.to_string();
             self.block_arguments.clear();
             self.saw_arguments = false;
@@ -1003,7 +1106,10 @@ impl AnthropicStream {
         if !name.is_empty() && self.block_tool_name.is_empty() {
             self.block_tool_name = name.to_string();
         }
-        let arguments = call.pointer("/function/arguments").and_then(Value::as_str).unwrap_or("");
+        let arguments = call
+            .pointer("/function/arguments")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         if !arguments.is_empty() {
             self.saw_arguments = true;
             self.block_arguments.push_str(arguments);
@@ -1152,7 +1258,11 @@ impl AnthropicCollector {
     }
 
     fn consume(&mut self, chunk: &Value) {
-        if let Some(id) = chunk.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+        if let Some(id) = chunk
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+        {
             if self.id.is_empty() {
                 self.id = id.to_string();
             }
@@ -1173,7 +1283,11 @@ impl AnthropicCollector {
         };
         let reasoning = {
             let from_field = string_field(delta, "reasoning_content");
-            if from_field.is_empty() { string_field(delta, "reasoning") } else { from_field }
+            if from_field.is_empty() {
+                string_field(delta, "reasoning")
+            } else {
+                from_field
+            }
         };
         self.reasoning.push_str(&reasoning);
         if let Some(text) = delta.get("content").and_then(Value::as_str) {
@@ -1183,7 +1297,11 @@ impl AnthropicCollector {
             for call in calls {
                 let key = call.get("index").and_then(Value::as_i64).unwrap_or(0);
                 let entry = self.tools.entry(key).or_default();
-                if let Some(id) = call.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+                if let Some(id) = call
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty())
+                {
                     entry.call_id = id.to_string();
                 }
                 if let Some(name) = call.pointer("/function/name").and_then(Value::as_str) {
@@ -1191,7 +1309,8 @@ impl AnthropicCollector {
                         entry.name = name.to_string();
                     }
                 }
-                if let Some(arguments) = call.pointer("/function/arguments").and_then(Value::as_str) {
+                if let Some(arguments) = call.pointer("/function/arguments").and_then(Value::as_str)
+                {
                     entry.arguments.push_str(arguments);
                 }
             }
@@ -1209,7 +1328,11 @@ impl AnthropicCollector {
         let mut has_tool = false;
         for (_, tool) in self.tools {
             has_tool = true;
-            let arguments = if tool.arguments.is_empty() { "{}".to_string() } else { tool.arguments };
+            let arguments = if tool.arguments.is_empty() {
+                "{}".to_string()
+            } else {
+                tool.arguments
+            };
             content.push(json!({
                 "type": "tool_use",
                 "id": if tool.call_id.is_empty() { random_id("toolu") } else { tool.call_id },
@@ -1226,7 +1349,11 @@ impl AnthropicCollector {
             _ if has_tool => "tool_use",
             _ => "end_turn",
         };
-        let id = if self.id.is_empty() { random_id("msg") } else { self.id.clone() };
+        let id = if self.id.is_empty() {
+            random_id("msg")
+        } else {
+            self.id.clone()
+        };
         json!({
             "id": id,
             "type": "message",
@@ -1276,8 +1403,8 @@ pub fn responses_error_code(status: u16) -> &'static str {
 mod tests {
     //! #526 回归：原生思考参数（adaptive / output_config / signature /
     //! redacted_thinking）在入口暂存、出站原样回填；无暂存的老路径形状不变。
-    use super::*;
     use super::super::anthropic_outbound::anthropic_request_from_chat;
+    use super::*;
 
     #[test]
     fn adaptive_thinking_round_trips_verbatim() {
@@ -1290,10 +1417,13 @@ mod tests {
         });
         let chat = chat_from_anthropic(&body).expect("入口翻译成功");
         // 暂存原对象；reasoning_effort 照常折算（展示层读它）
-        assert_eq!(chat.get(FIELD_THINKING_BYPASS), Some(&json!({
-            "thinking": { "type": "adaptive" },
-            "output_config": { "effort": "max" },
-        })));
+        assert_eq!(
+            chat.get(FIELD_THINKING_BYPASS),
+            Some(&json!({
+                "thinking": { "type": "adaptive" },
+                "output_config": { "effort": "max" },
+            }))
+        );
 
         let outbound = anthropic_request_from_chat(&chat, "opus-5.5").expect("出站翻译成功");
         assert_eq!(
@@ -1301,8 +1431,14 @@ mod tests {
             Some(&json!({ "type": "adaptive" })),
             "adaptive 不能被折成 enabled+budget"
         );
-        assert_eq!(outbound.get("output_config"), Some(&json!({ "effort": "max" })));
-        assert!(outbound.get("thinking").and_then(|value| value.get("budget_tokens")).is_none());
+        assert_eq!(
+            outbound.get("output_config"),
+            Some(&json!({ "effort": "max" }))
+        );
+        assert!(outbound
+            .get("thinking")
+            .and_then(|value| value.get("budget_tokens"))
+            .is_none());
     }
 
     #[test]
@@ -1323,7 +1459,11 @@ mod tests {
         let assistant = chat
             .get("messages")
             .and_then(Value::as_array)
-            .and_then(|messages| messages.iter().find(|message| message.get("role").and_then(Value::as_str) == Some("assistant")))
+            .and_then(|messages| {
+                messages.iter().find(|message| {
+                    message.get("role").and_then(Value::as_str) == Some("assistant")
+                })
+            })
             .expect("assistant 在");
         let stored = assistant
             .get(FIELD_THINKING_BLOCKS)
@@ -1338,9 +1478,14 @@ mod tests {
             .pointer("/messages/1/content")
             .and_then(Value::as_array)
             .expect("assistant 内容块");
-        let first = blocks.iter().find(|block| block.get("type").and_then(Value::as_str) == Some("thinking")).expect("thinking 块回填");
+        let first = blocks
+            .iter()
+            .find(|block| block.get("type").and_then(Value::as_str) == Some("thinking"))
+            .expect("thinking 块回填");
         assert_eq!(first.get("signature"), Some(&json!("sig-1")));
-        assert!(blocks.iter().any(|block| block.get("type").and_then(Value::as_str) == Some("redacted_thinking")));
+        assert!(blocks
+            .iter()
+            .any(|block| block.get("type").and_then(Value::as_str) == Some("redacted_thinking")));
     }
 
     #[test]

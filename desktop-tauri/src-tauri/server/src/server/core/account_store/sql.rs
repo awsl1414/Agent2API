@@ -231,8 +231,7 @@ fn encode_data(record: &StoredAccount) -> rusqlite::Result<String> {
     let json = record.to_value().to_string();
     crypto::seal(json.as_bytes(), SecretScope::Accounts).map_err(|error| {
         rusqlite::Error::ToSqlConversionFailure(
-            format!("账号凭证加密失败（{error}）：为避免把凭证明文落库，本次保存已中止")
-                .into(),
+            format!("账号凭证加密失败（{error}）：为避免把凭证明文落库，本次保存已中止").into(),
         )
     })
 }
@@ -271,8 +270,7 @@ pub(crate) fn load_by_provider(
     conn: &Connection,
     provider: &str,
 ) -> rusqlite::Result<Vec<StoredAccount>> {
-    let mut stmt =
-        conn.prepare("SELECT data FROM accounts WHERE provider = ?1 ORDER BY rowid")?;
+    let mut stmt = conn.prepare("SELECT data FROM accounts WHERE provider = ?1 ORDER BY rowid")?;
     let mut rows = stmt.query(params![provider])?;
     let mut records = Vec::new();
     let mut errors = Vec::new();
@@ -370,8 +368,8 @@ pub(crate) struct QueueRow {
 /// `added_at` 用投影列 + `COALESCE(…, 0)`：它与 JSON 里的 `addedAt` 是同一份值
 /// （写入时由 `record.added_at()` 派生），列缺值时只影响并列时的先后，不影响正确性。
 pub(crate) fn queue_rows(conn: &Connection) -> rusqlite::Result<Vec<QueueRow>> {
-    let mut stmt = conn
-        .prepare("SELECT id, provider, priority, COALESCE(added_at, 0) FROM accounts")?;
+    let mut stmt =
+        conn.prepare("SELECT id, provider, priority, COALESCE(added_at, 0) FROM accounts")?;
     let mut rows = stmt.query([])?;
     let mut values = Vec::new();
     while let Some(row) = rows.next()? {
@@ -400,9 +398,11 @@ pub(crate) fn apply_priorities(
     let mut changed = 0usize;
     for (id, priority) in updates {
         let data: Option<String> = conn
-            .query_row("SELECT data FROM accounts WHERE id = ?1", params![id], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT data FROM accounts WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
             .optional()?;
         let Some(record) = data.as_deref().and_then(|text| decode_data(text).ok()) else {
             continue;
@@ -556,7 +556,11 @@ fn insert_row(conn: &Connection, record: &StoredAccount) -> rusqlite::Result<()>
 /// 的原样值 —— 于是 `enabled: "false"` 这种手工脏值在列里是 1（启用），
 /// 与访问器给上层看到的答案一致。
 fn enabled_flag(record: &StoredAccount) -> i64 {
-    if record.enabled() { 1 } else { 0 }
+    if record.enabled() {
+        1
+    } else {
+        0
+    }
 }
 
 /// 把一整份 `AccountState` **按差异**写入（同一个事务内）。

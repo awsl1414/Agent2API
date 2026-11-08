@@ -206,13 +206,41 @@ pub struct LegacyMigration {
 /// （标记键，因为配置项是开放集合）—— 两种判据的完整论证分别见
 /// `settings.rs` / `config.rs` 的模块头。
 pub const LEGACY_MIGRATIONS: &[LegacyMigration] = &[
-    LegacyMigration { label: config::LABEL, locate: config::legacy_file, import: config::import_config },
-    LegacyMigration { label: settings::LABEL, locate: settings::legacy_file, import: settings::import_settings },
-    LegacyMigration { label: accounts::LABEL, locate: accounts::legacy_file, import: accounts::import_accounts },
-    LegacyMigration { label: logs::LABEL, locate: logs::legacy_file, import: logs::import_logs },
-    LegacyMigration { label: requests::LABEL, locate: requests::requests_file, import: requests::import_requests },
-    LegacyMigration { label: requests::DAILY_LABEL, locate: requests::daily_file, import: requests::import_daily },
-    LegacyMigration { label: debug::LABEL, locate: debug::legacy_file, import: debug::import_debug },
+    LegacyMigration {
+        label: config::LABEL,
+        locate: config::legacy_file,
+        import: config::import_config,
+    },
+    LegacyMigration {
+        label: settings::LABEL,
+        locate: settings::legacy_file,
+        import: settings::import_settings,
+    },
+    LegacyMigration {
+        label: accounts::LABEL,
+        locate: accounts::legacy_file,
+        import: accounts::import_accounts,
+    },
+    LegacyMigration {
+        label: logs::LABEL,
+        locate: logs::legacy_file,
+        import: logs::import_logs,
+    },
+    LegacyMigration {
+        label: requests::LABEL,
+        locate: requests::requests_file,
+        import: requests::import_requests,
+    },
+    LegacyMigration {
+        label: requests::DAILY_LABEL,
+        locate: requests::daily_file,
+        import: requests::import_daily,
+    },
+    LegacyMigration {
+        label: debug::LABEL,
+        locate: debug::legacy_file,
+        import: debug::import_debug,
+    },
 ];
 
 /// 还在原处的旧文件对应的迁移项名（**界面列「待迁移数据」用**）。

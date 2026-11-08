@@ -62,9 +62,12 @@ fn client_with_policy(
         builder = builder.user_agent(user_agent.to_string());
     }
     // 不设总超时（.timeout），按请求逐个设：PROPFIND 30 秒、传输 300 秒
-    builder
-        .build()
-        .map_err(|error| format!("创建 HTTP 客户端失败: {}", redact_detail(&error.to_string())))
+    builder.build().map_err(|error| {
+        format!(
+            "创建 HTTP 客户端失败: {}",
+            redact_detail(&error.to_string())
+        )
+    })
 }
 
 /// 解析并校验 WebDAV 基地址（只认 http / https）。
@@ -104,10 +107,7 @@ pub(crate) fn auth_from_credentials(username: &str, password: &str) -> WebDavAut
     Some((user.to_string(), Some(password.to_string())))
 }
 
-fn apply_auth(
-    builder: reqwest::RequestBuilder,
-    auth: &WebDavAuth,
-) -> reqwest::RequestBuilder {
+fn apply_auth(builder: reqwest::RequestBuilder, auth: &WebDavAuth) -> reqwest::RequestBuilder {
     match auth {
         Some((user, password)) => builder.basic_auth(user, password.as_deref()),
         None => builder,
@@ -148,9 +148,7 @@ fn status_error(op: &str, status: StatusCode, url: &str) -> String {
     let jgy = is_jianguoyun(url);
     if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
         if jgy {
-            message.push_str(
-                "。坚果云请使用「第三方应用密码」，并确认地址指向 /dav/ 下的目录。",
-            );
+            message.push_str("。坚果云请使用「第三方应用密码」，并确认地址指向 /dav/ 下的目录。");
         } else {
             message.push_str("。请检查 WebDAV 用户名、密码与目录读写权限。");
         }
@@ -158,9 +156,7 @@ fn status_error(op: &str, status: StatusCode, url: &str) -> String {
         message.push_str("。坚果云常见原因：地址不在 /dav/ 可写目录下。");
     } else if op == "MKCOL" && status == StatusCode::CONFLICT {
         if jgy {
-            message.push_str(
-                "。坚果云不允许自动创建顶层文件夹，请先在网页端手动创建后再试。",
-            );
+            message.push_str("。坚果云不允许自动创建顶层文件夹，请先在网页端手动创建后再试。");
         } else {
             message.push_str("。请确认上级目录存在。");
         }
@@ -172,10 +168,13 @@ fn status_error(op: &str, status: StatusCode, url: &str) -> String {
 
 fn redact_detail(text: &str) -> String {
     static URLS: OnceLock<Option<regex::Regex>> = OnceLock::new();
-    let Some(urls) = URLS.get_or_init(|| regex::Regex::new(r#"(?i)\b[a-z][a-z0-9+.-]*://[^\s<>\"']+"#).ok()) else {
+    let Some(urls) =
+        URLS.get_or_init(|| regex::Regex::new(r#"(?i)\b[a-z][a-z0-9+.-]*://[^\s<>\"']+"#).ok())
+    else {
         return "底层错误详情不可用".to_string();
     };
-    urls.replace_all(text, |found: &regex::Captures<'_>| redact_url(&found[0])).into_owned()
+    urls.replace_all(text, |found: &regex::Captures<'_>| redact_url(&found[0]))
+        .into_owned()
 }
 
 fn error_detail(error: &reqwest::Error) -> String {
@@ -201,9 +200,13 @@ fn transport_error(op: &str, url: &str, error: &reqwest::Error) -> String {
         "重定向失败"
     } else if error.is_builder() {
         "请求构造失败"
-    } else if error.is_connect() && (lower.contains("certificate") || lower.contains("cert") || lower.contains("tls")) {
+    } else if error.is_connect()
+        && (lower.contains("certificate") || lower.contains("cert") || lower.contains("tls"))
+    {
         "TLS / 证书校验失败"
-    } else if error.is_connect() && (lower.contains("dns") || lower.contains("resolve") || lower.contains("lookup")) {
+    } else if error.is_connect()
+        && (lower.contains("dns") || lower.contains("resolve") || lower.contains("lookup"))
+    {
         "域名解析失败"
     } else if error.is_connect() {
         "连接失败（目标地址 / 端口或代理）"
@@ -265,7 +268,11 @@ pub(crate) async fn ensure_remote_directories(
     let http = client(user_agent)?;
     for depth in 1..=segments.len() {
         let url = build_remote_url(base_url, &segments[..depth])?;
-        let dir_url = if url.ends_with('/') { url } else { format!("{url}/") };
+        let dir_url = if url.ends_with('/') {
+            url
+        } else {
+            format!("{url}/")
+        };
         let response = apply_auth(
             http.request(method_mkcol(), &dir_url)
                 .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS)),
@@ -279,13 +286,12 @@ pub(crate) async fn ensure_remote_directories(
         if status == StatusCode::CREATED || status.is_success() {
             continue;
         }
-        if status == StatusCode::METHOD_NOT_ALLOWED
+        if (status == StatusCode::METHOD_NOT_ALLOWED
             || status == StatusCode::CONFLICT
-            || status.is_redirection()
+            || status.is_redirection())
+            && propfind_exists(&http, &dir_url, auth).await?
         {
-            if propfind_exists(&http, &dir_url, auth).await? {
-                continue;
-            }
+            continue;
         }
         return Err(status_error("MKCOL", status, &dir_url));
     }
@@ -306,7 +312,9 @@ async fn propfind_exists(
     .send()
     .await;
     match response {
-        Ok(response) => Ok(response.status().is_success() || response.status() == StatusCode::MULTI_STATUS),
+        Ok(response) => {
+            Ok(response.status().is_success() || response.status() == StatusCode::MULTI_STATUS)
+        }
         // 探测失败按「不存在」处理：调用方会给出 MKCOL 的原始错误（比这里
         // 吞掉错误再报「目录不存在」更接近现场）
         Err(_) => Ok(false),
@@ -378,7 +386,11 @@ mod tests {
     fn build_remote_url_encodes_segments() {
         let url = build_remote_url(
             "https://dav.example.com/remote.php/dav/files/demo/",
-            &["agent2api sync".to_string(), "v1".to_string(), "default".to_string()],
+            &[
+                "agent2api sync".to_string(),
+                "v1".to_string(),
+                "default".to_string(),
+            ],
         )
         .unwrap();
         assert_eq!(

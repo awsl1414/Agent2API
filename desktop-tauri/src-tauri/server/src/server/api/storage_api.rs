@@ -72,8 +72,14 @@ pub async fn get_storage(State(state): State<ServerState>) -> Response {
     let stats = request_stats.stats();
     let requests = stats.get("total").and_then(Value::as_u64).unwrap_or(0);
     let daily_days = stats.get("dailyDays").and_then(Value::as_u64).unwrap_or(0);
-    let downstream_raw = stats.get("downstreamRaw").and_then(Value::as_u64).unwrap_or(0);
-    let upstream_raw = stats.get("upstreamRaw").and_then(Value::as_u64).unwrap_or(0);
+    let downstream_raw = stats
+        .get("downstreamRaw")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let upstream_raw = stats
+        .get("upstreamRaw")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
 
     ok_json(json!({
         "configDir": config_dir.to_string_lossy(),

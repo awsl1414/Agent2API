@@ -130,9 +130,9 @@ pub fn has_compressible(body: &Value) -> bool {
             .get("content")
             .and_then(Value::as_array)
             .is_some_and(|parts| {
-                parts
-                    .iter()
-                    .any(|part| image_uri_of(part).is_some_and(|uri| uri.starts_with("data:image/")))
+                parts.iter().any(|part| {
+                    image_uri_of(part).is_some_and(|uri| uri.starts_with("data:image/"))
+                })
             })
     })
 }
@@ -148,7 +148,9 @@ fn collect_targets(body: &Value) -> Vec<(usize, usize)> {
             continue;
         };
         for (part_index, part) in parts.iter().enumerate() {
-            let Some(uri) = image_uri_of(part) else { continue };
+            let Some(uri) = image_uri_of(part) else {
+                continue;
+            };
             if uri.starts_with("data:image/") {
                 out.push((message_index, part_index));
             }
@@ -243,7 +245,8 @@ fn compress_data_uri(uri: &str, settings: &ImageCompressSettings) -> Option<Stri
 /// 只认 jpeg / png / webp 三种基格式（大小写不敏感），其余（gif / svg / avif…）
 /// 一律不候选 —— 与 OmniProxy 的 `DATA_URI_RE` 同一白名单。
 fn split_data_uri(uri: &str) -> Option<&str> {
-    let rest = uri.strip_prefix("data:image/")
+    let rest = uri
+        .strip_prefix("data:image/")
         .or_else(|| strip_prefix_ignore_ascii_case(uri, "data:image/"))?;
     let separator = rest.find(';')?;
     let subtype = &rest[..separator];
@@ -263,7 +266,8 @@ fn split_data_uri(uri: &str) -> Option<&str> {
 /// 大小写不敏感的前缀剥离（返回剥掉前缀后的剩余串）。
 fn strip_prefix_ignore_ascii_case<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
     let head = text.get(..prefix.len())?;
-    head.eq_ignore_ascii_case(prefix).then(|| &text[prefix.len()..])
+    head.eq_ignore_ascii_case(prefix)
+        .then(|| &text[prefix.len()..])
 }
 
 /// base64 文本长度换算解码后字节数（估算，用于阈值判定，避免先解码再比较）。

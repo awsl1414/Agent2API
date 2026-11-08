@@ -140,7 +140,9 @@ pub fn profile(def: &ClientDef, profile: &Profile) -> Result<(), String> {
         let levels: &[&str] = match def.id {
             "codex" => &["none", "minimal", "low", "medium", "high", "xhigh"],
             "claude-code" => &["low", "medium", "high", "xhigh", "max", "auto"],
-            "dsh" => &["off", "none", "minimal", "low", "medium", "high", "xhigh", "max"],
+            "dsh" => &[
+                "off", "none", "minimal", "low", "medium", "high", "xhigh", "max",
+            ],
             _ => &["none", "minimal", "low", "medium", "high", "xhigh", "max"],
         };
         if !levels.contains(&profile.effort.as_str()) {
@@ -167,7 +169,7 @@ pub fn credential(profile: &Profile) -> Result<Option<String>, String> {
             if active.is_empty() {
                 return Err("网关未配置可用 API Key，请先在「网关 Key」页创建并启用".into());
             }
-            let entries = crate::server::core::api_keys::entries_from(&snapshot.raw());
+            let entries = crate::server::core::api_keys::entries_from(snapshot.raw());
             let key = if profile.gateway_key_id == "env" {
                 crate::server::config::parse::env_api_key_value()
             } else if profile.gateway_key_id.is_empty() {
@@ -176,7 +178,9 @@ pub fn credential(profile: &Profile) -> Result<Option<String>, String> {
                 entries
                     .iter()
                     .find(|key| {
-                        key.is_usable() && key.id == profile.gateway_key_id && active.contains(&key.key)
+                        key.is_usable()
+                            && key.id == profile.gateway_key_id
+                            && active.contains(&key.key)
                     })
                     .map(|key| key.key.clone())
             };

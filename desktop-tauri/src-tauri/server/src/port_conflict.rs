@@ -89,7 +89,13 @@ impl PortConflict {
     /// 组装冲突描述（文案集中在这里，避免界面与后端各说各话）。
     pub fn new(kind: ConflictKind, port: u16, occupant: Option<Occupant>, detail: &str) -> Self {
         let message = describe(kind, port, occupant.as_ref(), detail);
-        Self { kind, port, message, occupant, detail: detail.to_string() }
+        Self {
+            kind,
+            port,
+            message,
+            occupant,
+            detail: detail.to_string(),
+        }
     }
 
     /// 补上监听进程信息并重算文案。

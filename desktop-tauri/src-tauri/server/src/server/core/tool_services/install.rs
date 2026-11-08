@@ -29,10 +29,22 @@ pub struct InstallOutcome {
 
 impl InstallOutcome {
     fn ok(client_id: &str, label: &str, path: impl Into<String>) -> Self {
-        Self { client_id: client_id.into(), label: label.into(), ok: true, path: path.into(), error: None }
+        Self {
+            client_id: client_id.into(),
+            label: label.into(),
+            ok: true,
+            path: path.into(),
+            error: None,
+        }
     }
     fn failed(client_id: &str, label: &str, error: impl Into<String>) -> Self {
-        Self { client_id: client_id.into(), label: label.into(), ok: false, path: String::new(), error: Some(error.into()) }
+        Self {
+            client_id: client_id.into(),
+            label: label.into(),
+            ok: false,
+            path: String::new(),
+            error: Some(error.into()),
+        }
     }
     pub fn to_json(&self) -> Value {
         json!({
@@ -68,8 +80,13 @@ pub fn skill_targets(service: &str) -> Vec<Value> {
         if roots.is_empty() {
             continue;
         }
-        let existing = roots.iter().map(|root| skill_dir(root, service)).find(|path| path.exists());
-        let installed = existing.as_ref().is_some_and(|path| marker_is_ours(path, service));
+        let existing = roots
+            .iter()
+            .map(|root| skill_dir(root, service))
+            .find(|path| path.exists());
+        let installed = existing
+            .as_ref()
+            .is_some_and(|path| marker_is_ours(path, service));
         let path = existing.unwrap_or_else(|| skill_dir(&roots[0], service));
         rows.push(json!({
             "key": def.id,
@@ -104,7 +121,10 @@ pub fn install_skill(
         .collect();
     contents.push((
         ".agent2api.json".into(),
-        format!("{}\n", serde_json::to_string_pretty(&json!({ "api_key": api_key })).unwrap_or_default()),
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&json!({ "api_key": api_key })).unwrap_or_default()
+        ),
     ));
 
     for client_id in client_ids {
@@ -114,7 +134,11 @@ pub fn install_skill(
         };
         let roots = resources::skill_roots(def);
         if roots.is_empty() {
-            outcomes.push(InstallOutcome::failed(client_id, def.name, "该客户端不支持 Skill"));
+            outcomes.push(InstallOutcome::failed(
+                client_id,
+                def.name,
+                "该客户端不支持 Skill",
+            ));
             continue;
         }
         // 已装过的那一份优先（保持路径稳定），否则装到该客户端的首选根目录
@@ -124,7 +148,11 @@ pub fn install_skill(
             .find(|path| path.exists())
             .unwrap_or_else(|| skill_dir(&roots[0], service));
         match write_skill_pack(&target, &contents) {
-            Ok(()) => outcomes.push(InstallOutcome::ok(client_id, def.name, target.display().to_string())),
+            Ok(()) => outcomes.push(InstallOutcome::ok(
+                client_id,
+                def.name,
+                target.display().to_string(),
+            )),
             Err(error) => outcomes.push(InstallOutcome::failed(client_id, def.name, error)),
         }
     }
@@ -140,7 +168,8 @@ fn write_skill_pack(target: &Path, files: &[(String, String)]) -> Result<(), Str
     for (relative, content) in files {
         let path = target.join(relative);
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| format!("创建 Skill 子目录失败：{error}"))?;
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("创建 Skill 子目录失败：{error}"))?;
         }
         agents::files::write_atomic(&path, content.as_bytes())?;
     }
@@ -161,17 +190,28 @@ pub fn uninstall_skill(service: &str, client_ids: &[String]) -> Vec<InstallOutco
                 continue;
             }
             if std::fs::symlink_metadata(&target).is_ok_and(|meta| meta.file_type().is_symlink()) {
-                outcomes.push(InstallOutcome::failed(client_id, def.name, "Skill 目录是链接，拒绝删除"));
+                outcomes.push(InstallOutcome::failed(
+                    client_id,
+                    def.name,
+                    "Skill 目录是链接，拒绝删除",
+                ));
                 continue;
             }
             match std::fs::remove_dir_all(&target) {
                 Ok(()) => removed.push(target.display().to_string()),
-                Err(error) => outcomes.push(InstallOutcome::failed(client_id, def.name, format!("删除失败：{error}"))),
+                Err(error) => outcomes.push(InstallOutcome::failed(
+                    client_id,
+                    def.name,
+                    format!("删除失败：{error}"),
+                )),
             }
         }
         if !removed.is_empty() {
             outcomes.push(InstallOutcome::ok(client_id, def.name, removed.join(", ")));
-        } else if !outcomes.iter().any(|outcome| outcome.client_id == *client_id) {
+        } else if !outcomes
+            .iter()
+            .any(|outcome| outcome.client_id == *client_id)
+        {
             outcomes.push(InstallOutcome::failed(client_id, def.name, "未安装"));
         }
     }
@@ -197,7 +237,11 @@ pub fn mcp_targets(service: &str) -> Vec<Value> {
                 snapshot
                     .get("servers")
                     .and_then(Value::as_array)
-                    .map(|servers| servers.iter().any(|server| server.get("name").and_then(Value::as_str) == Some(name)))
+                    .map(|servers| {
+                        servers
+                            .iter()
+                            .any(|server| server.get("name").and_then(Value::as_str) == Some(name))
+                    })
             })
             .unwrap_or(false);
         rows.push(json!({
@@ -267,7 +311,9 @@ fn mcp_entry(
                 env["AGENT2API_VISION_TIMEOUT_MS"] = json!(timeout.saturating_mul(1000) + 60_000);
             }
             match def.id {
-                "opencode" => json!({ "type": "local", "command": ["node", bridge_path], "environment": env }),
+                "opencode" => {
+                    json!({ "type": "local", "command": ["node", bridge_path], "environment": env })
+                }
                 _ => json!({ "command": "node", "args": [bridge_path], "env": env }),
             }
         }
@@ -298,7 +344,10 @@ fn mcp_entry(
 
 fn write_mcp_entry(def: &agents::ClientDef, name: &str, config: Value) -> Result<String, String> {
     let snapshot = resources::snapshot(def, "mcp")?;
-    let revision = snapshot.get("revision").and_then(Value::as_str).unwrap_or("absent");
+    let revision = snapshot
+        .get("revision")
+        .and_then(Value::as_str)
+        .unwrap_or("absent");
     let mut payload = json!({
         "kind": "mcp",
         "name": name,
@@ -307,11 +356,15 @@ fn write_mcp_entry(def: &agents::ClientDef, name: &str, config: Value) -> Result
     });
     let preview = resources::create_preview(def, &payload)?;
     if preview.get("hasChanges").and_then(Value::as_bool) == Some(false) {
-        return Ok(resources::mcp_config_path(def).map(|path| path.display().to_string()).unwrap_or_default());
+        return Ok(resources::mcp_config_path(def)
+            .map(|path| path.display().to_string())
+            .unwrap_or_default());
     }
     payload["token"] = preview.get("token").cloned().unwrap_or(Value::Null);
     resources::apply(def, &payload)?;
-    Ok(resources::mcp_config_path(def).map(|path| path.display().to_string()).unwrap_or_default())
+    Ok(resources::mcp_config_path(def)
+        .map(|path| path.display().to_string())
+        .unwrap_or_default())
 }
 
 fn remove_mcp_entry(def: &agents::ClientDef, name: &str) -> Result<bool, String> {
@@ -319,11 +372,18 @@ fn remove_mcp_entry(def: &agents::ClientDef, name: &str) -> Result<bool, String>
     let exists = snapshot
         .get("servers")
         .and_then(Value::as_array)
-        .is_some_and(|servers| servers.iter().any(|server| server.get("name").and_then(Value::as_str) == Some(name)));
+        .is_some_and(|servers| {
+            servers
+                .iter()
+                .any(|server| server.get("name").and_then(Value::as_str) == Some(name))
+        });
     if !exists {
         return Ok(false);
     }
-    let revision = snapshot.get("revision").and_then(Value::as_str).unwrap_or("absent");
+    let revision = snapshot
+        .get("revision")
+        .and_then(Value::as_str)
+        .unwrap_or("absent");
     let mut payload = json!({
         "kind": "mcp",
         "name": name,
@@ -357,7 +417,9 @@ pub fn install_mcp(
                 return client_ids
                     .iter()
                     .map(|client_id| {
-                        let label = agents::find(client_id).map(|def| def.name).unwrap_or(client_id.as_str());
+                        let label = agents::find(client_id)
+                            .map(|def| def.name)
+                            .unwrap_or(client_id.as_str());
                         InstallOutcome::failed(client_id, label, error.clone())
                     })
                     .collect();
@@ -374,7 +436,11 @@ pub fn install_mcp(
             continue;
         };
         if resources::mcp_config_path(def).is_none() {
-            outcomes.push(InstallOutcome::failed(client_id, def.name, "该客户端不支持 MCP 配置写入"));
+            outcomes.push(InstallOutcome::failed(
+                client_id,
+                def.name,
+                "该客户端不支持 MCP 配置写入",
+            ));
             continue;
         }
         let config = mcp_entry(def, service, &url, api_key, bridge.as_deref(), timeout);
@@ -398,7 +464,9 @@ pub fn uninstall_mcp(service: &str, client_ids: &[String]) -> Vec<InstallOutcome
             Ok(true) => outcomes.push(InstallOutcome::ok(
                 client_id,
                 def.name,
-                resources::mcp_config_path(def).map(|path| path.display().to_string()).unwrap_or_default(),
+                resources::mcp_config_path(def)
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_default(),
             )),
             Ok(false) => outcomes.push(InstallOutcome::failed(client_id, def.name, "未配置")),
             Err(error) => outcomes.push(InstallOutcome::failed(client_id, def.name, error)),

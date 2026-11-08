@@ -71,7 +71,9 @@ pub async fn get_system_info(
     };
     let exe = std::env::current_exe().ok();
     let db_available = state.db().is_some();
-    let db_bytes = std::fs::metadata(&db_file).map(|meta| meta.len()).unwrap_or(0);
+    let db_bytes = std::fs::metadata(&db_file)
+        .map(|meta| meta.len())
+        .unwrap_or(0);
 
     // 库里的实际 schema 版本：库不可用时为 null（不拿程序常量冒充 —— 那会让
     // 「库没打开」看起来像「版本对得上」）。
@@ -91,7 +93,11 @@ pub async fn get_system_info(
     let account_count = account_list.len();
     let enabled_accounts = account_list
         .iter()
-        .filter(|item| item.get("enabled").and_then(Value::as_bool).unwrap_or(false))
+        .filter(|item| {
+            item.get("enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
         .count();
     let limited_accounts = account_list
         .iter()

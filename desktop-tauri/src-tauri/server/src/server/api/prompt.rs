@@ -88,10 +88,7 @@ pub async fn put_prompt(State(state): State<ServerState>, body: Bytes) -> Respon
             None => {
                 return errors::management_error(
                     400,
-                    format!(
-                        "{KEY_PROMPT_MODE} 只认 {}（收到: {text}）",
-                        allowed_modes()
-                    ),
+                    format!("{KEY_PROMPT_MODE} 只认 {}（收到: {text}）", allowed_modes()),
                 )
             }
         },
@@ -295,8 +292,8 @@ pub async fn put_prompt(State(state): State<ServerState>, body: Bytes) -> Respon
                         return errors::management_error(
                             400,
                             format!(
-                                "{KEY_PROMPT_GATEWAY}.{id} 必须是 true / false / null（收到: {other}）"
-                            ),
+                            "{KEY_PROMPT_GATEWAY}.{id} 必须是 true / false / null（收到: {other}）"
+                        ),
                         )
                     }
                 }
@@ -337,14 +334,12 @@ pub async fn put_prompt(State(state): State<ServerState>, body: Bytes) -> Respon
                 let Some(entry) = value.as_object() else {
                     return errors::management_error(
                         400,
-                        format!("{KEY_PROMPT_GATEWAY_TEXT}.{id} 必须是对象或 null（收到: {value}）"),
+                        format!(
+                            "{KEY_PROMPT_GATEWAY_TEXT}.{id} 必须是对象或 null（收到: {value}）"
+                        ),
                     );
                 };
-                let mut blocks = settings
-                    .gateway_text
-                    .get(id)
-                    .cloned()
-                    .unwrap_or_default();
+                let mut blocks = settings.gateway_text.get(id).cloned().unwrap_or_default();
                 for field in GatewayBlocks::FIELDS {
                     match entry.get(field) {
                         // 未出现 = 这一段不改（保持配置里的原值）
@@ -389,10 +384,7 @@ pub async fn put_prompt(State(state): State<ServerState>, body: Bytes) -> Respon
     // 无论配置项有没有变都重跑一次解析：它顺带把**提示词文件此刻的内容**重新读
     // 一遍（用户刚改完文件、或刚把文件恢复出来，一次 PUT 就能生效）。
     if !config::set_prompt(mode, file, inline) {
-        logging::log(
-            "[Config]",
-            "⚠️  系统提示词设置写入失败，本次运行内仍生效",
-        );
+        logging::log("[Config]", "⚠️  系统提示词设置写入失败，本次运行内仍生效");
     }
     // 逐家覆盖：一家一条地写（单条写入失败只影响那一家的持久化，其余照写）
     for (id, patch) in &provider_patches {
@@ -629,7 +621,7 @@ async fn plugin_prompt_info(state: &ServerState, provider: &str) -> Option<Value
     if object
         .get("gatewayNote")
         .and_then(Value::as_str)
-        .map_or(true, |note| note.trim().is_empty())
+        .is_none_or(|note| note.trim().is_empty())
     {
         return None;
     }

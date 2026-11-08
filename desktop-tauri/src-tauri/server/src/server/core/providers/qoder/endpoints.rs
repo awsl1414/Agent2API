@@ -128,15 +128,17 @@ mod tests {
     #[test]
     fn legacy_region_values_parse_stably() {
         assert_eq!(Region::Global, Region::parse("").unwrap_or(Region::Cn));
-        assert_eq!(Region::Global, Region::parse("global").unwrap_or(Region::Cn));
+        assert_eq!(
+            Region::Global,
+            Region::parse("global").unwrap_or(Region::Cn)
+        );
         assert_eq!(Region::Global, Region::parse("intl").unwrap_or(Region::Cn));
         assert_eq!(Region::Cn, Region::parse("cn").unwrap_or(Region::Global));
         assert!(Region::parse("mars").is_err());
         // 记录的 edition 字段（拆家前写的是 `intl` / `cn`）
         assert_eq!(
             Region::Global,
-            Region::from_payload(&serde_json::json!({ "edition": "intl" }))
-                .unwrap_or(Region::Cn)
+            Region::from_payload(&serde_json::json!({ "edition": "intl" })).unwrap_or(Region::Cn)
         );
         assert_eq!(
             Region::Cn,

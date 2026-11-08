@@ -29,9 +29,7 @@
 
 use serde_json::Value;
 
-use super::adapter::{
-    ChatRequestPlan, ModelRefreshOutcome, ProviderAdapter, UpstreamErrorClass,
-};
+use super::adapter::{ChatRequestPlan, ModelRefreshOutcome, ProviderAdapter, UpstreamErrorClass};
 use super::ProviderKind;
 use crate::server::core::account_store::AccountStore;
 use crate::server::errors::GatewayError;
@@ -118,7 +116,9 @@ impl ProviderAdapter for MissingPluginAdapter {
         _account_id: &'a str,
         _force: bool,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ModelRefreshOutcome> + Send + 'a>> {
-        Box::pin(async move { ModelRefreshOutcome::failed(missing_plugin_message(self.0, "模型目录刷新")) })
+        Box::pin(async move {
+            ModelRefreshOutcome::failed(missing_plugin_message(self.0, "模型目录刷新"))
+        })
     }
 }
 

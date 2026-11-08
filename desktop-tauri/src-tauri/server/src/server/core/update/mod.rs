@@ -1,19 +1,19 @@
 //! 软件更新：共享 GitHub 访问策略、版本检查与经过校验的安装包下载。
 
+pub mod capabilities;
 mod check;
 mod download;
-pub mod capabilities;
-pub mod systemd;
-pub mod windows_service;
+mod integrity;
+mod probe;
+mod selection;
 mod service_task;
 #[cfg(any(target_os = "linux", windows))]
 #[path = "systemd/trust.rs"]
 mod service_trust;
 pub(crate) mod source;
 mod source_state;
-mod selection;
-mod probe;
-mod integrity;
+pub mod systemd;
+pub mod windows_service;
 // 更新源索引：从索引仓库的 `app.json` 读「构建产物放在哪个仓库」。
 // 与插件商店共用信任根仓库、两个文件（见模块头）。
 mod index;
@@ -36,16 +36,16 @@ use serde_json::{json, Map, Value};
 
 use crate::server::{config, logging};
 
-pub use version::{
-    api_base, asset_suffixes, assert_downloadable, compare_versions, custom_api_base, desktop_shell,
-    installer_kind, installer_suffixes, is_prerelease_version, parse_version, pick_android_apk,
-    pick_asset_by_name, pick_installer, safe_file_name, server_bundle_name, set_desktop_shell,
-    UpdateError, DEFAULT_REPO, GITHUB_API, MAX_INSTALLER_BYTES, SOURCE_REPO,
-};
 pub use integrity::download_plan;
 /// 「更新设置」弹窗的 GitHub 令牌接口（api::update 走这两条；加解密本体
 /// 只在 token 模块内部，见它的模块头）
 pub use token::{set_token, status_json};
+pub use version::{
+    api_base, assert_downloadable, asset_suffixes, compare_versions, custom_api_base,
+    desktop_shell, installer_kind, installer_suffixes, is_prerelease_version, parse_version,
+    pick_android_apk, pick_asset_by_name, pick_installer, safe_file_name, server_bundle_name,
+    set_desktop_shell, UpdateError, DEFAULT_REPO, GITHUB_API, MAX_INSTALLER_BYTES, SOURCE_REPO,
+};
 
 /// 请求 GitHub 的 UA（Node 版字面量，随项目改名同步）
 const USER_AGENT: &str = "agent2api-local-proxy";
@@ -151,7 +151,11 @@ impl UpdateManager {
             .ok()
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
-        let app_index = if explicit.is_some() { index::AppIndex::default() } else { index::cached() };
+        let app_index = if explicit.is_some() {
+            index::AppIndex::default()
+        } else {
+            index::cached()
+        };
         let repository = explicit.clone().unwrap_or_else(|| app_index.repo.clone());
         Self {
             inner: Arc::new(Mutex::new(Inner {
@@ -204,12 +208,21 @@ impl UpdateManager {
     /// 注意节流只影响「多久读一次」，不影响「解析后的值」：一旦读到过，就用它
     /// 覆盖 `repository` 并一直用下去（进程重启后重新读）。
     async fn resolve_repository(&self) -> String {
-        let (current, explicit) = { let guard = self.lock(); (guard.repository.clone(), guard.repository_explicit) };
-        if explicit { return current; }
+        let (current, explicit) = {
+            let guard = self.lock();
+            (guard.repository.clone(), guard.repository_explicit)
+        };
+        if explicit {
+            return current;
+        }
         let now = logging::now_ms();
         {
             let mut guard = self.lock();
-            if guard.index_checked_at != 0 && now.saturating_sub(guard.index_checked_at) < INDEX_RETRY_MS { return current; }
+            if guard.index_checked_at != 0
+                && now.saturating_sub(guard.index_checked_at) < INDEX_RETRY_MS
+            {
+                return current;
+            }
             guard.index_checked_at = now;
         }
         let resolved = index::resolve().await;
@@ -222,13 +235,20 @@ impl UpdateManager {
             guard.app_index = resolved;
             changed
         };
-        if changed { logging::verbose("[Update]", &format!("更新源仓库改为 {repository}（来自索引）")); }
+        if changed {
+            logging::verbose(
+                "[Update]",
+                &format!("更新源仓库改为 {repository}（来自索引）"),
+            );
+        }
         repository
     }
 
     pub fn force_update(&self, current: &str) -> Option<Value> {
         let guard = self.lock();
-        if guard.repository_explicit { return None; }
+        if guard.repository_explicit {
+            return None;
+        }
         guard.app_index.required(current)
     }
 
@@ -277,7 +297,11 @@ impl UpdateManager {
             .as_ref()
             .and_then(|value| value.get("asset"))
             .filter(|value| {
-                value.get("url").and_then(Value::as_str).map(|url| !url.is_empty()).unwrap_or(false)
+                value
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .map(|url| !url.is_empty())
+                    .unwrap_or(false)
             })
             .cloned();
         // 容器内更新包与它的 .sha256 伴随文件（非 Linux、或该发布没挂这两个
@@ -285,13 +309,20 @@ impl UpdateManager {
         let downloadable = |value: Option<&Value>| -> Option<Value> {
             value
                 .filter(|item| {
-                    item.get("url").and_then(Value::as_str).map(|url| !url.is_empty()).unwrap_or(false)
+                    item.get("url")
+                        .and_then(Value::as_str)
+                        .map(|url| !url.is_empty())
+                        .unwrap_or(false)
                 })
                 .cloned()
         };
-        let server_asset = downloadable(latest.as_ref().and_then(|value| value.get("serverBundle")));
-        let server_checksum =
-            downloadable(latest.as_ref().and_then(|value| value.get("serverChecksums")));
+        let server_asset =
+            downloadable(latest.as_ref().and_then(|value| value.get("serverBundle")));
+        let server_checksum = downloadable(
+            latest
+                .as_ref()
+                .and_then(|value| value.get("serverChecksums")),
+        );
         let latest_text = |key: &str| -> Value {
             match latest.as_ref().and_then(|value| value.get(key)) {
                 Some(Value::String(text)) if !text.is_empty() => Value::String(text.clone()),
@@ -305,7 +336,10 @@ impl UpdateManager {
         // 那份按仓库落库的 Release 快照（换台机器读缓存会读到别人的后缀）。
         let probe = latest.as_ref().and_then(|value| value.get("assetProbe"));
         let probe_field = |key: &str| -> Value {
-            probe.and_then(|value| value.get(key)).cloned().unwrap_or(Value::Null)
+            probe
+                .and_then(|value| value.get(key))
+                .cloned()
+                .unwrap_or(Value::Null)
         };
         let asset_probe = json!({
             "assetsTotal": probe_field("assetsTotal"),
@@ -317,10 +351,14 @@ impl UpdateManager {
             "expectedName": version::server_bundle_name(),
         });
         let capability = capabilities::current();
-        let systemd_task = (capability.deployment == "systemd").then(systemd::status).flatten();
+        let systemd_task = (capability.deployment == "systemd")
+            .then(systemd::status)
+            .flatten();
         let service_task = if capability.deployment == "windows-service" {
             windows_service::status()
-        } else { systemd_task.clone() };
+        } else {
+            systemd_task.clone()
+        };
         json!({
             "updateCapability": capability,
             "serviceTask": service_task,
@@ -402,8 +440,17 @@ impl UpdateManager {
             ));
         }
         // 下载还在跑的时候文件是半截的：宁可让人等，也不要拿半个包去替换
-        if self.lock().task.as_ref().map(|task| task.active).unwrap_or(false) {
-            return Err(UpdateError::with_status(400, "更新包还在下载中，请等下载完成后再安装"));
+        if self
+            .lock()
+            .task
+            .as_ref()
+            .map(|task| task.active)
+            .unwrap_or(false)
+        {
+            return Err(UpdateError::with_status(
+                400,
+                "更新包还在下载中，请等下载完成后再安装",
+            ));
         }
         // 已经应用过一次、还没重启：只允许重启，不再重复替换文件。
         if self.lock().pending_restart {
@@ -446,10 +493,16 @@ impl UpdateManager {
         }
         match compare_versions(&version, CURRENT_VERSION) {
             Some(order) if order < 0 => {
-                return Err(UpdateError::with_status(400, "容器内更新不支持降级到较旧版本"));
+                return Err(UpdateError::with_status(
+                    400,
+                    "容器内更新不支持降级到较旧版本",
+                ));
             }
             None => {
-                return Err(UpdateError::with_status(400, "更新包版本号无法比较，已放弃安装"));
+                return Err(UpdateError::with_status(
+                    400,
+                    "更新包版本号无法比较，已放弃安装",
+                ));
             }
             _ => {}
         }
@@ -461,7 +514,10 @@ impl UpdateManager {
         }
         let archive = self.download_dir().join(safe_file_name(&bundle));
         if !archive.is_file() {
-            return Err(UpdateError::with_status(400, "更新包尚未下载，请先点击「下载并更新」"));
+            return Err(UpdateError::with_status(
+                400,
+                "更新包尚未下载，请先点击「下载并更新」",
+            ));
         }
         let expected = match integrity::trusted_digest(&bundle_url).await {
             Some((hash, _)) => hash,
@@ -485,7 +541,11 @@ impl UpdateManager {
             "[Update]",
             &format!(
                 "✅ 已在容器内替换程序{}（v{version}），重启后生效",
-                if outcome.ui_updated { "与界面文件" } else { "" }
+                if outcome.ui_updated {
+                    "与界面文件"
+                } else {
+                    ""
+                }
             ),
         );
         Ok(json!({
@@ -523,12 +583,16 @@ static GLOBAL: std::sync::OnceLock<UpdateManager> = std::sync::OnceLock::new();
 
 /// 更新检查的排期按仓库隔离，缓存里的版本比较仍使用当前二进制版本。
 pub fn global_check_key() -> String {
-    GLOBAL.get().map(UpdateManager::check_key)
+    GLOBAL
+        .get()
+        .map(UpdateManager::check_key)
         .unwrap_or_else(|| format!("updateCheck:{DEFAULT_REPO}"))
 }
 
 pub fn required_update() -> Option<Value> {
-    GLOBAL.get().and_then(|manager| manager.force_update(CURRENT_VERSION))
+    GLOBAL
+        .get()
+        .and_then(|manager| manager.force_update(CURRENT_VERSION))
 }
 
 /// 初始化进程级管理器（幂等）

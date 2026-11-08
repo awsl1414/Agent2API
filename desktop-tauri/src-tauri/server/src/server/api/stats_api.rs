@@ -117,7 +117,10 @@ fn text_of(params: &Params, key: &str) -> Option<String> {
 
 /// 分页偏移：空串 / 非数字 / 负数 → 0（存储层的 `skip` 以 0 为起点）
 fn parse_offset(value: Option<&String>) -> usize {
-    let Some(text) = value.map(|text| text.trim()).filter(|text| !text.is_empty()) else {
+    let Some(text) = value
+        .map(|text| text.trim())
+        .filter(|text| !text.is_empty())
+    else {
         return 0;
     };
     text.parse::<usize>().unwrap_or(0)
@@ -129,7 +132,9 @@ fn parse_offset(value: Option<&String>) -> usize {
 /// 超上限的夹紧在存储层（`query_requests` 里 `clamp(1, MAX_LIMIT)`，即 500），
 /// 这里只负责把字符串解析成数字 —— 夹紧逻辑只有一处，两层各写一份会漂。
 fn parse_limit(value: Option<&String>) -> Option<usize> {
-    let text = value.map(|text| text.trim()).filter(|text| !text.is_empty())?;
+    let text = value
+        .map(|text| text.trim())
+        .filter(|text| !text.is_empty())?;
     text.parse::<usize>().ok().filter(|size| *size > 0)
 }
 
@@ -139,7 +144,10 @@ fn parse_limit(value: Option<&String>) -> Option<usize> {
 /// 闭区间）：两个日期都由用户在选择器上显式选定，缺失 / 格式错 / 起止倒置一律
 /// 400 —— 与 `range` 同一取舍（隐式换一个区间会让页面显示的与选的对不上，
 /// 报错比默默改口径好排查）。
-pub async fn stats_summary(State(state): State<ServerState>, Query(params): Query<Params>) -> Response {
+pub async fn stats_summary(
+    State(state): State<ServerState>,
+    Query(params): Query<Params>,
+) -> Response {
     // 先 trim 再比对：存储层的 `normalize_range` 也是先 trim 后匹配，
     // 若这里比对未 trim 的值，`?range=%207%20` 会被判 400 而存储层本可接受它 ——
     // 两层的容错度不一致时，用户看到的 400 会显得莫名其妙
@@ -148,7 +156,10 @@ pub async fn stats_summary(State(state): State<ServerState>, Query(params): Quer
     if !RANGES.contains(&requested.as_str()) {
         return errors::management_error(
             400,
-            format!("range 取值非法: {requested}（合法值: {}）", RANGES.join("、")),
+            format!(
+                "range 取值非法: {requested}（合法值: {}）",
+                RANGES.join("、")
+            ),
         );
     }
     let custom = if requested == "custom" {
@@ -189,11 +200,19 @@ pub async fn stats_summary(State(state): State<ServerState>, Query(params): Quer
     // `RequestStats::usage_summary` 的读取窗口说明）；这里解决的是「占着
     // runtime 线程」这一半。
     let api_key = text_of(&params, "apiKey");
-    if api_key.as_deref().is_some_and(|value| crate::server::request_stats::ApiKeyIdentity::from_filter(value).is_none()) {
-        return errors::management_error(400, "apiKey 取值非法（需要 key:<id>、env、none 或 unknown）");
+    if api_key.as_deref().is_some_and(|value| {
+        crate::server::request_stats::ApiKeyIdentity::from_filter(value).is_none()
+    }) {
+        return errors::management_error(
+            400,
+            "apiKey 取值非法（需要 key:<id>、env、none 或 unknown）",
+        );
     }
     let stats = state.request_stats();
-    let result = tokio::task::spawn_blocking(move || stats.usage_summary(&requested, custom, api_key.as_deref())).await;
+    let result = tokio::task::spawn_blocking(move || {
+        stats.usage_summary(&requested, custom, api_key.as_deref())
+    })
+    .await;
     match result {
         Ok(value) => ok_json(value),
         // 任务被取消（runtime 关闭中）或 panic：给一个可读的 500 而不是让
@@ -215,8 +234,14 @@ pub async fn stats_summary(State(state): State<ServerState>, Query(params): Quer
 /// 响应额外带 `running`：同一筛选条件下仍在进行中（status=0）的条数 ——
 /// 转发开始时就会插一条这样的行（见 `RequestStats::record_started`），
 /// 收尾后由终态记账覆盖。status 过滤也认 `running` 值（只看进行中）。
-pub async fn stats_requests(State(state): State<ServerState>, Query(params): Query<Params>) -> Response {
-    let filter = match checked_filter(&params) { Ok(value) => value, Err(response) => return response };
+pub async fn stats_requests(
+    State(state): State<ServerState>,
+    Query(params): Query<Params>,
+) -> Response {
+    let filter = match checked_filter(&params) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
     ok_json(state.request_stats().query_requests(&filter))
 }
 
@@ -228,15 +253,19 @@ fn filter_from_params(params: &Params) -> RequestQuery {
         offset: parse_offset(params.get("offset")),
         limit: parse_limit(params.get("limit")),
         // 模型名精确匹配；空串（输入框清空）当没筛
-        model: text_of(&params, "model"),
+        model: text_of(params, "model"),
         // provider id 精确匹配；空串当没筛（见 RequestQuery::provider）
-        provider: text_of(&params, "provider"),
+        provider: text_of(params, "provider"),
         client: params.get("client").map(|value| value.trim().to_string()),
-        api_key: text_of(&params, "apiKey"),
-        production_only: params.get("productionOnly").is_some_and(|value| value == "1"),
-        completed_only: params.get("completedOnly").is_some_and(|value| value == "1"),
+        api_key: text_of(params, "apiKey"),
+        production_only: params
+            .get("productionOnly")
+            .is_some_and(|value| value == "1"),
+        completed_only: params
+            .get("completedOnly")
+            .is_some_and(|value| value == "1"),
         // 只认 ok / error / running，其余值在存储层被忽略（不在这里重复实现归一）
-        status: text_of(&params, "status"),
+        status: text_of(params, "status"),
         // 闭开区间 [start, end)：翻页时上一页末尾的 ts 可直接当下页的 end
         start: parse_query_ms(params.get("start")),
         end: parse_query_ms(params.get("end")),
@@ -245,10 +274,17 @@ fn filter_from_params(params: &Params) -> RequestQuery {
 
 fn checked_filter(params: &Params) -> Result<RequestQuery, Response> {
     let mut filter = filter_from_params(params);
-    if filter.api_key.as_deref().is_some_and(|value| crate::server::request_stats::ApiKeyIdentity::from_filter(value).is_none()) {
-        return Err(errors::management_error(400, "apiKey 取值非法（需要 key:<id>、env、none 或 unknown）"));
+    if filter.api_key.as_deref().is_some_and(|value| {
+        crate::server::request_stats::ApiKeyIdentity::from_filter(value).is_none()
+    }) {
+        return Err(errors::management_error(
+            400,
+            "apiKey 取值非法（需要 key:<id>、env、none 或 unknown）",
+        ));
     }
-    if let Some((start, end)) = date_bounds(params).map_err(|message| errors::management_error(400, message))? {
+    if let Some((start, end)) =
+        date_bounds(params).map_err(|message| errors::management_error(400, message))?
+    {
         filter.start = Some(start);
         filter.end = Some(end);
     }
@@ -291,10 +327,13 @@ pub async fn clear_stats_requests(
             )
         }
     };
-    let filter = match checked_filter(&params) { Ok(value) => value, Err(response) => return response };
+    let filter = match checked_filter(&params) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
     let has_filters = filter.has_filters();
     if !has_filters {
-        let explicit_all = params.get("all").map_or(false, |value| {
+        let explicit_all = params.get("all").is_some_and(|value| {
             let text = value.trim();
             text == "1" || text.eq_ignore_ascii_case("true")
         });
@@ -306,11 +345,16 @@ pub async fn clear_stats_requests(
         }
     }
     let stats = state.request_stats();
-    let result = tokio::task::spawn_blocking(move || stats.clear_requests(&filter, mode == "raw")).await;
+    let result =
+        tokio::task::spawn_blocking(move || stats.clear_requests(&filter, mode == "raw")).await;
     let cleared = match result {
         Ok(Some(value)) => value,
-        Ok(None) => return errors::management_error(500, "请求数据清理失败：数据库不可用或事务执行失败"),
-        Err(error) => return errors::management_error(500, format!("请求数据清理任务失败: {error}")),
+        Ok(None) => {
+            return errors::management_error(500, "请求数据清理失败：数据库不可用或事务执行失败")
+        }
+        Err(error) => {
+            return errors::management_error(500, format!("请求数据清理任务失败: {error}"))
+        }
     };
     let deleted = cleared.deleted;
     match (mode, has_filters) {
@@ -372,7 +416,10 @@ pub async fn stats_clear_preview(
     State(state): State<ServerState>,
     Query(params): Query<Params>,
 ) -> Response {
-    let filter = match checked_filter(&params) { Ok(value) => value, Err(response) => return response };
+    let filter = match checked_filter(&params) {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
     let stats = state.request_stats();
     match tokio::task::spawn_blocking(move || stats.clear_preview(&filter)).await {
         Ok(Some(value)) => ok_json(value),

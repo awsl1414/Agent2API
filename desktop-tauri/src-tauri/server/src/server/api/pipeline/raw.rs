@@ -34,7 +34,10 @@ pub(super) struct RawCapture {
 
 impl RawCapture {
     pub(super) fn new(enabled: bool) -> Self {
-        Self { enabled, buf: Vec::new() }
+        Self {
+            enabled,
+            buf: Vec::new(),
+        }
     }
 
     pub(super) fn push(&mut self, chunk: &[u8]) {

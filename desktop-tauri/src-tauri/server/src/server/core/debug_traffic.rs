@@ -269,10 +269,9 @@ fn record_sync(entry: TrafficEntry) {
         Some(Ok(())) => {}
         Some(Err(error)) => {
             eprintln!("[Debug] 调试报文写入数据库失败: {error}");
-            return;
         }
         // 连接中毒（`Db` 的取向：不拿半截数据当真相）
-        None => return,
+        None => (),
     }
 }
 
@@ -281,7 +280,10 @@ fn record_sync(entry: TrafficEntry) {
 /// 同 id 多行时取**最后写入的那一份**（`ORDER BY ts DESC, rowid DESC LIMIT 1`），
 /// 与改造前「内存里从尾部往前找第一个匹配」逐字一致。
 pub fn get(id: &str) -> Option<TrafficEntry> {
-    db()?.with(|conn| sql::select_one(conn, id)).and_then(Result::ok).flatten()
+    db()?
+        .with(|conn| sql::select_one(conn, id))
+        .and_then(Result::ok)
+        .flatten()
 }
 
 /// 一条原始报文记录。
@@ -517,77 +519,6 @@ impl Drop for TrafficCapture {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{MAX_BODY_BYTES, MAX_ENTRIES, MAX_TOTAL_BYTES, TrafficEntry};
-    use crate::server::db::test_temp::TempDb;
-
-    fn entry(id: &str, ts: i64, size: usize) -> TrafficEntry {
-        TrafficEntry {
-            id: id.to_string(),
-            ts,
-            url: "https://example.test/v1/chat/completions".to_string(),
-            provider: "test".to_string(),
-            request_headers: serde_json::json!({}),
-            request_body: serde_json::json!({"payload": "x".repeat(size)}),
-            status: Some(200),
-            response_headers: None,
-            response_body: None,
-            truncated: false,
-        }
-    }
-
-    #[test]
-    fn total_byte_limit_keeps_newest_rows() {
-        let (db, _guard) = TempDb::open("debug-limit");
-        let pragmas = db
-            .with(|conn| {
-                let auto_vacuum = conn
-                    .pragma_query_value(None, "auto_vacuum", |row| row.get::<_, i64>(0))
-                    .ok()?;
-                let wal_autocheckpoint = conn
-                    .pragma_query_value(None, "wal_autocheckpoint", |row| row.get::<_, i64>(0))
-                    .ok()?;
-                Some((auto_vacuum, wal_autocheckpoint))
-            })
-            .flatten();
-        assert_eq!(pragmas, Some((2, 10000)));
-        let _ = db.with_mut(|conn| {
-            for (index, size) in [1usize, 2, 3].into_iter().enumerate() {
-                super::sql::upsert_entry(conn, &entry(&format!("e{index}"), index as i64, size))?;
-            }
-            conn.execute(
-                "UPDATE debug_traffic SET size = 100000000 WHERE id IN ('e0', 'e1', 'e2')",
-                [],
-            )?;
-            super::sql::enforce_limits(conn)
-        });
-        let rows = db.with(|conn| {
-            conn.query_row("SELECT COUNT(*), COALESCE(SUM(size),0) FROM debug_traffic", [], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
-            })
-        });
-        let (count, bytes) = rows.and_then(Result::ok).unwrap_or((0, 0));
-        assert!(count <= 2);
-        assert!(bytes <= MAX_TOTAL_BYTES);
-        assert!(MAX_BODY_BYTES > 0 && MAX_TOTAL_BYTES > 0);
-    }
-
-    #[test]
-    fn oversized_body_is_not_recorded() {
-        let entry = entry("oversized", 4, MAX_BODY_BYTES);
-        let request_size = entry.request_body.to_string().len();
-        assert!(super::payload_exceeds_limit(request_size, 0));
-    }
-
-    #[test]
-    fn entry_limit_never_exceeds_one_hundred() {
-        let request_limit = crate::server::config::retention_settings().request_count;
-        assert_eq!(super::max_entries(), request_limit.clamp(1, 100) as usize);
-        assert_eq!(MAX_ENTRIES, 100);
-    }
-}
-
 /// 一条空白记录的构造（`begin` / `reset_request` 共用）
 fn blank_entry(
     id: &str,
@@ -688,4 +619,77 @@ pub(crate) fn parse_legacy_jsonl(text: &str) -> Vec<TrafficEntry> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TrafficEntry, MAX_BODY_BYTES, MAX_ENTRIES, MAX_TOTAL_BYTES};
+    use crate::server::db::test_temp::TempDb;
+
+    fn entry(id: &str, ts: i64, size: usize) -> TrafficEntry {
+        TrafficEntry {
+            id: id.to_string(),
+            ts,
+            url: "https://example.test/v1/chat/completions".to_string(),
+            provider: "test".to_string(),
+            request_headers: serde_json::json!({}),
+            request_body: serde_json::json!({"payload": "x".repeat(size)}),
+            status: Some(200),
+            response_headers: None,
+            response_body: None,
+            truncated: false,
+        }
+    }
+
+    #[test]
+    fn total_byte_limit_keeps_newest_rows() {
+        let (db, _guard) = TempDb::open("debug-limit");
+        let pragmas = db
+            .with(|conn| {
+                let auto_vacuum = conn
+                    .pragma_query_value(None, "auto_vacuum", |row| row.get::<_, i64>(0))
+                    .ok()?;
+                let wal_autocheckpoint = conn
+                    .pragma_query_value(None, "wal_autocheckpoint", |row| row.get::<_, i64>(0))
+                    .ok()?;
+                Some((auto_vacuum, wal_autocheckpoint))
+            })
+            .flatten();
+        assert_eq!(pragmas, Some((2, 10000)));
+        let _ = db.with_mut(|conn| {
+            for (index, size) in [1usize, 2, 3].into_iter().enumerate() {
+                super::sql::upsert_entry(conn, &entry(&format!("e{index}"), index as i64, size))?;
+            }
+            conn.execute(
+                "UPDATE debug_traffic SET size = 100000000 WHERE id IN ('e0', 'e1', 'e2')",
+                [],
+            )?;
+            super::sql::enforce_limits(conn)
+        });
+        let rows = db.with(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*), COALESCE(SUM(size),0) FROM debug_traffic",
+                [],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+            )
+        });
+        let (count, bytes) = rows.and_then(Result::ok).unwrap_or((0, 0));
+        assert!(count <= 2);
+        assert!(bytes <= MAX_TOTAL_BYTES);
+        assert!(MAX_BODY_BYTES > 0 && MAX_TOTAL_BYTES > 0);
+    }
+
+    #[test]
+    fn oversized_body_is_not_recorded() {
+        let entry = entry("oversized", 4, MAX_BODY_BYTES);
+        let request_size = entry.request_body.to_string().len();
+        assert!(super::payload_exceeds_limit(request_size, 0));
+    }
+
+    #[test]
+    fn entry_limit_never_exceeds_one_hundred() {
+        let request_limit = crate::server::config::retention_settings().request_count;
+        assert_eq!(super::max_entries(), request_limit.clamp(1, 100) as usize);
+        assert_eq!(MAX_ENTRIES, 100);
+    }
 }

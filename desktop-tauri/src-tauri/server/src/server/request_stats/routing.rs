@@ -7,9 +7,12 @@ use super::{entry_json, sql, RequestStats};
 
 impl RequestStats {
     pub fn routing_metrics(&self, model: Option<&str>) -> Value {
-        let start = chrono::Local::now().date_naive().and_hms_opt(0, 0, 0)
+        let start = chrono::Local::now()
+            .date_naive()
+            .and_hms_opt(0, 0, 0)
             .and_then(|time| time.and_local_timezone(chrono::Local).earliest())
-            .map(|time| time.timestamp_millis()).unwrap_or(0);
+            .map(|time| time.timestamp_millis())
+            .unwrap_or(0);
         let model = model.unwrap_or("");
         let loaded = {
             let guard = self.guard();
@@ -44,11 +47,19 @@ impl RequestStats {
         loaded.unwrap_or_else(|| json!({ "available": false }))
     }
 
-    pub fn routing_replays(&self, model: Option<&str>, offset: usize, limit: usize, status: &str) -> Value {
+    pub fn routing_replays(
+        &self,
+        model: Option<&str>,
+        offset: usize,
+        limit: usize,
+        status: &str,
+    ) -> Value {
         let model = model.unwrap_or("");
         let limit = limit.clamp(1, 100);
         let status_clause = match status {
-            "error" => " AND status <> 0 AND NOT (status >= 200 AND status < 300 AND error IS NULL)",
+            "error" => {
+                " AND status <> 0 AND NOT (status >= 200 AND status < 300 AND error IS NULL)"
+            }
             "sticky" => " AND json_valid(route) AND json_extract(route, '$.stickyHit') = 1",
             _ => "",
         };

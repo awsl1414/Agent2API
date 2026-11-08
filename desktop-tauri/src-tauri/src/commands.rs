@@ -32,7 +32,10 @@ pub struct ApiRequest {
 #[tauri::command]
 pub async fn api_request(request: ApiRequest) -> Result<Value, String> {
     match request.api_key.as_deref() {
-        Some(key) => gateway::call_with_api_key(&request.method, &request.path, request.body.as_ref(), key).await,
+        Some(key) => {
+            gateway::call_with_api_key(&request.method, &request.path, request.body.as_ref(), key)
+                .await
+        }
         None => gateway::call(&request.method, &request.path, request.body.as_ref()).await,
     }
 }
@@ -342,7 +345,11 @@ pub async fn panel_session_clear() -> Result<Value, String> {
 /// 重启用 [`schedule_app_restart`]：监听地址在 bind 之后就改不了，
 /// 与 `change_port` 同一条铁律。
 #[tauri::command]
-pub async fn change_lan_access(app: AppHandle, enabled: bool, panel: bool) -> Result<Value, String> {
+pub async fn change_lan_access(
+    app: AppHandle,
+    enabled: bool,
+    panel: bool,
+) -> Result<Value, String> {
     crate::startup::wait().await?;
     if enabled && !crate::server::access::admin_registered() {
         return Err("尚未注册面板管理员：请先完成注册再开启局域网访问".to_string());
@@ -351,12 +358,19 @@ pub async fn change_lan_access(app: AppHandle, enabled: bool, panel: bool) -> Re
     let panel = enabled && panel;
 
     let mut created_key = None;
-    if enabled && crate::server::config::current().active_api_keys().is_empty() {
+    if enabled
+        && crate::server::config::current()
+            .active_api_keys()
+            .is_empty()
+    {
         let entry = crate::server::core::api_keys::add("默认", None, Vec::new(), Vec::new())
             .map_err(|message| format!("自动创建网关 Key 失败: {message}"))?;
         crate::server::logging::log(
             "[Config]",
-            &format!("✅ 已自动创建网关 Key「{}」（局域网访问开启流程）", entry.name),
+            &format!(
+                "✅ 已自动创建网关 Key「{}」（局域网访问开启流程）",
+                entry.name
+            ),
         );
         created_key = Some(entry.public_json());
     }
@@ -475,10 +489,7 @@ pub async fn start_autoclaw_oauth_login(
 /// 前端收到返回的 `state` 后进入「等验证码」状态，用户填码后走
 /// [`login_kuku_sms_verify`]。
 #[tauri::command]
-pub async fn login_kuku_sms_send(
-    app: AppHandle,
-    phone: String,
-) -> Result<Value, String> {
+pub async fn login_kuku_sms_send(app: AppHandle, phone: String) -> Result<Value, String> {
     login::start_kuku_sms(&app, &phone).await
 }
 
@@ -488,10 +499,7 @@ pub async fn login_kuku_sms_send(
 /// 前端直接走「已添加账号」收尾逻辑）。手机号在发码时已随窗口带进去，
 /// 这里只需要验证码。
 #[tauri::command]
-pub async fn login_kuku_sms_verify(
-    app: AppHandle,
-    code: String,
-) -> Result<Value, String> {
+pub async fn login_kuku_sms_verify(app: AppHandle, code: String) -> Result<Value, String> {
     login::submit_kuku_sms_code(&app, &code).await
 }
 
@@ -504,7 +512,12 @@ pub fn login_state(app: AppHandle) -> LoginState {
             edition: Some(active.edition),
             provider: Some(active.provider),
         },
-        None => LoginState { active: false, mode: None, edition: None, provider: None },
+        None => LoginState {
+            active: false,
+            mode: None,
+            edition: None,
+            provider: None,
+        },
     }
 }
 
@@ -519,7 +532,11 @@ pub async fn cancel_login(app: AppHandle) -> Result<Value, String> {
 pub async fn export_logs(app: AppHandle, query: Option<String>) -> Result<Value, String> {
     let query = query.unwrap_or_default();
     let query = query.trim_start_matches('?');
-    let path = if query.is_empty() { "/api/logs/download".to_string() } else { format!("/api/logs/download?{query}") };
+    let path = if query.is_empty() {
+        "/api/logs/download".to_string()
+    } else {
+        format!("/api/logs/download?{query}")
+    };
     let text = gateway::call_text("GET", &path).await?;
     let count = text.lines().filter(|line| !line.trim().is_empty()).count();
     if count == 0 {
@@ -587,8 +604,12 @@ pub async fn get_app_settings(app: AppHandle) -> Result<AppSettings, String> {
         current.autostart = enabled;
     }
     // 顺手把缓存与磁盘对齐：拦截关窗时要用到最新值
-    app.state::<AppState>().window.set_close_to_tray(current.close_to_tray);
-    app.state::<AppState>().window.set_lightweight(current.lightweight_mode);
+    app.state::<AppState>()
+        .window
+        .set_close_to_tray(current.close_to_tray);
+    app.state::<AppState>()
+        .window
+        .set_lightweight(current.lightweight_mode);
     Ok(current)
 }
 
@@ -627,8 +648,12 @@ pub async fn save_app_settings(app: AppHandle, patch: AppSettings) -> Result<App
 
     settings::save(&saved)?;
     // 立即生效：配置改完不用重启，下一次关窗就走新行为
-    app.state::<AppState>().window.set_close_to_tray(saved.close_to_tray);
-    app.state::<AppState>().window.set_lightweight(saved.lightweight_mode);
+    app.state::<AppState>()
+        .window
+        .set_close_to_tray(saved.close_to_tray);
+    app.state::<AppState>()
+        .window
+        .set_lightweight(saved.lightweight_mode);
     Ok(saved)
 }
 
@@ -703,11 +728,10 @@ pub async fn import_accounts(app: AppHandle) -> Result<Value, String> {
     let path = target
         .into_path()
         .map_err(|error| format!("文件路径无效: {error}"))?;
-    let text = std::fs::read_to_string(&path)
-        .map_err(|error| format!("读取文件失败: {error}"))?;
+    let text = std::fs::read_to_string(&path).map_err(|error| format!("读取文件失败: {error}"))?;
 
-    let parsed: Value = serde_json::from_str(&text)
-        .map_err(|error| format!("文件不是有效 JSON: {error}"))?;
+    let parsed: Value =
+        serde_json::from_str(&text).map_err(|error| format!("文件不是有效 JSON: {error}"))?;
     let document = unwrap_envelope_file(parsed);
     let accounts = match &document {
         Value::Object(map) if map.contains_key("accounts") => map
@@ -715,8 +739,14 @@ pub async fn import_accounts(app: AppHandle) -> Result<Value, String> {
             .and_then(Value::as_array)
             .cloned()
             .ok_or("文件中缺少 accounts 数组")?,
-        Value::Object(map) if map.get("id").and_then(Value::as_str)
-            .is_some_and(|id| !id.trim().is_empty()) => vec![document.clone()],
+        Value::Object(map)
+            if map
+                .get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| !id.trim().is_empty()) =>
+        {
+            vec![document.clone()]
+        }
         Value::Array(items) => items.clone(),
         _ => return Err("文件内容既不是导出文件、单账号文件，也不是账号数组".to_string()),
     };
@@ -790,7 +820,10 @@ pub async fn export_database(
     )
     .await?;
     if let Value::Object(map) = &mut data {
-        map.insert("file".to_string(), Value::String(path.to_string_lossy().to_string()));
+        map.insert(
+            "file".to_string(),
+            Value::String(path.to_string_lossy().to_string()),
+        );
     }
     Ok(data)
 }
@@ -823,7 +856,8 @@ pub async fn import_database(app: AppHandle, password: Option<String>) -> Result
     let path = target
         .into_path()
         .map_err(|error| format!("文件路径无效: {error}"))?;
-    let payload = json!({ "filePath": path.to_string_lossy(), "password": password.unwrap_or_default() });
+    let payload =
+        json!({ "filePath": path.to_string_lossy(), "password": password.unwrap_or_default() });
     // 即便放宽到 30 分钟，请求仍可能先于后端收尾而超时（超大库 / 极慢盘）。
     // 那时**不能**报失败：后端照旧在跑，进度弹窗还在轮询。所以超时后去问一次
     // 进度快照 —— 它带着真实阶段，界面据此继续显示「正在替换主数据库…」，
@@ -967,7 +1001,10 @@ pub async fn system_info(app: AppHandle, hide_username: Option<bool>) -> Result<
             // 极端情形下会失败 —— 失败给空串，不把整条命令带崩。
             let webview = tauri::webview_version().unwrap_or_default();
             runtime.insert("webviewVersion".to_string(), Value::String(webview));
-            runtime.insert("debugBuild".to_string(), Value::Bool(cfg!(debug_assertions)));
+            runtime.insert(
+                "debugBuild".to_string(),
+                Value::Bool(cfg!(debug_assertions)),
+            );
         }
     }
     Ok(info)
@@ -1036,11 +1073,11 @@ pub fn run_installer(app: AppHandle, path: String, restart: Option<bool>) -> Res
         let _ = &app;
         let _ = restart;
         crate::update::launch_installer(&target, false)?;
-        return Ok(json!({
+        Ok(json!({
             "launched": true,
             "path": target.to_string_lossy(),
             "restart": false,
-        }));
+        }))
     }
 
     // Linux：deb 交给图形安装器（不退出），AppImage 走「让位 + 启动」（要退出）
@@ -1144,7 +1181,9 @@ pub fn set_window_theme(app: AppHandle, theme: Option<String>) -> Result<(), Str
     let window = app
         .get_webview_window(crate::MAIN_WINDOW_LABEL)
         .ok_or_else(|| "主窗口不存在".to_string())?;
-    window.set_theme(theme).map_err(|error| format!("设置窗口主题失败: {error}"))
+    window
+        .set_theme(theme)
+        .map_err(|error| format!("设置窗口主题失败: {error}"))
 }
 
 /// 设置主窗口的界面缩放（浏览器缩放同款：整体缩放整页，含布局与字号）。
@@ -1168,7 +1207,10 @@ pub fn set_zoom(app: AppHandle, scale: f64) -> Result<f64, String> {
     // 先规整再比范围：0.95 这类因子在浮点里是 0.9499999…，直接比大小会把 95% 误判出界
     let factor = (scale * 100.0).round() / 100.0;
     if !(MIN..=MAX).contains(&factor) {
-        return Err(format!("界面缩放需在 80%–130% 之间（收到 {:.0}%）", factor * 100.0));
+        return Err(format!(
+            "界面缩放需在 80%–130% 之间（收到 {:.0}%）",
+            factor * 100.0
+        ));
     }
     let window = main_window(&app)?;
     window
@@ -1195,7 +1237,9 @@ pub fn set_zoom(app: AppHandle, scale: f64) -> Result<f64, String> {
 #[tauri::command]
 pub fn window_minimize(app: AppHandle) -> Result<(), String> {
     let window = main_window(&app)?;
-    window.minimize().map_err(|error| format!("最小化窗口失败: {error}"))
+    window
+        .minimize()
+        .map_err(|error| format!("最小化窗口失败: {error}"))
 }
 
 /// 切换主窗口最大化 / 还原（标题栏「最大化」按钮）。
@@ -1226,7 +1270,9 @@ pub fn window_toggle_maximize(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn window_close(app: AppHandle) -> Result<(), String> {
     let window = main_window(&app)?;
-    window.close().map_err(|error| format!("关闭窗口失败: {error}"))
+    window
+        .close()
+        .map_err(|error| format!("关闭窗口失败: {error}"))
 }
 
 /// 查询主窗口是否处于最大化（标题栏据此切换最大化 / 还原图标）。
@@ -1237,7 +1283,9 @@ pub fn window_close(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn window_is_maximized(app: AppHandle) -> Result<bool, String> {
     let window = main_window(&app)?;
-    window.is_maximized().map_err(|error| format!("查询窗口状态失败: {error}"))
+    window
+        .is_maximized()
+        .map_err(|error| format!("查询窗口状态失败: {error}"))
 }
 
 /// 取主窗口句柄：四个窗口命令共用的一步查找（不存在时报可读错误）。
@@ -1282,4 +1330,3 @@ fn timestamp_for_filename() -> String {
 
     format!("{year:04}-{month:02}-{day:02}-{hour:02}-{minute:02}-{second:02}")
 }
-

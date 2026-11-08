@@ -128,7 +128,9 @@ impl AuthService {
         let entry = super::blocking::run(move || match scope {
             Some(provider) => store.current_entry_for_provider(&provider),
             None => store.get_current_entry(),
-        }).await.map_err(|error| WorkBuddyAuthError::new(error.message))?;
+        })
+        .await
+        .map_err(|error| WorkBuddyAuthError::new(error.message))?;
         Ok(entry.map(|entry| entry.session))
     }
 
@@ -318,12 +320,18 @@ pub fn with_expires_at(mut auth: Value) -> Value {
         .get("expiresAt")
         .and_then(Value::as_f64)
         .filter(|value| *value != 0.0)
-        .unwrap_or_else(|| if expires_in != 0.0 { now + expires_in * 1000.0 } else { 0.0 });
+        .unwrap_or({
+            if expires_in != 0.0 {
+                now + expires_in * 1000.0
+            } else {
+                0.0
+            }
+        });
     let refresh_expires_at = object
         .get("refreshExpiresAt")
         .and_then(Value::as_f64)
         .filter(|value| *value != 0.0)
-        .unwrap_or_else(|| {
+        .unwrap_or({
             if refresh_expires_in != 0.0 {
                 now + refresh_expires_in * 1000.0
             } else {
@@ -339,7 +347,10 @@ pub fn with_expires_at(mut auth: Value) -> Value {
     // `Date.now() + n*1000` 这种整数值不会输出 `.0`，浮点会让 accounts.json
     // 与本机展示的时间戳出现「看起来一样但文本不同」的差异
     object.insert("expiresAt".to_string(), json_number(expires_at));
-    object.insert("refreshExpiresAt".to_string(), json_number(refresh_expires_at));
+    object.insert(
+        "refreshExpiresAt".to_string(),
+        json_number(refresh_expires_at),
+    );
     object.insert("lastRefreshTime".to_string(), json_number(last_refresh));
     auth
 }

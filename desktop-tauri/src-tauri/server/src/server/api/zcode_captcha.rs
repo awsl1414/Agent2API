@@ -15,12 +15,20 @@ use crate::server::logging;
 use crate::server::ServerState;
 
 /// 全局令牌入池不需要账号；读取配置时按当前启用的套餐池账号选地区。
-async fn call_action(state: &ServerState, account_id: &str, action: &str, payload: &Value) -> Result<Value, (i32, String)> {
+async fn call_action(
+    state: &ServerState,
+    account_id: &str,
+    action: &str,
+    payload: &Value,
+) -> Result<Value, (i32, String)> {
     let adapter = if account_id.is_empty() {
-        zcode::region::Region::ALL.into_iter()
-            .find_map(|region| crate::server::core::providers::adapter::adapter_by_id(region.provider_id()))
+        zcode::region::Region::ALL.into_iter().find_map(|region| {
+            crate::server::core::providers::adapter::adapter_by_id(region.provider_id())
+        })
     } else {
-        state.store().account_provider_of(account_id)
+        state
+            .store()
+            .account_provider_of(account_id)
             .and_then(|provider| crate::server::core::providers::adapter::adapter_by_id(&provider))
     };
     let Some(adapter) = adapter else {
@@ -38,15 +46,28 @@ async fn call_action(state: &ServerState, account_id: &str, action: &str, payloa
 /// 库存概况补上网关的显示参数、账号计数和近期请求需求。
 async fn stats_json(state: &ServerState) -> Value {
     let (start_plan_accounts, account_id) = start_plan_accounts(state);
-    let mut body = match call_action(state, account_id.as_deref().unwrap_or(""), "captcha.stats", &Value::Null).await {
+    let mut body = match call_action(
+        state,
+        account_id.as_deref().unwrap_or(""),
+        "captcha.stats",
+        &Value::Null,
+    )
+    .await
+    {
         Ok(body) => body,
         // 插件不在时给一张**如实**的空表（而不是 500）：界面据此显示
         // 「不可用」，铸造器也就不会白烧阿里云配额。
         Err((_status, message)) => json!({ "ready": 0, "required": false, "error": message }),
     };
     let ready = body.get("ready").and_then(Value::as_u64).unwrap_or(0);
-    let required = body.get("required").and_then(Value::as_bool).unwrap_or(false);
-    let demand_active = body.get("demandActive").and_then(Value::as_bool).unwrap_or(false);
+    let required = body
+        .get("required")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let demand_active = body
+        .get("demandActive")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let pool = config::captcha_pool_settings();
     if let Some(object) = body.as_object_mut() {
         object.insert("target".to_string(), Value::from(pool.target as u64));
@@ -84,7 +105,10 @@ fn start_plan_accounts(state: &ServerState) -> (usize, Option<String>) {
     let mut start_plan_id: Option<String> = None;
     let mut fallback_id: Option<String> = None;
     for account in accounts {
-        let provider = account.get("provider").and_then(Value::as_str).unwrap_or("");
+        let provider = account
+            .get("provider")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         if zcode::region::Region::from_provider_id(provider).is_none() {
             continue;
         }
@@ -127,11 +151,9 @@ pub async fn push_captcha(State(state): State<ServerState>, body: Bytes) -> Resp
     };
     // 入池的判据（param 非空）也在插件里：网关不解析令牌形态，它只知道
     // 「有一批条目要推过去」。插件回 `accepted`，网关据此决定要不要报 400。
-    let accepted = match call_action(&state, "", "captcha.push", &json!({ "tokens": items })).await {
-        Ok(outcome) => outcome
-            .get("accepted")
-            .and_then(Value::as_u64)
-            .unwrap_or(0),
+    let accepted = match call_action(&state, "", "captcha.push", &json!({ "tokens": items })).await
+    {
+        Ok(outcome) => outcome.get("accepted").and_then(Value::as_u64).unwrap_or(0),
         Err((status_code, message)) => return management_error(status_code, message),
     };
     if accepted == 0 {

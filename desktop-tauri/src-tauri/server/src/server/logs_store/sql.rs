@@ -142,16 +142,17 @@ impl FilterPlan {
         self.view.matches(entry)
             && self
                 .level
-                .map_or(true, |rank| level_rank(&entry.level) >= rank)
+                .is_none_or(|rank| level_rank(&entry.level) >= rank)
             && self
                 .category
                 .as_ref()
-                .map_or(true, |category| entry.category == *category)
-            && self.keyword.as_ref().map_or(true, |keyword| {
+                .is_none_or(|category| entry.category == *category)
+            && self.keyword.as_ref().is_none_or(|keyword| {
                 entry.message.to_lowercase().contains(keyword)
-                    || entry.data.as_ref().map_or(false, |data| {
-                        data.to_string().to_lowercase().contains(keyword)
-                    })
+                    || entry
+                        .data
+                        .as_ref()
+                        .is_some_and(|data| data.to_string().to_lowercase().contains(keyword))
             })
     }
 }

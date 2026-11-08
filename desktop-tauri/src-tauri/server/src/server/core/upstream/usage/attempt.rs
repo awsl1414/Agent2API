@@ -57,12 +57,16 @@ pub struct RetryEvent {
 
 impl TelemetrySnapshot {
     pub(super) fn current_attempt_mut(&mut self) -> Option<&mut AttemptDetail> {
-        if self.attempts > MAX_ATTEMPT_DETAILS as i64 { return None; }
+        if self.attempts > MAX_ATTEMPT_DETAILS as i64 {
+            return None;
+        }
         self.attempts_detail.last_mut()
     }
 
     pub fn finish_trace(&mut self, finished_at: i64, error: Option<&str>) {
-        let Some(last) = self.current_attempt_mut() else { return };
+        let Some(last) = self.current_attempt_mut() else {
+            return;
+        };
         if last.finished_at.is_none() {
             last.finished_at = Some(finished_at.max(last.started_at.unwrap_or(finished_at)));
         }
@@ -77,7 +81,9 @@ impl TelemetrySnapshot {
 impl RequestTelemetry {
     pub fn set_route_decision(&self, decision: Value) {
         let mut guard = self.lock();
-        if guard.route.as_ref() == Some(&decision) { return; }
+        if guard.route.as_ref() == Some(&decision) {
+            return;
+        }
         guard.route = Some(decision);
         guard.route_revision = guard.route_revision.wrapping_add(1);
         self.flush_live(&guard);
@@ -89,7 +95,9 @@ impl RequestTelemetry {
 
     pub fn note_attempt_response(&self) {
         let mut guard = self.lock();
-        let Some(last) = guard.current_attempt_mut() else { return };
+        let Some(last) = guard.current_attempt_mut() else {
+            return;
+        };
         if last.response_at.is_none() {
             last.response_at = Some(crate::server::logging::now_ms());
             self.flush_live(&guard);
@@ -98,21 +106,62 @@ impl RequestTelemetry {
 
     pub fn note_attempt_started(&self, provider: &str, account: &str) {
         let mut guard = self.lock();
-        if guard.attempts_detail.len() >= MAX_ATTEMPT_DETAILS { return; }
+        if guard.attempts_detail.len() >= MAX_ATTEMPT_DETAILS {
+            return;
+        }
         let account_id = guard.account_id.clone();
-        let candidate_id = guard.route.as_ref().and_then(|route| route.get("pickedCandidate")).and_then(Value::as_str).unwrap_or(&account_id).to_string();
-        let member_id = crate::server::core::routing_groups::member_key(&candidate_id).unwrap_or("").to_string();
-        let reason = guard.route.as_ref()
-            .and_then(|route| route.get("ordered")).and_then(Value::as_array)
-            .and_then(|entries| entries.iter().find(|entry| entry.get("candidateId").and_then(Value::as_str).unwrap_or_else(|| entry.get("id").and_then(Value::as_str).unwrap_or("")) == candidate_id))
-            .and_then(|entry| entry.get("reason")).and_then(Value::as_str).unwrap_or("");
+        let candidate_id = guard
+            .route
+            .as_ref()
+            .and_then(|route| route.get("pickedCandidate"))
+            .and_then(Value::as_str)
+            .unwrap_or(&account_id)
+            .to_string();
+        let member_id = crate::server::core::routing_groups::member_key(&candidate_id)
+            .unwrap_or("")
+            .to_string();
+        let reason = guard
+            .route
+            .as_ref()
+            .and_then(|route| route.get("ordered"))
+            .and_then(Value::as_array)
+            .and_then(|entries| {
+                entries.iter().find(|entry| {
+                    entry
+                        .get("candidateId")
+                        .and_then(Value::as_str)
+                        .unwrap_or_else(|| entry.get("id").and_then(Value::as_str).unwrap_or(""))
+                        == candidate_id
+                })
+            })
+            .and_then(|entry| entry.get("reason"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
         let reason = truncate_chars(reason, MAX_ATTEMPT_NOTICE_CHARS);
-        let sticky_hit = guard.route.as_ref().and_then(|route| route.get("stickyHit")).and_then(Value::as_bool).unwrap_or(false);
+        let sticky_hit = guard
+            .route
+            .as_ref()
+            .and_then(|route| route.get("stickyHit"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         guard.attempts_detail.push(AttemptDetail {
-            provider: provider.to_string(), account: truncate_chars(account, MAX_ATTEMPT_ACCOUNT_CHARS),
-            account_id, candidate_id, member_id, model: String::new(), reasoning: String::new(), reason, sticky_hit,
-            started_at: Some(crate::server::logging::now_ms()), response_at: None, finished_at: None,
-            status: None, error: None, retries: Vec::new(), notice: None, body_bytes: None,
+            provider: provider.to_string(),
+            account: truncate_chars(account, MAX_ATTEMPT_ACCOUNT_CHARS),
+            account_id,
+            candidate_id,
+            member_id,
+            model: String::new(),
+            reasoning: String::new(),
+            reason,
+            sticky_hit,
+            started_at: Some(crate::server::logging::now_ms()),
+            response_at: None,
+            finished_at: None,
+            status: None,
+            error: None,
+            retries: Vec::new(),
+            notice: None,
+            body_bytes: None,
         });
         self.enter_phase(&mut guard, LogPhase::Waiting);
         self.flush_live(&guard);

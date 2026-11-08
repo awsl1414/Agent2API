@@ -74,8 +74,12 @@ pub(super) struct LoginResult {
 /// JWT 是否还能用（`exp` 有效且距到期还有 [`EXPIRY_SKEW_SECONDS`] 以上）。
 /// 解析不出 payload / 没有 `exp` 一律视为不能用 —— 宁多重登一次。
 pub(super) fn jwt_reusable(jwt: &str) -> bool {
-    let Some(payload) = jwt_payload(jwt) else { return false };
-    let Some(exp) = payload.get("exp").and_then(Value::as_f64) else { return false };
+    let Some(payload) = jwt_payload(jwt) else {
+        return false;
+    };
+    let Some(exp) = payload.get("exp").and_then(Value::as_f64) else {
+        return false;
+    };
     if !(exp > 0.0) {
         return false;
     }
@@ -166,7 +170,12 @@ pub(super) async fn login(
         .json(&body)
         .send()
         .await
-        .map_err(|error| format!("商汤登录接口请求失败：{}", egress::describe_error_detail(&error)))?;
+        .map_err(|error| {
+            format!(
+                "商汤登录接口请求失败：{}",
+                egress::describe_error_detail(&error)
+            )
+        })?;
     let status = response.status().as_u16();
     let payload = response_json(response).await;
     if status >= 400 || payload.is_none() {
@@ -214,7 +223,12 @@ pub(super) async fn login(
         .body(form)
         .send()
         .await
-        .map_err(|error| format!("商汤换码请求失败：{}", egress::describe_error_detail(&error)))?;
+        .map_err(|error| {
+            format!(
+                "商汤换码请求失败：{}",
+                egress::describe_error_detail(&error)
+            )
+        })?;
     let status = response.status().as_u16();
     let payload = response_json(response).await;
     let access_token = payload
@@ -277,10 +291,12 @@ async fn follow(
         if !cookie.is_empty() {
             request = request.header("Cookie", cookie);
         }
-        let response = request
-            .send()
-            .await
-            .map_err(|error| format!("商汤登录跳转请求失败：{}", egress::describe_error_detail(&error)))?;
+        let response = request.send().await.map_err(|error| {
+            format!(
+                "商汤登录跳转请求失败：{}",
+                egress::describe_error_detail(&error)
+            )
+        })?;
         jar.capture(&response);
         let status = response.status().as_u16();
         let location = response
@@ -344,7 +360,9 @@ impl CookieJar {
         for header in response.headers().get_all("set-cookie") {
             let Ok(text) = header.to_str() else { continue };
             let pair = text.split(';').next().unwrap_or("");
-            let Some((name, value)) = pair.split_once('=') else { continue };
+            let Some((name, value)) = pair.split_once('=') else {
+                continue;
+            };
             let name = name.trim();
             if name.is_empty() {
                 continue;

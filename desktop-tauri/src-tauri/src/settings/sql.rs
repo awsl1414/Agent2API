@@ -74,9 +74,11 @@ fn open(path: &Path) -> rusqlite::Result<Connection> {
 pub(super) fn load(path: &Path) -> Option<String> {
     let conn = open(path).ok()?;
     let value: Option<Option<String>> = conn
-        .query_row("SELECT value FROM kv WHERE key = ?1", rusqlite::params![KEY], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT value FROM kv WHERE key = ?1",
+            rusqlite::params![KEY],
+            |row| row.get(0),
+        )
         .optional()
         .ok()?;
     value.flatten()
@@ -116,4 +118,3 @@ pub(super) fn write(path: &Path, text: &str) -> Result<(), String> {
     .map_err(|error| format!("写入设置失败: {error}"))?;
     Ok(())
 }
-

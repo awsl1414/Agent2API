@@ -73,8 +73,8 @@ use serde_json::{json, Value};
 
 use crate::server::core::key_scope::KeyScope;
 use crate::server::core::protocol::{anthropic, responses};
-use crate::server::core::proxies::ResolvedProxy;
 use crate::server::core::providers::catalog;
+use crate::server::core::proxies::ResolvedProxy;
 use crate::server::core::upstream::aggregate::aggregate_frame_stream;
 use crate::server::core::upstream::cancellation;
 use crate::server::core::upstream::sse::FramePolicy;
@@ -469,8 +469,13 @@ struct TestOutcome {
 }
 
 /// POST /api/models/test
-pub async fn run_model_test(State(state): State<ServerState>, headers: HeaderMap, body: Bytes) -> Response {
-    let access = match super::model_access::authenticate(&headers, super::model_access::MODEL_TEST) {
+pub async fn run_model_test(
+    State(state): State<ServerState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let access = match super::model_access::authenticate(&headers, super::model_access::MODEL_TEST)
+    {
         Ok(access) => access,
         Err(error) => return error.payload_response(),
     };
@@ -488,14 +493,34 @@ pub async fn run_model_test(State(state): State<ServerState>, headers: HeaderMap
     }
     let key_scope = access.scope.clone().unwrap_or_default();
     if !key_scope.allows_model(&model) {
-        let error = errors::GatewayError::with_status(404, format!("模型 '{model}' 不在这把网关 Key 的可用模型列表里"))
-            .with_code("model_not_found");
-        pipeline::record_early_failure(&state, logging::now_ms(), &model, "", &access.source, &error);
+        let error = errors::GatewayError::with_status(
+            404,
+            format!("模型 '{model}' 不在这把网关 Key 的可用模型列表里"),
+        )
+        .with_code("model_not_found");
+        pipeline::record_early_failure(
+            &state,
+            logging::now_ms(),
+            &model,
+            "",
+            &access.source,
+            &error,
+        );
         return error.payload_response();
     }
     let Some(test_scope) = key_scope.for_test_provider(&provider) else {
-        let error = errors::GatewayError::with_status(403, format!("提供商 '{provider}' 不在这把网关 Key 的可用提供商列表里"));
-        pipeline::record_early_failure(&state, logging::now_ms(), &model, "", &access.source, &error);
+        let error = errors::GatewayError::with_status(
+            403,
+            format!("提供商 '{provider}' 不在这把网关 Key 的可用提供商列表里"),
+        );
+        pipeline::record_early_failure(
+            &state,
+            logging::now_ms(),
+            &model,
+            "",
+            &access.source,
+            &error,
+        );
         return error.payload_response();
     };
     // 模型必须**这一家认识**：清单里没有它时，转发层的收窄会以「不在这把网关
@@ -511,7 +536,10 @@ pub async fn run_model_test(State(state): State<ServerState>, headers: HeaderMap
         );
     }
     if crate::server::core::providers::images::provider_model_is_image(&provider, &model) {
-        return errors::management_error(400, "图片生成模型请通过 /v1/images/generations 调用，暂不支持对话测试");
+        return errors::management_error(
+            400,
+            "图片生成模型请通过 /v1/images/generations 调用，暂不支持对话测试",
+        );
     }
     let protocol_raw = text_field(&payload, "protocol", 32);
     let protocol = match TestProtocol::parse(&protocol_raw) {
@@ -560,7 +588,10 @@ pub async fn run_model_test(State(state): State<ServerState>, headers: HeaderMap
     let reasoning = text_field(&payload, "reasoning", 32);
     // 缺省按流式（与前端默认一致）：流式才看得到首字延迟，而那是这个测试
     // 最有价值的一个读数
-    let stream = payload.get("stream").and_then(Value::as_bool).unwrap_or(true);
+    let stream = payload
+        .get("stream")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
 
     let (protocol_request, request_body) = match build_protocol_request(
         protocol,
@@ -616,7 +647,17 @@ pub async fn run_model_test(State(state): State<ServerState>, headers: HeaderMap
     // 「进行中」行：与真实请求同一处时点（解析成功、转发开始前）。
     // `is_test = true` 一路带下去 —— 报表排除它、请求日志标记它。
     // 测试来源与实际通过鉴权的 Key 身份一起记录。
-    super::request_prepare::record_started(state.request_stats(), &test_id, started_at, &model, &model, &reasoning, &access.source, true).await;
+    super::request_prepare::record_started(
+        state.request_stats(),
+        &test_id,
+        started_at,
+        &model,
+        &model,
+        &reasoning,
+        &access.source,
+        true,
+    )
+    .await;
     if let Some(token) = cancellation::register(&test_id) {
         telemetry.set_cancel_token(token);
     }
@@ -742,7 +783,10 @@ async fn run_forward(
     match tokio::time::timeout(TEST_TIMEOUT, forward).await {
         Err(_elapsed) => TestOutcome {
             status: 504,
-            error: Some(format!("测试超时（{} 秒内没拿到完整回答）", TEST_TIMEOUT.as_secs())),
+            error: Some(format!(
+                "测试超时（{} 秒内没拿到完整回答）",
+                TEST_TIMEOUT.as_secs()
+            )),
             reply: String::new(),
             reasoning_text: String::new(),
             raw_response: None,
@@ -757,7 +801,10 @@ async fn run_forward(
         Ok(Ok(ForwardOutcome::Completion { body })) => {
             translate_completion(protocol, model, protocol_request, 200, body)
         }
-        Ok(Ok(ForwardOutcome::Stream { status, stream: source })) => {
+        Ok(Ok(ForwardOutcome::Stream {
+            status,
+            stream: source,
+        })) => {
             let status = i64::from(status);
             // `ForwardOutcome::Stream` 给的是 `Box<dyn Stream + Unpin>`，聚合器要
             // 的是 `BoxStream`（`Pin<Box<dyn Stream>>`）—— `boxed()` 这一步就是

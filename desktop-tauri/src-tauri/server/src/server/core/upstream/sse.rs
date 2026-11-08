@@ -50,10 +50,10 @@
 //! 其中带空格的两种按「宁可不丢」不丢。
 //! ⚠️ 触发条件与耗时**无关**：脏请求中位 12.1 秒、干净的 14.3 秒，脏内部占比
 //! >20% 的那 4 发中位只有 9.8 秒（≤20% 的是 13.3 秒）。早先这里写的
-//! 「生成比保活节拍慢时才发得出来」方向相反，别拿耗时当预测量；节拍更可能绑
-//! 上游的分片节奏与服务端 flush 策略。
-//! 客户端按 markdown 渲染时一个换行就是一个 `<br>`，于是一段
-//! 「Let me run the unit tests」被排成一行一个词 —— 读起来就是「错行」。
+//! > 「生成比保活节拍慢时才发得出来」方向相反，别拿耗时当预测量；节拍更可能绑
+//! > 上游的分片节奏与服务端 flush 策略。
+//! > 客户端按 markdown 渲染时一个换行就是一个 `<br>`，于是一段
+//! > 「Let me run the unit tests」被排成一行一个词 —— 读起来就是「错行」。
 //!
 //! 判定与丢弃都放在本状态机：这里是 SSE 逐行解析的唯一出口，透传路径别处再动
 //! 就得给每家插一层转发器。**默认关闭**（`strip_newline_chunks = false`），
@@ -103,7 +103,11 @@ impl FramePolicy {
     /// 只带 model 回写、其余按默认（自定义家的转发路径用它：那家的保活形态
     /// 没有实测过，不去动它的字节）
     pub fn with_rewrite(rewrite: Option<ModelRewrite>) -> Self {
-        Self { rewrite, strip_newline_chunks: false, native_tools: Vec::new() }
+        Self {
+            rewrite,
+            strip_newline_chunks: false,
+            native_tools: Vec::new(),
+        }
     }
 
     /// 由**能力位 × 全局开关**装配（转发链上唯一的生产入口，见
@@ -120,7 +124,11 @@ impl FramePolicy {
     /// 单独成片的那个换行 —— 少一个换行的外观损失换掉整屏断句，值不值由用户判，
     /// 所以判权留在面板 / 环境变量上，而不是编译期替他决定。
     pub fn assembled(rewrite: Option<ModelRewrite>, declared: bool, switch_on: bool) -> Self {
-        Self { rewrite, strip_newline_chunks: declared && switch_on, native_tools: Vec::new() }
+        Self {
+            rewrite,
+            strip_newline_chunks: declared && switch_on,
+            native_tools: Vec::new(),
+        }
     }
 }
 
@@ -258,7 +266,10 @@ impl ReasoningCoalescer {
 
     /// 带 usage 旁路槽的合并器（流式转发用；`new()` 保留给无统计需求的调用点）
     pub fn with_telemetry(telemetry: Arc<RequestTelemetry>) -> Self {
-        Self { telemetry: Some(telemetry), ..Self::new() }
+        Self {
+            telemetry: Some(telemetry),
+            ..Self::new()
+        }
     }
 
     /// 装上帧改写策略（model 名回写 + 保活换行的丢弃；见模块头）。
@@ -305,7 +316,9 @@ impl ReasoningCoalescer {
         if let Some(frame) = self.native_tools.flush(&serde_json::json!({
             "id": self.meta.id, "model": self.meta.model, "created": self.meta.created,
             "object": "chat.completion.chunk",
-        })) { out.push(sse_frame(&frame)); }
+        })) {
+            out.push(sse_frame(&frame));
+        }
         out
     }
 
@@ -328,7 +341,9 @@ impl ReasoningCoalescer {
             if let Some(frame) = self.native_tools.flush(&serde_json::json!({
                 "id": self.meta.id, "model": self.meta.model, "created": self.meta.created,
                 "object": "chat.completion.chunk",
-            })) { out.push(sse_frame(&frame)); }
+            })) {
+                out.push(sse_frame(&frame));
+            }
             out.push(Bytes::from_static(b"data: [DONE]\n\n"));
             return;
         }
@@ -336,7 +351,9 @@ impl ReasoningCoalescer {
             if let Some(frame) = self.native_tools.flush(&serde_json::json!({
                 "id": self.meta.id, "model": self.meta.model, "created": self.meta.created,
                 "object": "chat.completion.chunk",
-            })) { out.push(sse_frame(&frame)); }
+            })) {
+                out.push(sse_frame(&frame));
+            }
             // 解析失败的行原样透传：上游的异常帧不能被我们吞掉
             out.push(plain_frame(line));
             return;
@@ -427,7 +444,9 @@ impl ReasoningCoalescer {
             return;
         }
         for chunk in self.native_tools.transform(&chunk) {
-            let serialized = serde_json::to_string(&chunk).ok().map(|text| format!("data: {text}"));
+            let serialized = serde_json::to_string(&chunk)
+                .ok()
+                .map(|text| format!("data: {text}"));
             out.push(self.rewritten_frame(serialized.as_deref().unwrap_or(line), &chunk));
         }
     }
@@ -508,7 +527,8 @@ impl ReasoningCoalescer {
             _ => Value::String(String::new()),
         };
         // 逐个值做 JSON 编码（字符串会带引号并转义，数字/布尔/null 原样）
-        let encode = |value: &Value| serde_json::to_string(value).unwrap_or_else(|_| "null".to_string());
+        let encode =
+            |value: &Value| serde_json::to_string(value).unwrap_or_else(|_| "null".to_string());
         let text = format!(
             r#"{{"id":{},"object":"chat.completion.chunk","created":{},"model":{},"choices":[{{"index":0,"delta":{{"reasoning_content":{}}},"finish_reason":null}}]}}"#,
             encode(&id),
@@ -548,7 +568,10 @@ mod tests {
     use serde_json::json;
 
     fn raw(value: Value) -> String {
-        format!("data: {}\n\n", serde_json::to_string(&value).expect("测试里的帧必须是合法 JSON"))
+        format!(
+            "data: {}\n\n",
+            serde_json::to_string(&value).expect("测试里的帧必须是合法 JSON")
+        )
     }
 
     /// 上游（WorkBuddy）形态的一帧：带 usage:null 与 finish_reason 两个尾巴字段，
@@ -587,7 +610,10 @@ mod tests {
         let out = feed(&mut off, &keepalive);
         // 关着时是逐字节透传：整帧原样出去
         assert_eq!(out, keepalive, "关着时帧的字节必须一模一样");
-        assert!(out.contains("\"content\":\"\\n\""), "关着时不能动这一帧: {out}");
+        assert!(
+            out.contains("\"content\":\"\\n\""),
+            "关着时不能动这一帧: {out}"
+        );
     }
 
     #[test]
@@ -622,13 +648,19 @@ mod tests {
         let mut on = coalescer(true);
         let mut out = feed(&mut on, &reasoning);
         out.push_str(&feed(&mut on, &keepalive));
-        assert!(out.is_empty(), "纯噪声帧既不该下发，也不该把攒了一半的思考结掉: {out}");
+        assert!(
+            out.is_empty(),
+            "纯噪声帧既不该下发，也不该把攒了一半的思考结掉: {out}"
+        );
         // 关掉时它是普通的「非 reasoning 事件」，照旧会冲刷 —— 这条对照证明
         // 开启丢弃确实改变了这一帧的处理路径，而不是一直如此
         let mut off = coalescer(false);
         let mut out_off = feed(&mut off, &reasoning);
         out_off.push_str(&feed(&mut off, &keepalive));
-        assert!(out_off.contains("reasoning_content"), "关着时应先冲刷思考帧: {out_off}");
+        assert!(
+            out_off.contains("reasoning_content"),
+            "关着时应先冲刷思考帧: {out_off}"
+        );
     }
 
     #[test]
@@ -717,16 +749,32 @@ mod tests {
 
     #[test]
     fn the_predicate_requires_every_signal_to_be_empty() {
-        assert!(is_newline_keepalive(&json!({"choices": [{"delta": {"content": "\n"}}]})));
-        assert!(!is_newline_keepalive(&json!({"choices": [{"delta": {"content": "\n "}}]})));
-        assert!(!is_newline_keepalive(&json!({"choices": [{"delta": {"content": ""}}]})));
-        assert!(!is_newline_keepalive(&json!({"choices": [{"delta": {"content": 7}}]})));
+        assert!(is_newline_keepalive(
+            &json!({"choices": [{"delta": {"content": "\n"}}]})
+        ));
+        assert!(!is_newline_keepalive(
+            &json!({"choices": [{"delta": {"content": "\n "}}]})
+        ));
+        assert!(!is_newline_keepalive(
+            &json!({"choices": [{"delta": {"content": ""}}]})
+        ));
+        assert!(!is_newline_keepalive(
+            &json!({"choices": [{"delta": {"content": 7}}]})
+        ));
         assert!(!is_newline_keepalive(&json!({"choices": [{"delta": {}}]})));
         assert!(!is_newline_keepalive(&json!({"choices": []})));
-        assert!(!is_newline_keepalive(&json!({"choices": [{"delta": {"content": "\n"}, "finish_reason": "length"}]})));
-        assert!(!is_newline_keepalive(&json!({"choices": [{"delta": {"content": "\n", "reasoning_content": "x"}}]})));
-        assert!(!is_newline_keepalive(&json!({"choices": [{"delta": {"content": "\n", "tool_calls": [{"index": 0}]}}]})));
-        assert!(!is_newline_keepalive(&json!({"choices": [{"delta": {"content": "\n", "function_call": {"name": "x"}}}]})));
+        assert!(!is_newline_keepalive(
+            &json!({"choices": [{"delta": {"content": "\n"}, "finish_reason": "length"}]})
+        ));
+        assert!(!is_newline_keepalive(
+            &json!({"choices": [{"delta": {"content": "\n", "reasoning_content": "x"}}]})
+        ));
+        assert!(!is_newline_keepalive(
+            &json!({"choices": [{"delta": {"content": "\n", "tool_calls": [{"index": 0}]}}]})
+        ));
+        assert!(!is_newline_keepalive(
+            &json!({"choices": [{"delta": {"content": "\n", "function_call": {"name": "x"}}}]})
+        ));
         assert!(!is_newline_keepalive(&Value::Null));
         assert!(!is_newline_keepalive(&json!("")));
     }
@@ -741,7 +789,9 @@ mod tests {
     ///   - 两位都真 ⇒ 丢。
     #[test]
     fn the_strip_needs_both_the_capability_bit_and_the_switch() {
-        let rewrite = Some(ModelRewrite { requested: "m".to_string() });
+        let rewrite = Some(ModelRewrite {
+            requested: "m".to_string(),
+        });
         assert!(
             !FramePolicy::assembled(rewrite.clone(), false, true).strip_newline_chunks,
             "开关不能替一家没声明能力位的提供商开始丢帧"
@@ -753,7 +803,10 @@ mod tests {
         assert!(FramePolicy::assembled(rewrite.clone(), true, true).strip_newline_chunks);
         // 开关只管丢弃那一项，model 回写不受它影响（两者是两回事）
         let policy = FramePolicy::assembled(rewrite, true, false);
-        assert_eq!(policy.rewrite.map(|value| value.requested).as_deref(), Some("m"));
+        assert_eq!(
+            policy.rewrite.map(|value| value.requested).as_deref(),
+            Some("m")
+        );
     }
 
     /// 端到端一条：**能力位开着、开关关着**时，那条生产脏流要逐字节原样出去。
@@ -817,7 +870,10 @@ mod tests {
             out.contains("\"finish_reason\":\"tool_calls\""),
             "收尾帧不许被累积分支吃掉: {out}"
         );
-        assert!(out.contains("\"usage\":{"), "usage 与终止信息同帧，一起丢了就没处补: {out}");
+        assert!(
+            out.contains("\"usage\":{"),
+            "usage 与终止信息同帧，一起丢了就没处补: {out}"
+        );
         assert!(out.contains("data: [DONE]"), "[DONE] 照常透传");
 
         // 对照：这一帧是**逐字节原样**出去的，没有被改写成"合成的一帧"
@@ -854,11 +910,15 @@ mod tests {
             "choices": [{"delta": {"content": ""}, "finish_reason": ""}],
         })));
         // usage 单独一支：非 null 算命中，null 与整键缺失都不算
-        assert!(carries_terminal_signal(&json!({"usage": {"prompt_tokens": 1}})));
+        assert!(carries_terminal_signal(
+            &json!({"usage": {"prompt_tokens": 1}})
+        ));
         assert!(!carries_terminal_signal(&json!({"usage": Value::Null})));
         assert!(!carries_terminal_signal(&json!({})));
         // error 那一支：流内错误帧一律不许被按形状丢弃
-        assert!(carries_terminal_signal(&json!({"error": {"message": "boom"}})));
+        assert!(carries_terminal_signal(
+            &json!({"error": {"message": "boom"}})
+        ));
         // 非对象载荷不该被误判成命中
         assert!(!carries_terminal_signal(&json!([1, 2])));
         assert!(!carries_terminal_signal(&json!("data")));
@@ -890,7 +950,10 @@ mod tests {
     fn the_accumulated_reasoning_is_flushed_before_the_terminal_frame() {
         let terminal = officeace_terminal_frame();
         let mut coalescer = ReasoningCoalescer::new();
-        let mut out = feed(&mut coalescer, &frame(json!({"reasoning_content": "先想一句"})));
+        let mut out = feed(
+            &mut coalescer,
+            &frame(json!({"reasoning_content": "先想一句"})),
+        );
         assert!(out.is_empty(), "还没到阈值时不该下发");
         out.push_str(&feed(&mut coalescer, &terminal));
         let reasoning_at = out
@@ -899,7 +962,10 @@ mod tests {
         let terminal_at = out
             .find("\"finish_reason\":\"tool_calls\"")
             .expect("终止帧要下发");
-        assert!(reasoning_at < terminal_at, "顺序：思考在前、终止帧在后: {out}");
+        assert!(
+            reasoning_at < terminal_at,
+            "顺序：思考在前、终止帧在后: {out}"
+        );
         assert!(
             feed(&mut coalescer, "data: [DONE]\n\n").trim() == "data: [DONE]",
             "acc 已清空，[DONE] 处不该再补一帧空的思考"

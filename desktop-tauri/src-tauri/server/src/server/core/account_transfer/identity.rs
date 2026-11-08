@@ -55,7 +55,7 @@ pub(super) const RESERVED_DESKTOP_IDS: [&str; 4] = [
 ];
 
 pub(super) fn is_reserved_desktop_id(id: &str) -> bool {
-    if RESERVED_DESKTOP_IDS.iter().any(|known| *known == id) {
+    if RESERVED_DESKTOP_IDS.contains(&id) {
         return true;
     }
     // Cline 两个池的桌面端固定 id（`cline-free-desktop` / `cline-pass-desktop`）。
@@ -73,7 +73,10 @@ pub(super) fn is_reserved_desktop_id(id: &str) -> bool {
 
 /// 记录带 `desktop: true` 标记 = 桌面端实时登录态的引用，不是可迁移的普通账号。
 pub(super) fn is_desktop_item(item: &Map<String, Value>) -> bool {
-    let provider = item.get("provider").and_then(Value::as_str).unwrap_or(DEFAULT_PROVIDER_ID);
+    let provider = item
+        .get("provider")
+        .and_then(Value::as_str)
+        .unwrap_or(DEFAULT_PROVIDER_ID);
     crate::server::core::account_store::account_identity::reference(provider, item)
 }
 
@@ -110,7 +113,11 @@ pub(super) fn resolve_provider(item: &Map<String, Value>) -> Result<String, Stri
                     "未知的提供商 id「{trimmed}」：注册表不认识，不能当作 WorkBuddy 导入"
                 ));
             }
-            if trimmed == DEFAULT_PROVIDER_ID && !item.get("pluginSecret").is_some_and(|value| !value.is_null()) {
+            if trimmed == DEFAULT_PROVIDER_ID
+                && !item
+                    .get("pluginSecret")
+                    .is_some_and(|value| !value.is_null())
+            {
                 let region = crate::server::core::providers::workbuddy::Region::from_edition_id(
                     item.get("edition").and_then(Value::as_str),
                 );
@@ -118,7 +125,9 @@ pub(super) fn resolve_provider(item: &Map<String, Value>) -> Result<String, Stri
             }
             if crate::server::core::account_store::is_qoder_family(trimmed) {
                 let record = StoredAccount::from_map(item.clone());
-                if let Some(region) = crate::server::core::account_store::qoder_accounts::migrated_region(&record) {
+                if let Some(region) =
+                    crate::server::core::account_store::qoder_accounts::migrated_region(&record)
+                {
                     return Ok(region.provider_id().to_string());
                 }
             }
@@ -128,9 +137,11 @@ pub(super) fn resolve_provider(item: &Map<String, Value>) -> Result<String, Stri
     }
 }
 
-
 /// 导入记录的业务身份；无法确定身份时 Err（该条失败，不做猜测性匹配）。
-pub(super) fn identity_of_item(provider: &str, item: &Map<String, Value>) -> Result<String, String> {
+pub(super) fn identity_of_item(
+    provider: &str,
+    item: &Map<String, Value>,
+) -> Result<String, String> {
     if is_desktop_item(item) {
         return crate::server::core::account_store::account_identity::text(item, &["id"])
             .ok_or_else(|| "桌面端账号缺少独立 id".to_string());
@@ -226,7 +237,11 @@ mod tests {
         );
         assert_eq!(
             "cn:51029416092912",
-            identity_of_item("trae", &item(json!({"uid": "51029416092912", "variant": "cn"}))).expect("应识别出身份"),
+            identity_of_item(
+                "trae",
+                &item(json!({"uid": "51029416092912", "variant": "cn"}))
+            )
+            .expect("应识别出身份"),
             "两个谱系是同一个人也是两条记录（与落账号一侧的判重口径一致）"
         );
         // variant 缺失时**必须**与 `identity_of_record` 的缺省同一个值，
@@ -235,7 +250,14 @@ mod tests {
             "solo:777",
             identity_of_item("trae", &item(json!({"uid": "777"}))).expect("缺 variant 按 solo"),
         );
-        assert!(identity_of_item("trae", &item(json!({"uid": "  ", "userId": "51029416092912"}))).is_err(), "空 uid 不能拿 userId 凑");
+        assert!(
+            identity_of_item(
+                "trae",
+                &item(json!({"uid": "  ", "userId": "51029416092912"}))
+            )
+            .is_err(),
+            "空 uid 不能拿 userId 凑"
+        );
     }
 
     /// **新增 provider 不必改本文件**：身份落在通用链的常见字段上即可。
@@ -250,7 +272,9 @@ mod tests {
             "app-key-1",
             identity_of_item(
                 "officeace",
-                &item(json!({"modelAppKey": "app-key-1", "modelAppSecret": "s", "id": "officeace-x"}))
+                &item(
+                    json!({"modelAppKey": "app-key-1", "modelAppSecret": "s", "id": "officeace-x"})
+                )
             )
             .expect("通用链应认出 modelAppKey")
         );
@@ -286,10 +310,29 @@ mod tests {
     #[test]
     fn item_and_record_agree_on_every_provider() {
         for provider in [
-            "workbuddy", "workbuddy-intl", "raccoon", "catpaw", "autoclaw", "autoclaw-intl",
-            "qoder", "qoder-intl", "cline-free", "cline-pass", "codearts", "trae", "loomy",
-            "kuku", "commandcode", "antigravity", "officeace", "orcaterm", "chatglm",
-            "modelscope", "atomcode", "lobsterai", "zcode",
+            "workbuddy",
+            "workbuddy-intl",
+            "raccoon",
+            "catpaw",
+            "autoclaw",
+            "autoclaw-intl",
+            "qoder",
+            "qoder-intl",
+            "cline-free",
+            "cline-pass",
+            "codearts",
+            "trae",
+            "loomy",
+            "kuku",
+            "commandcode",
+            "antigravity",
+            "officeace",
+            "orcaterm",
+            "chatglm",
+            "modelscope",
+            "atomcode",
+            "lobsterai",
+            "zcode",
         ] {
             let fields = item(json!({
                 "id": "acc-1",
@@ -321,8 +364,11 @@ mod tests {
         // CodeArts：domain + userId 两段（只按 userId 会把两个域下的账号并成一条）
         assert_eq!(
             "dom-a\u{0}u-1",
-            identity_of_item("codearts", &item(json!({"domainId": "dom-a", "userId": "u-1"})))
-                .expect("两段身份")
+            identity_of_item(
+                "codearts",
+                &item(json!({"domainId": "dom-a", "userId": "u-1"}))
+            )
+            .expect("两段身份")
         );
         // Qoder：地区 + userId 两段
         assert_eq!(
@@ -333,8 +379,11 @@ mod tests {
         // CatPaw：uid 优先（通用链里 userId 排在 uid 前，会取错值）
         assert_eq!(
             "uid-1",
-            identity_of_item("catpaw", &item(json!({"uid": "uid-1", "userId": "alias-1"})))
-                .expect("uid 优先")
+            identity_of_item(
+                "catpaw",
+                &item(json!({"uid": "uid-1", "userId": "alias-1"}))
+            )
+            .expect("uid 优先")
         );
     }
 }

@@ -46,7 +46,8 @@ pub struct GatewayError {
     /// 让客户端按自己的退避来 —— 编一个等待时长比不给更坏。
     pub retry_after_secs: Option<u64>,
     /// 仅新增 scoped runtime 的内部分类凭证；不序列化，也不替换上游业务 code。
-    pub(crate) conversation_class: Option<crate::server::core::providers::adapter::UpstreamErrorClass>,
+    pub(crate) conversation_class:
+        Option<crate::server::core::providers::adapter::UpstreamErrorClass>,
 }
 
 impl GatewayError {
@@ -103,7 +104,9 @@ impl GatewayError {
     /// 是否为账号限额错误（HTTP 429 或上游 code 6004）
     pub fn is_quota_limit(&self) -> bool {
         if let Some(class) = &self.conversation_class {
-            if matches!(self.status_code, 499 | 504 | 556) { return false; }
+            if matches!(self.status_code, 499 | 504 | 556) {
+                return false;
+            }
             return matches!(class,
                 crate::server::core::providers::adapter::UpstreamErrorClass::QuotaLimited { status, .. }
                     if !matches!(*status, 499 | 504 | 556));
@@ -151,7 +154,10 @@ impl GatewayError {
     pub fn payload(&self) -> Value {
         let mut error = Map::new();
         error.insert("message".to_string(), Value::String(self.message.clone()));
-        error.insert("type".to_string(), Value::String(self.error_type().to_string()));
+        error.insert(
+            "type".to_string(),
+            Value::String(self.error_type().to_string()),
+        );
         if let Some(code) = &self.code {
             error.insert("code".to_string(), Value::String(code.clone()));
         }
@@ -160,10 +166,19 @@ impl GatewayError {
         }
         if self.is_quota_limit() {
             let reset_at = match &self.conversation_class {
-                Some(crate::server::core::providers::adapter::UpstreamErrorClass::QuotaLimited { reset_at, .. }) => {
+                Some(
+                    crate::server::core::providers::adapter::UpstreamErrorClass::QuotaLimited {
+                        reset_at,
+                        ..
+                    },
+                ) => {
                     let now = crate::server::logging::now_ms();
-                    reset_at.filter(|reset| valid_future_reset(*reset, now))
-                        .or_else(|| self.retry_after_secs.and_then(|seconds| reset_from_retry(seconds, now)))
+                    reset_at
+                        .filter(|reset| valid_future_reset(*reset, now))
+                        .or_else(|| {
+                            self.retry_after_secs
+                                .and_then(|seconds| reset_from_retry(seconds, now))
+                        })
                         .unwrap_or(0)
                 }
                 Some(_) => 0,
@@ -215,12 +230,17 @@ impl GatewayError {
 }
 
 fn valid_future_reset(reset: i64, now: i64) -> bool {
-    reset > now && reset > 0 && reset <= (1_i64 << 53) - 1
+    reset > now
+        && reset > 0
+        && reset < (1_i64 << 53)
         && chrono::DateTime::from_timestamp_millis(reset).is_some()
 }
 
 fn reset_from_retry(seconds: u64, now: i64) -> Option<i64> {
-    let reset = i64::try_from(seconds).ok()?.checked_mul(1000)?.checked_add(now)?;
+    let reset = i64::try_from(seconds)
+        .ok()?
+        .checked_mul(1000)?
+        .checked_add(now)?;
     valid_future_reset(reset, now).then_some(reset)
 }
 
@@ -281,9 +301,9 @@ pub fn unauthorized_response() -> Response {
 ///
 /// 需要 `headers` 是为了判断「refresh 还活不活」——见下面的清除条件。
 pub fn panel_login_required_response(headers: &axum::http::HeaderMap) -> Response {
-    panel_login_required_response_with_refresh_state(
-        crate::server::access::has_live_refresh(headers),
-    )
+    panel_login_required_response_with_refresh_state(crate::server::access::has_live_refresh(
+        headers,
+    ))
 }
 
 /// 同上，但「refresh 还活着」由调用方算好传进来。
@@ -364,7 +384,11 @@ pub fn not_found_response(method: &str, path: &str) -> Response {
 /// 对应 Node 版各 route 模块里的 `sendJson(res, status, { success:false, error })`。
 pub fn management_error(status: i32, message: impl Into<String>) -> Response {
     let status = StatusCode::from_u16(status as u16).unwrap_or(StatusCode::BAD_REQUEST);
-    (status, Json(json!({ "success": false, "error": message.into() }))).into_response()
+    (
+        status,
+        Json(json!({ "success": false, "error": message.into() })),
+    )
+        .into_response()
 }
 
 /// 解析上游限额恢复时间：`YYYY-MM-DD HH:MM:SS UTC+8` → 毫秒时间戳。
@@ -452,7 +476,9 @@ pub fn parse_quota_reset_at_at(text: &str, now_ms: i64) -> i64 {
                         suffix += 1;
                     }
                     if bytes[suffix..].starts_with(b"UTC+8") {
-                        if let Some(millis) = to_utc_plus_8_millis(year, month, day, hour, minute, second) {
+                        if let Some(millis) =
+                            to_utc_plus_8_millis(year, month, day, hour, minute, second)
+                        {
                             return millis;
                         }
                     }
@@ -548,7 +574,12 @@ fn to_utc_plus_8_millis(
     let offset = chrono::FixedOffset::east_opt(8 * 3600)?;
     let naive = chrono::NaiveDate::from_ymd_opt(year as i32, month, day)?
         .and_hms_opt(hour, minute, second)?;
-    Some(offset.from_local_datetime(&naive).single()?.timestamp_millis())
+    Some(
+        offset
+            .from_local_datetime(&naive)
+            .single()?
+            .timestamp_millis(),
+    )
 }
 
 /// 恢复时间的本地化展示（对应 Node 版 `toLocaleString('zh-CN', { hour12:false })`）。
@@ -613,7 +644,10 @@ mod panel_401_cookie_tests {
         let cookies = set_cookies(&response);
         assert_eq!(cookies.len(), 1, "401 只该发一条清除头（多条会被中转拼坏）");
         assert!(cookies[0].starts_with(&format!("{}=;", access::ACCESS_COOKIE)));
-        assert!(cookies[0].contains("Path=/"), "清除要落在 access 的签发 Path 上");
+        assert!(
+            cookies[0].contains("Path=/"),
+            "清除要落在 access 的签发 Path 上"
+        );
         assert!(cookies[0].contains("Max-Age=0"));
         assert_eq!(
             response.status(),
@@ -634,7 +668,8 @@ mod panel_401_cookie_tests {
         let session = access::IssuedSession::new_session();
         let headers = with_cookie(&format!(
             "{}=not-a-live-access.{}",
-            access::ACCESS_COOKIE, session.refresh_token
+            access::ACCESS_COOKIE,
+            session.refresh_token
         ));
         // 前提：这把 refresh 确实活着（否则下面那条断言就在真空里跑）
         assert!(
@@ -693,7 +728,10 @@ mod quota_reset_text_tests {
         // 文案是旧的（窗口早就过了）：返回 0 让调用方用自己的兜底，
         // 而不是拿一个过去的时刻去写冷却 —— 那种冷却等于没冷却。
         let now = beijing(2026, 10, 18, 12, 0);
-        assert_eq!(0, parse_quota_reset_at_at("约在今日 09:05 结束并重置额度", now));
+        assert_eq!(
+            0,
+            parse_quota_reset_at_at("约在今日 09:05 结束并重置额度", now)
+        );
     }
 
     #[test]
@@ -711,10 +749,10 @@ mod quota_reset_text_tests {
     fn malformed_clocks_are_not_read() {
         let now = beijing(2026, 10, 18, 12, 0);
         for text in [
-            "当日 25:00 结束",   // 小时越界
-            "当日 18:6 结束",    // 分钟只有一位
-            "当日 1818 结束",    // 没有冒号
-            "当日 18:180 结束",  // 分钟后面还接着数字
+            "当日 25:00 结束",  // 小时越界
+            "当日 18:6 结束",   // 分钟只有一位
+            "当日 1818 结束",   // 没有冒号
+            "当日 18:180 结束", // 分钟后面还接着数字
         ] {
             assert_eq!(0, parse_quota_reset_at_at(text, now), "不该认得：{text}");
         }

@@ -1,6 +1,9 @@
 use crate::server::core::limiter;
 
-use super::{daily, lifecycle, now_ms, retention, sql, stale_cutoff, NewRequestEntry, RequestSource, RequestStats, RunningProgress};
+use super::{
+    daily, lifecycle, now_ms, retention, sql, stale_cutoff, NewRequestEntry, RequestSource,
+    RequestStats, RunningProgress,
+};
 
 pub(crate) struct LimiterEvent<'a> {
     pub account: &'a str,
@@ -14,20 +17,38 @@ pub(crate) struct LimiterEvent<'a> {
 
 impl LimiterEvent<'_> {
     fn insert(&self, conn: &rusqlite::Connection) -> rusqlite::Result<Option<i64>> {
-        limiter::counter::insert_event(conn, self.account, self.request, self.model,
-            self.channel, self.tokens, self.started_at)
+        limiter::counter::insert_event(
+            conn,
+            self.account,
+            self.request,
+            self.model,
+            self.channel,
+            self.tokens,
+            self.started_at,
+        )
     }
 
     fn committed(&self, row_id: i64) {
-        limiter::counter::update_facts(self.account, self.model, self.channel,
-            self.tokens, self.started_at, row_id);
+        limiter::counter::update_facts(
+            self.account,
+            self.model,
+            self.channel,
+            self.tokens,
+            self.started_at,
+            row_id,
+        );
         limiter::note_request_tokens(self.account, self.tokens, self.finished_at);
     }
 
     fn persist_without_stats(&self) {
-        if limiter::counter::note(self.account, self.request, self.model, self.channel,
-            self.tokens, self.started_at)
-        {
+        if limiter::counter::note(
+            self.account,
+            self.request,
+            self.model,
+            self.channel,
+            self.tokens,
+            self.started_at,
+        ) {
             limiter::note_request_tokens(self.account, self.tokens, self.finished_at);
         }
     }
@@ -38,7 +59,11 @@ impl RequestStats {
         self.record_with_limiter(entry, None);
     }
 
-    pub(crate) fn record_with_limiter(&self, entry: NewRequestEntry, limiter_event: Option<LimiterEvent<'_>>) {
+    pub(crate) fn record_with_limiter(
+        &self,
+        entry: NewRequestEntry,
+        limiter_event: Option<LimiterEvent<'_>>,
+    ) {
         let record = entry.normalize();
         let bounds = self.retention_bounds();
         let maintain = self.should_maintain();
@@ -46,7 +71,8 @@ impl RequestStats {
             let guard = self.guard();
             self.with_conn_mut(&guard, |conn| {
                 let tx = conn.transaction()?;
-                let terminal_exists = !record.id.is_empty() && sql::terminal_record_exists(&tx, &record.id)?;
+                let terminal_exists =
+                    !record.id.is_empty() && sql::terminal_record_exists(&tx, &record.id)?;
                 // inserted_new：这条请求真的新插了明细行（没有进行中行可补全）。
                 // 终态已存在时什么都不写 —— 幂等靠它，总数缓存也一样。
                 let mut inserted_new = false;
@@ -75,7 +101,11 @@ impl RequestStats {
                     }
                 }
                 // 僵尸收尾可能先于真实用量到达；终态不覆盖，额度仍按请求 ID 幂等补记。
-                let row_id = limiter_event.as_ref().map(|event| event.insert(&tx)).transpose()?.flatten();
+                let row_id = limiter_event
+                    .as_ref()
+                    .map(|event| event.insert(&tx))
+                    .transpose()?
+                    .flatten();
                 // 新插入一行且没跑周期维护时只需推进总数缓存，不必重新扫全表
                 if inserted_new && !maintain {
                     self.adjust_total(1);
@@ -112,7 +142,16 @@ impl RequestStats {
         let guard = self.guard();
         let _ = self.with_conn_mut(&guard, |conn| {
             let tx = conn.transaction()?;
-            sql::insert_started_request(&tx, id, ts, model, client_model, client_reasoning, source, is_test)?;
+            sql::insert_started_request(
+                &tx,
+                id,
+                ts,
+                model,
+                client_model,
+                client_reasoning,
+                source,
+                is_test,
+            )?;
             lifecycle::finish_stale(&tx, stale_cutoff(), now_ms())?;
             if maintain {
                 sql::delete_expired_requests(&tx, bounds.requests_ms)?;
@@ -138,6 +177,8 @@ impl RequestStats {
             return;
         }
         let guard = self.guard();
-        let _ = self.with_conn_mut(&guard, |conn| sql::update_running_progress(conn, id, progress));
+        let _ = self.with_conn_mut(&guard, |conn| {
+            sql::update_running_progress(conn, id, progress)
+        });
     }
 }

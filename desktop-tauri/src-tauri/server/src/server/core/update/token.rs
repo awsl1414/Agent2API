@@ -136,7 +136,10 @@ pub fn set_token(token: Option<&str>) -> Result<TokenUpdate, String> {
     if token.len() > MAX_TOKEN_LEN {
         return Err(format!("令牌过长（最多 {MAX_TOKEN_LEN} 字符）"));
     }
-    if !token.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-') {
+    if !token
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+    {
         return Err("令牌只能包含字母、数字、下划线与连字符".to_string());
     }
     // 与已存令牌逐字比较（解不开时存储侧那一份算「非现值」，会正确判为变化）

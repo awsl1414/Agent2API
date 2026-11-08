@@ -26,7 +26,11 @@ impl GithubSettings {
             }
             .to_string();
         }
-        let seconds = retry_at.saturating_sub(logging::now_ms()).max(0).saturating_add(999) / 1000;
+        let seconds = retry_at
+            .saturating_sub(logging::now_ms())
+            .max(0)
+            .saturating_add(999)
+            / 1000;
         if seconds > 0 {
             format!("GitHub 接口限流中，请在 {seconds} 秒后重试")
         } else {
@@ -54,7 +58,11 @@ impl GithubSettings {
 
     pub fn waiting_message(self, state: &task_state::TaskState) -> String {
         if !state.running() && state.retry_at > logging::now_ms() {
-            if let Some(error) = state.last_error.as_deref().filter(|error| is_rate_limit_error(error)) {
+            if let Some(error) = state
+                .last_error
+                .as_deref()
+                .filter(|error| is_rate_limit_error(error))
+            {
                 return self.describe_error(error, state.retry_at);
             }
         }
@@ -172,15 +180,22 @@ pub(super) fn configured_candidates(value: &str, allow_mirror: bool) -> Vec<Cand
     }
     if settings.mode == GithubAccessMode::Accelerated {
         candidates.sort_by_key(|candidate| {
-            if candidate.id == settings.mirror_url { 0 }
-            else if candidate.source == Source::Mirror { 1 }
-            else { 2 }
+            if candidate.id == settings.mirror_url {
+                0
+            } else if candidate.source == Source::Mirror {
+                1
+            } else {
+                2
+            }
         });
     }
     candidates
 }
 
-pub fn ensure_available(candidates: &[Candidate], headers: &[(String, String)]) -> Result<(), String> {
+pub fn ensure_available(
+    candidates: &[Candidate],
+    headers: &[(String, String)],
+) -> Result<(), String> {
     for candidate in candidates {
         if let Some(message) = candidate.cooling_message(headers) {
             return Err(message);
@@ -201,8 +216,12 @@ impl Candidate {
     pub fn label(&self) -> String {
         match self.source {
             Source::Official => "官方源".to_string(),
-            Source::Mirror => self.mirror_origin.as_ref()
-                .and_then(|url| url.host_str()).unwrap_or("加速源").to_string(),
+            Source::Mirror => self
+                .mirror_origin
+                .as_ref()
+                .and_then(|url| url.host_str())
+                .unwrap_or("加速源")
+                .to_string(),
         }
     }
 
@@ -284,13 +303,18 @@ impl Candidate {
 
     pub fn is_rate_limited(&self, response: &reqwest::Response) -> bool {
         response.status().as_u16() == 429
-            || (response.status().as_u16() == 403 && (
-                self.source == Source::Official
+            || (response.status().as_u16() == 403
+                && (self.source == Source::Official
                     || response.headers().contains_key("retry-after")
-                    || response.headers().get("x-ratelimit-remaining").is_some_and(|value| value == "0")
-                    || response.headers().get("content-type").and_then(|value| value.to_str().ok())
-                        .is_some_and(|value| value.contains("json"))
-            ))
+                    || response
+                        .headers()
+                        .get("x-ratelimit-remaining")
+                        .is_some_and(|value| value == "0")
+                    || response
+                        .headers()
+                        .get("content-type")
+                        .and_then(|value| value.to_str().ok())
+                        .is_some_and(|value| value.contains("json"))))
     }
 
     pub fn record_rate_limit(&self, headers: &[(String, String)], response: &reqwest::Response) {
@@ -346,8 +370,13 @@ pub fn should_switch(candidate: &Candidate, status: reqwest::StatusCode) -> bool
 }
 
 pub(super) fn failed_state(message: &str) -> &'static str {
-    if message.contains("限流") { "rateLimited" }
-    else if message.contains("超时") { "timeout" }
-    else if message.contains("格式") || message.contains("JSON") || message.contains("内容") { "invalid" }
-    else { "failed" }
+    if message.contains("限流") {
+        "rateLimited"
+    } else if message.contains("超时") {
+        "timeout"
+    } else if message.contains("格式") || message.contains("JSON") || message.contains("内容") {
+        "invalid"
+    } else {
+        "failed"
+    }
 }

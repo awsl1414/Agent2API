@@ -43,7 +43,10 @@ fn trae_public_account(record: &StoredAccount) -> Value {
         "expiresAt",
         "variant",
     ] {
-        public.insert(key.to_string(), record.get(key).cloned().unwrap_or(Value::Null));
+        public.insert(
+            key.to_string(),
+            record.get(key).cloned().unwrap_or(Value::Null),
+        );
     }
     public.insert(
         "expiresAtMs".to_string(),
@@ -63,7 +66,10 @@ fn trae_public_account(record: &StoredAccount) -> Value {
     );
     public.insert(
         "rateLimits".to_string(),
-        record.get("rateLimits").cloned().unwrap_or_else(|| json!({})),
+        record
+            .get("rateLimits")
+            .cloned()
+            .unwrap_or_else(|| json!({})),
     );
     public.insert("desktop".to_string(), Value::Bool(false));
     // 有 accessToken 才算「当前可用」；只有续期串的账号要先刷一次才能用
@@ -104,14 +110,29 @@ mod tests {
             .unwrap_or_default(),
         );
         let public = trae_public_account(&record);
-        assert_eq!("u-1", public.get("uid").and_then(Value::as_str).unwrap_or(""));
-        assert_eq!("solo", public.get("variant").and_then(Value::as_str).unwrap_or(""));
+        assert_eq!(
+            "u-1",
+            public.get("uid").and_then(Value::as_str).unwrap_or("")
+        );
+        assert_eq!(
+            "solo",
+            public.get("variant").and_then(Value::as_str).unwrap_or("")
+        );
         assert_eq!(
             1_900_000_000_000,
-            public.get("expiresAtMs").and_then(Value::as_i64).unwrap_or(0)
+            public
+                .get("expiresAtMs")
+                .and_then(Value::as_i64)
+                .unwrap_or(0)
         );
-        assert!(public.get("hasRefreshToken").and_then(Value::as_bool).unwrap_or(false));
-        assert!(public.get("available").and_then(Value::as_bool).unwrap_or(false));
+        assert!(public
+            .get("hasRefreshToken")
+            .and_then(Value::as_bool)
+            .unwrap_or(false));
+        assert!(public
+            .get("available")
+            .and_then(Value::as_bool)
+            .unwrap_or(false));
         assert!(public.get("accessToken").is_none(), "公开形态不许带令牌");
         assert!(public.get("refreshToken").is_none(), "公开形态不许带续期串");
     }
@@ -131,7 +152,13 @@ mod tests {
             .unwrap_or_default(),
         );
         let public = trae_public_account(&record);
-        assert!(!public.get("available").and_then(Value::as_bool).unwrap_or(true));
-        assert!(public.get("hasRefreshToken").and_then(Value::as_bool).unwrap_or(false));
+        assert!(!public
+            .get("available")
+            .and_then(Value::as_bool)
+            .unwrap_or(true));
+        assert!(public
+            .get("hasRefreshToken")
+            .and_then(Value::as_bool)
+            .unwrap_or(false));
     }
 }

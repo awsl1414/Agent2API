@@ -186,7 +186,10 @@ pub async fn update_custom_provider(State(state): State<ServerState>, body: Byte
         .trim_end_matches('/')
         .to_string();
     if !before_base.is_empty() && before_base != after_base {
-        match state.store().clear_custom_base_url_overrides(&id, &before_base) {
+        match state
+            .store()
+            .clear_custom_base_url_overrides(&id, &before_base)
+        {
             Ok(names) if !names.is_empty() => logging::log(
                 "[CustomProvider]",
                 &format!(
@@ -198,15 +201,15 @@ pub async fn update_custom_provider(State(state): State<ServerState>, body: Byte
             Ok(_) => {}
             Err(error) => logging::log(
                 "[CustomProvider]",
-                &format!("⚠️ 清理账号旧地址覆盖项失败（可手动「改回跟随提供商」）: {}", error.message),
+                &format!(
+                    "⚠️ 清理账号旧地址覆盖项失败（可手动「改回跟随提供商」）: {}",
+                    error.message
+                ),
             ),
         }
     }
     let changes = describe_changes(before.as_ref(), &updated);
-    let label = updated
-        .get("name")
-        .and_then(Value::as_str)
-        .unwrap_or(&id);
+    let label = updated.get("name").and_then(Value::as_str).unwrap_or(&id);
     logging::log(
         "[CustomProvider]",
         &format!("✏️  自定义提供商「{label}」已更新（{changes}）"),
@@ -289,7 +292,11 @@ pub async fn remove_custom_provider(State(state): State<ServerState>, body: Byte
             .iter()
             .map(|entry| {
                 let name = entry.name.trim();
-                if name.is_empty() { entry.id.clone() } else { format!("{}（{}）", name, entry.id) }
+                if name.is_empty() {
+                    entry.id.clone()
+                } else {
+                    format!("{}（{}）", name, entry.id)
+                }
             })
             .collect();
         note.push_str(&format!(

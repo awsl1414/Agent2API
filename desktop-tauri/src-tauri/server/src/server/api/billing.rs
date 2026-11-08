@@ -24,7 +24,7 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use serde_json::{json, Value};
 
-use crate::server::core::billing::{WorkbuddyActivity, BillingError};
+use crate::server::core::billing::{BillingError, WorkbuddyActivity};
 use crate::server::core::providers::workbuddy::Region;
 use crate::server::errors::GatewayError;
 use crate::server::http::ok_json;
@@ -75,7 +75,10 @@ pub async fn claim_checkin(State(state): State<ServerState>) -> Response {
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
     if !success {
-        let detail = result.get("msg").and_then(serde_json::Value::as_str).unwrap_or("");
+        let detail = result
+            .get("msg")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
         logging::log("[Billing]", &format!("签到未领取（{detail}）"));
     }
     // 状态码与 body 的 success 都由结果决定，不能用 ok_json（它恒为 200/true）
@@ -84,7 +87,11 @@ pub async fn claim_checkin(State(state): State<ServerState>) -> Response {
     } else {
         axum::http::StatusCode::CONFLICT
     };
-    (status, axum::Json(json!({ "success": success, "data": result }))).into_response()
+    (
+        status,
+        axum::Json(json!({ "success": success, "data": result })),
+    )
+        .into_response()
 }
 
 /// POST /api/checkin/claim-and-report —— 签到 + 查余额
@@ -183,7 +190,10 @@ pub async fn run_activity(State(state): State<ServerState>, body: Bytes) -> Resp
     // 不影响本响应。
     crate::server::core::checkin_records::record_activity(
         &row,
-        account.get("provider").and_then(Value::as_str).unwrap_or(""),
+        account
+            .get("provider")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
         mode.as_str(),
     );
     // 落 `checkinAt`：手动粒度入口与批量/定时（`run_checkin`）必须同口径 ——
@@ -236,7 +246,9 @@ pub async fn save_keepalive(body: Bytes) -> Response {
             let id = id.trim();
             Some((!id.is_empty()).then(|| id.to_string()))
         }
-        Some(_) => return GatewayError::bad_request("apiKeyId 必须是 Key ID 或 null").into_response(),
+        Some(_) => {
+            return GatewayError::bad_request("apiKeyId 必须是 Key ID 或 null").into_response()
+        }
     };
     match crate::server::core::billing::keepalive::set_models(&raw, api_key_id) {
         Ok(_) => ok_json(crate::server::core::billing::keepalive::state()),

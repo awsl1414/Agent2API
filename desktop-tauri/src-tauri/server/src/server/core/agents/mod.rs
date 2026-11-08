@@ -24,7 +24,7 @@ use serde_json::{json, Value};
 
 pub fn snapshot(port: u16) -> Value {
     let gateway = format!("http://127.0.0.1:{port}");
-    let mut keys = crate::server::core::api_keys::entries_from(&crate::server::config::current().raw())
+    let mut keys = crate::server::core::api_keys::entries_from(crate::server::config::current().raw())
         .into_iter().filter(crate::server::core::api_keys::ApiKeyEntry::is_usable)
         .map(|key| json!({ "id": key.id, "name": key.name, "allowedModels": key.allowed_models, "allowedProviders": key.allowed_providers }))
         .collect::<Vec<_>>();

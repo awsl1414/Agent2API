@@ -29,7 +29,8 @@ pub const MAX_DEBUG_ENTRIES: usize = 1_000;
 const LEVEL_CAPACITY_WEIGHT: usize = MAX_EVENT_ENTRIES + MAX_ALERT_ENTRIES + MAX_DEBUG_ENTRIES;
 
 pub(crate) fn retention_capacity() -> usize {
-    config::retention_settings().log_count
+    config::retention_settings()
+        .log_count
         .clamp(config::RETENTION_MIN_COUNT, config::RETENTION_MAX_COUNT) as usize
 }
 
@@ -78,7 +79,6 @@ fn bump_cache_epoch() {
 fn cache_epoch() -> u64 {
     CACHE_EPOCH.load(Ordering::Relaxed)
 }
-
 
 /// 日志保留期维护间隔：插入日志不必每次都重算全表计数
 const MAINTENANCE_INTERVAL_MS: i64 = 60 * 1000;
@@ -306,7 +306,10 @@ impl LogStore {
     fn maintenance_due(&self) -> bool {
         let now = crate::server::logging::now_ms();
         let last = self.last_maintenance_ms.load(Ordering::Relaxed);
-        let writes = self.writes_since_maintenance.fetch_add(1, Ordering::Relaxed) + 1;
+        let writes = self
+            .writes_since_maintenance
+            .fetch_add(1, Ordering::Relaxed)
+            + 1;
         if last != 0
             && now.saturating_sub(last) < MAINTENANCE_INTERVAL_MS
             && writes < MAINTENANCE_WRITE_INTERVAL
@@ -328,15 +331,16 @@ impl LogStore {
         let guard = self.guard();
         let cutoff = self.retention_cutoff_ms();
         let debug_cutoff = self.debug_cutoff_ms();
-        let removed = self.with_conn_mut(&guard, |conn| {
-            let tx = conn.transaction()?;
-            let removed = sql::delete_expired(&tx, cutoff, None)?
-                + sql::delete_expired_debug(&tx, debug_cutoff, None)?
-                + sql::trim_to_capacity(&tx, retention_capacity())?;
-            tx.commit()?;
-            Ok(removed)
-        })
-        .unwrap_or(0);
+        let removed = self
+            .with_conn_mut(&guard, |conn| {
+                let tx = conn.transaction()?;
+                let removed = sql::delete_expired(&tx, cutoff, None)?
+                    + sql::delete_expired_debug(&tx, debug_cutoff, None)?
+                    + sql::trim_to_capacity(&tx, retention_capacity())?;
+                tx.commit()?;
+                Ok(removed)
+            })
+            .unwrap_or(0);
         // 显式裁剪（启动 / 改保留期 / 手动清空）之后重置批次计数：下一次写入
         // 不必再从头攒 128 条才检查一次。即便这次没有删行，保留期上限本身可能
         // 已经变了（`Stats.max` 读的是配置），缓存也要失效。

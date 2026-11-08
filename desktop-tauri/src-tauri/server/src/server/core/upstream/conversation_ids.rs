@@ -41,7 +41,8 @@ pub(super) fn resolve(headers: &HeaderMap, body: &Value) -> Result<ConversationI
         }
         scope.update([0]);
     }
-    for pointer in ["/user"] {
+    {
+        let pointer = "/user";
         scope.update(pointer.as_bytes());
         if let Some(value) = body.pointer(pointer) {
             scope.update(value.to_string().as_bytes());

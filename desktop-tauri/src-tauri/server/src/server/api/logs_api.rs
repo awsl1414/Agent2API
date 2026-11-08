@@ -48,7 +48,7 @@ pub async fn not_found(request: axum::extract::Request) -> Response {
 
 /// 查询串里的 `all` 是否显式要求「清空全部」（`all=1` / `all=true`）
 fn explicit_all(params: &Params) -> bool {
-    params.get("all").map_or(false, |value| {
+    params.get("all").is_some_and(|value| {
         let text = value.trim();
         text == "1" || text.eq_ignore_ascii_case("true")
     })
@@ -92,8 +92,12 @@ fn log_query(params: &Params) -> Result<LogQuery, Response> {
     let mut query = LogQuery {
         limit: Some(effective_limit(params.get("limit"))),
         offset: parse_number(params.get("offset")).unwrap_or(0.0).max(0.0) as usize,
-        aggregate: params.get("aggregate").map_or(false, |value| value == "1" || value == "true"),
-        view: params.get("view").map_or(LogView::All, |value| LogView::parse(value)),
+        aggregate: params
+            .get("aggregate")
+            .is_some_and(|value| value == "1" || value == "true"),
+        view: params
+            .get("view")
+            .map_or(LogView::All, |value| LogView::parse(value)),
         until_id: parse_number(params.get("untilId")).map(|value| value.max(0.0) as u64),
         level: params.get("level").cloned(),
         category: params.get("category").cloned(),
@@ -103,7 +107,8 @@ fn log_query(params: &Params) -> Result<LogQuery, Response> {
         end: parse_query_ms(params.get("end")),
     };
     if let Some((start, end)) = date_bounds(params)
-        .map_err(|message| crate::server::errors::management_error(400, message))? {
+        .map_err(|message| crate::server::errors::management_error(400, message))?
+    {
         query.start = Some(start);
         query.end = Some(end);
     }
@@ -111,13 +116,19 @@ fn log_query(params: &Params) -> Result<LogQuery, Response> {
 }
 
 /// GET /api/logs
-pub async fn query_logs(State(_state): State<ServerState>, Query(params): Query<Params>) -> Response {
+pub async fn query_logs(
+    State(_state): State<ServerState>,
+    Query(params): Query<Params>,
+) -> Response {
     let store = match store_or_error() {
         Ok(store) => store,
         Err(response) => return response,
     };
 
-    let query = match log_query(&params) { Ok(query) => query, Err(response) => return response };
+    let query = match log_query(&params) {
+        Ok(query) => query,
+        Err(response) => return response,
+    };
 
     let result = store.query(&query);
     let mut data = match serde_json::to_value(&result) {
@@ -159,20 +170,34 @@ pub async fn stats_logs(State(_state): State<ServerState>) -> Response {
 /// （不带的空请求给 400）—— 护栏的理由见下面 `explicit_all` 的注释。
 /// 全清沿用 `clear()` 的原语义（id 重新从 1 数起，导航徽标的已读水位有对应处理）。
 /// 响应带删除后的统计，有删除时另带 `removed`（删除条数）。
-pub async fn clear_logs(State(_state): State<ServerState>, Query(params): Query<Params>) -> Response {
+pub async fn clear_logs(
+    State(_state): State<ServerState>,
+    Query(params): Query<Params>,
+) -> Response {
     let store = match store_or_error() {
         Ok(store) => store,
         Err(response) => return response,
     };
-    let query = match log_query(&params) { Ok(query) => query, Err(response) => return response };
-    let has_filters = query.level.as_deref().map_or(false, |level| logs_store::LEVELS.contains(&level.trim().to_lowercase().as_str()))
-        || query.category.as_deref().map_or(false, |category| logs_store::CATEGORIES.iter().any(|(key, _)| *key == category.trim().to_lowercase()))
-        || query.keyword.as_deref().map_or(false, |keyword| !keyword.trim().is_empty())
-        || query.start.is_some()
-        || query.end.is_some()
-        || query.until_id.is_some()
-        || query.since_id.is_some()
-        || query.view != LogView::All;
+    let query = match log_query(&params) {
+        Ok(query) => query,
+        Err(response) => return response,
+    };
+    let has_filters =
+        query.level.as_deref().is_some_and(|level| {
+            logs_store::LEVELS.contains(&level.trim().to_lowercase().as_str())
+        }) || query.category.as_deref().is_some_and(|category| {
+            logs_store::CATEGORIES
+                .iter()
+                .any(|(key, _)| *key == category.trim().to_lowercase())
+        }) || query
+            .keyword
+            .as_deref()
+            .is_some_and(|keyword| !keyword.trim().is_empty())
+            || query.start.is_some()
+            || query.end.is_some()
+            || query.until_id.is_some()
+            || query.since_id.is_some()
+            || query.view != LogView::All;
 
     if !has_filters {
         // ── 护栏：无筛选参数时必须显式声明 all=1 才全清 ──────────────
@@ -198,10 +223,7 @@ pub async fn clear_logs(State(_state): State<ServerState>, Query(params): Query<
     }
 
     let (removed, stats) = store.clear_where(&query);
-    logging::log(
-        "[Logs]",
-        &format!("已按筛选条件清空 {removed} 条日志"),
-    );
+    logging::log("[Logs]", &format!("已按筛选条件清空 {removed} 条日志"));
     match serde_json::to_value(stats) {
         Ok(mut value) => {
             if let Some(object) = value.as_object_mut() {
@@ -218,13 +240,23 @@ pub async fn clear_logs(State(_state): State<ServerState>, Query(params): Query<
 }
 
 /// GET /api/logs/download —— 直接回 JSONL 附件
-pub async fn download_logs(State(_state): State<ServerState>, Query(params): Query<Params>) -> Response {
+pub async fn download_logs(
+    State(_state): State<ServerState>,
+    Query(params): Query<Params>,
+) -> Response {
     let store = match store_or_error() {
         Ok(store) => store,
         Err(response) => return response,
     };
-    let query = match log_query(&params) { Ok(query) => query, Err(response) => return response };
-    let body = if params.is_empty() { store.to_jsonl() } else { store.to_jsonl_where(&query) };
+    let query = match log_query(&params) {
+        Ok(query) => query,
+        Err(response) => return response,
+    };
+    let body = if params.is_empty() {
+        store.to_jsonl()
+    } else {
+        store.to_jsonl_where(&query)
+    };
     let filename = format!("workbuddy-logs-{}.jsonl", file_stamp());
 
     let mut response = Response::builder()
@@ -235,7 +267,9 @@ pub async fn download_logs(State(_state): State<ServerState>, Query(params): Que
 
     // 文件名/长度用 HeaderValue 构造（含非 ASCII 的兜底不 panic）
     if let Ok(value) = HeaderValue::from_str(&format!("attachment; filename=\"{filename}\"")) {
-        response.headers_mut().insert(header::CONTENT_DISPOSITION, value);
+        response
+            .headers_mut()
+            .insert(header::CONTENT_DISPOSITION, value);
     }
     response
 }
@@ -245,7 +279,12 @@ pub async fn download_logs(State(_state): State<ServerState>, Query(params): Que
 fn attach_dictionary(object: &mut serde_json::Map<String, Value>) {
     object.insert(
         "levels".to_string(),
-        Value::Array(logs_store::LEVELS.iter().map(|item| Value::String(item.to_string())).collect()),
+        Value::Array(
+            logs_store::LEVELS
+                .iter()
+                .map(|item| Value::String(item.to_string()))
+                .collect(),
+        ),
     );
     let mut categories = serde_json::Map::new();
     for (key, label) in logs_store::CATEGORIES {
@@ -255,16 +294,22 @@ fn attach_dictionary(object: &mut serde_json::Map<String, Value>) {
     let capacity = logs_store::retention_capacity();
     let warn = logs_store::level_capacity(capacity, "warn");
     let error = logs_store::level_capacity(capacity, "error");
-    object.insert("max".to_string(), Value::Number(Number::from(capacity as u64)));
+    object.insert(
+        "max".to_string(),
+        Value::Number(Number::from(capacity as u64)),
+    );
     object.insert("fetchMax".to_string(), json!(logs_store::MAX_ENTRIES));
-    object.insert("retention".to_string(), json!({
-        "events": logs_store::level_capacity(capacity, "info"),
-        "alerts": warn + error,
-        "warn": warn,
-        "error": error,
-        "debug": logs_store::level_capacity(capacity, "debug"),
-        "debugDays": logs_store::DEBUG_RETENTION_DAYS,
-    }));
+    object.insert(
+        "retention".to_string(),
+        json!({
+            "events": logs_store::level_capacity(capacity, "info"),
+            "alerts": warn + error,
+            "warn": warn,
+            "error": error,
+            "debug": logs_store::level_capacity(capacity, "debug"),
+            "debugDays": logs_store::DEBUG_RETENTION_DAYS,
+        }),
+    );
     object.insert("debugEnabled".to_string(), json!(logging::is_verbose()));
 }
 

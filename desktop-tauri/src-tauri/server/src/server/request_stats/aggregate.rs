@@ -20,6 +20,7 @@ use chrono::{Duration as ChronoDuration, NaiveDate};
 use serde_json::{json, Value};
 
 use super::clock::{date_key, day_of, local_midnight_ms};
+use super::legacy;
 use super::record::{DailyEntry, RequestEntry};
 use super::report::{
     build_accounts, build_models, build_providers, build_top_model, cache_rates, cache_trend_24h,
@@ -27,7 +28,6 @@ use super::report::{
     push_provider_accum, range_bounds, range_totals, streak, SummaryRow,
 };
 use super::{daily, sql};
-use super::legacy;
 
 /// 模型用量口径订正的完成标记键（`kv` 表）。
 ///

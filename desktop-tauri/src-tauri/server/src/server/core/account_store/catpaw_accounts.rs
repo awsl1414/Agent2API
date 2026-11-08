@@ -74,7 +74,13 @@ impl AccountStore {
         public.insert("name".to_string(), Value::String(record.name()));
         public.insert(
             "uid".to_string(),
-            Value::String(record.get("uid").and_then(Value::as_str).unwrap_or("").to_string()),
+            Value::String(
+                record
+                    .get("uid")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            ),
         );
         public.insert(
             "loginName".to_string(),
@@ -107,7 +113,10 @@ impl AccountStore {
         // 字段照样透出 —— 少一个键会让通用代码在这条分支上多一次特判。
         public.insert(
             "rateLimits".to_string(),
-            record.get("rateLimits").cloned().unwrap_or_else(|| Value::Object(Map::new())),
+            record
+                .get("rateLimits")
+                .cloned()
+                .unwrap_or_else(|| Value::Object(Map::new())),
         );
         // 可用性：桌面端记录不落 token，存量形态里也没有实时读文件的路径，
         // 因此只按「有没有 token」判（桌面端记录如实报 false，等插件接管）。
@@ -212,7 +221,9 @@ impl AccountStore {
                         None => "余额查询凭证已清除".to_string(),
                     }])
                 }
-                Ok(false) => return Err(AccountStoreError::new("账号凭证已变化，请刷新后重试", 409)),
+                Ok(false) => {
+                    return Err(AccountStoreError::new("账号凭证已变化，请刷新后重试", 409))
+                }
                 Err(message) => return Err(AccountStoreError::new(message, 500)),
             }
         }

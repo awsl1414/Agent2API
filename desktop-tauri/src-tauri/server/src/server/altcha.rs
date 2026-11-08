@@ -71,8 +71,8 @@ fn sha256_hex(value: &str) -> String {
 }
 
 fn hmac_hex(secret: &str, message: &str) -> String {
-    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())
-        .expect("HMAC 接受任意长度的密钥");
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("HMAC 接受任意长度的密钥");
     mac.update(message.as_bytes());
     format!("{:x}", mac.finalize().into_bytes())
 }
@@ -143,14 +143,11 @@ pub fn challenge(local_panel: bool) -> Option<Value> {
 /// 验证登录 / 注册请求携带的 ALTCHA payload。
 /// 失败返回给用户看的原因（端点原样转 400）。
 pub fn verify(token: &str) -> Result<(), String> {
-    let decoded = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        token.trim(),
-    )
-    .or_else(|_| {
-        base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE, token.trim())
-    })
-    .map_err(|_| "机器人校验无效，请刷新页面重试".to_string())?;
+    let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, token.trim())
+        .or_else(|_| {
+            base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE, token.trim())
+        })
+        .map_err(|_| "机器人校验无效，请刷新页面重试".to_string())?;
     let parsed: Value = serde_json::from_slice(&decoded)
         .map_err(|_| "机器人校验无效，请刷新页面重试".to_string())?;
 
@@ -160,11 +157,7 @@ pub fn verify(token: &str) -> Result<(), String> {
     let salt = get("salt");
     let signature = get("signature");
     let number = parsed.get("number").and_then(Value::as_u64);
-    if algorithm != "SHA-256"
-        || challenge_field.is_empty()
-        || salt.is_empty()
-        || number.is_none()
-    {
+    if algorithm != "SHA-256" || challenge_field.is_empty() || salt.is_empty() || number.is_none() {
         return Err("机器人校验无效，请刷新页面重试".to_string());
     }
     let number = number.unwrap();

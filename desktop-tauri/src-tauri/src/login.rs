@@ -411,7 +411,11 @@ pub async fn start_kuku_sms(app: &AppHandle, phone: &str) -> Result<serde_json::
             true, // start_hidden：窗口隐藏，全程脚本后台操作
         );
         let (result, ()) = tokio::join!(run, monitor);
-        if result.as_ref().map(|value| value.get("ok").and_then(serde_json::Value::as_bool)) != Ok(Some(true)) {
+        if result
+            .as_ref()
+            .map(|value| value.get("ok").and_then(serde_json::Value::as_bool))
+            != Ok(Some(true))
+        {
             let _ = gateway::call(
                 "POST",
                 "/api/session/login/cancel",
@@ -461,7 +465,7 @@ pub async fn submit_kuku_sms_code(
         // 每轮重写验证码变量（fire-and-forget）：passport 页面可能在发码后
         // 刷新（图形验证码 / 风控重渲染），一次性写入会随旧页面一起丢 ——
         // 窗口脚本每 500ms 轮询这个变量，新页面里读到就自动填码提交。
-        let _ = window.eval(&format!("window.__kukuSmsCode = '{}';", code));
+        let _ = window.eval(format!("window.__kukuSmsCode = '{}';", code));
         tokio::time::sleep(POLL_INTERVAL).await;
         match poll_once(&active.state).await {
             PollOutcome::Pending(_) => continue,
@@ -489,8 +493,14 @@ pub async fn submit_kuku_sms_code(
         .and_then(|items| {
             items
                 .iter()
-                .filter(|item| item.get("provider").and_then(serde_json::Value::as_str) == Some("kuku"))
-                .max_by_key(|item| item.get("addedAt").and_then(serde_json::Value::as_i64).unwrap_or(0))
+                .filter(|item| {
+                    item.get("provider").and_then(serde_json::Value::as_str) == Some("kuku")
+                })
+                .max_by_key(|item| {
+                    item.get("addedAt")
+                        .and_then(serde_json::Value::as_i64)
+                        .unwrap_or(0)
+                })
                 .cloned()
         })
         .unwrap_or_else(|| serde_json::json!({ "provider": "kuku", "name": "KukuAI 账号" }));
@@ -661,7 +671,7 @@ fn allowed_hosts(provider: &str) -> Option<&'static [&'static str]> {
         // 见 `providers::officeace::oauth` 的模块头），所以这里没有 CodeArts 那种
         // loopback 回调要放行；但「不设限」仍是必须显式写出的选择（落进默认分支
         // 会拿到 WorkBuddy 的白名单 → 窗口白屏）。
-//
+        //
         // OrcaTerm（腾讯云遨驰终端）同样不设限：登录窗口开在官方 OAuth 授权页
         // （`orcaterm.com/oauth/authorize`），它会 302 到 `open.weixin.qq.com`
         // 的微信二维码（`qrconnect`），沿途还会拉 `res.wx.qq.com` 的样式与
@@ -687,9 +697,9 @@ fn allowed_hosts(provider: &str) -> Option<&'static [&'static str]> {
         // `providers/qoder/authorize.rs`）—— 那条导航被拦下的症状同样是
         // 「授权成功但永远收不到码」。与 Qoder 同组，必须是 None。
         "catpaw" | "qoder" | "qoder-intl" | "qwenwork" | "qwenwork-intl" | "cline-free"
-        | "cline-pass" | "autoclaw"
-        | "autoclaw-intl" | "accio" | "accio-cn" | "zcode" | "zcode-intl" | "codearts" | "trae"
-        | "kuku" | "antigravity" | "officeace" | "orcaterm" | "atomcode" | "lobsterai" => None,
+        | "cline-pass" | "autoclaw" | "autoclaw-intl" | "accio" | "accio-cn" | "zcode"
+        | "zcode-intl" | "codearts" | "trae" | "kuku" | "antigravity" | "officeace"
+        | "orcaterm" | "atomcode" | "lobsterai" => None,
         // WorkBuddy 的两个地区共用这一张表（表里 `workbuddy.ai` 那一行就是国际站
         // 的登录域）。**显式列出**而不是靠下面的默认分支：上面那条警告要求
         // 「新 provider 落到默认分支」必须是有意的选择，写出来才看得出是选过的
@@ -715,7 +725,9 @@ fn host_allowed(url: &url::Url, provider: &str, social_restore: bool) -> bool {
     if provider == "doubaowork" {
         return url.as_str() == "about:blank" || crate::doubaowork_login::allowed(url);
     }
-    if let Some(region) = crate::server::core::providers::monkeycode::Region::from_provider_id(provider) {
+    if let Some(region) =
+        crate::server::core::providers::monkeycode::Region::from_provider_id(provider)
+    {
         return url.as_str() == "about:blank" || crate::monkeycode_login::allowed(url, region);
     }
     match url.scheme() {
@@ -738,8 +750,7 @@ fn host_allowed(url: &url::Url, provider: &str, social_restore: bool) -> bool {
             // `run_embedded` 的调用点），这里不再重复判 provider —— 重复判的
             // 后果是拆家后国际版（`workbuddy-intl`）被挡住，Google / GitHub
             // 按钮点下去白屏。
-            matched(allowed)
-                || (social_restore && matched(SOCIAL_IDENTITY_HOSTS))
+            matched(allowed) || (social_restore && matched(SOCIAL_IDENTITY_HOSTS))
         }
         // 非 http(s) 的其它协议一律拒绝（除了上面的 about / data）：
         // 白名单之外的自定义协议在 WebView2 里会被交给系统处理，不该由登录页触发
@@ -789,7 +800,9 @@ fn is_login_callback(url: &url::Url, provider: &str) -> bool {
 /// 与 Qoder 的设备授权同形；手工填凭证与导入桌面端登录态都不经过这里
 /// （那两条走 `POST /api/accounts`）。
 fn normalize_provider(provider: &str) -> Result<&'static str, String> {
-    if let Some(region) = crate::server::core::providers::monkeycode::Region::from_provider_id(provider.trim()) {
+    if let Some(region) =
+        crate::server::core::providers::monkeycode::Region::from_provider_id(provider.trim())
+    {
         return Ok(region.provider_id());
     }
     match provider.trim() {
@@ -1037,11 +1050,16 @@ async fn poll_once(state: &str) -> PollOutcome {
         Err(error) => return PollOutcome::Unreachable(error),
     };
     if value.get("pending").and_then(serde_json::Value::as_bool) == Some(true)
-        || value.get("pending").is_some_and(serde_json::Value::is_object)
+        || value
+            .get("pending")
+            .is_some_and(serde_json::Value::is_object)
         || value.get("done").and_then(serde_json::Value::as_bool) != Some(true)
     {
-        let hint = value.get("hint").or_else(|| value.pointer("/pending/hint"))
-            .and_then(serde_json::Value::as_str).map(str::to_string);
+        let hint = value
+            .get("hint")
+            .or_else(|| value.pointer("/pending/hint"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
         return PollOutcome::Pending(hint);
     }
     if let Some(error) = value.get("error").and_then(serde_json::Value::as_str) {
@@ -1083,33 +1101,49 @@ pub async fn start_with_options(
     social_restore: bool,
     options: Option<Value>,
 ) -> Result<Value, String> {
-    let dynamic = options.as_ref().is_some_and(|value| value.get("methodIndex").is_some());
+    let dynamic = options
+        .as_ref()
+        .is_some_and(|value| value.get("methodIndex").is_some());
     if provider.trim() == "deepseek-web" {
         if current_login(app).is_some() {
             return Err("已有登录流程在进行，请先完成当前登录或等待超时".into());
         }
         if mode == "external" {
-            return Err("DeepSeek 自动网页登录需要桌面内嵌窗口；系统浏览器登录后请使用粘贴令牌。".into());
+            return Err(
+                "DeepSeek 自动网页登录需要桌面内嵌窗口；系统浏览器登录后请使用粘贴令牌。".into(),
+            );
         }
         let mut options = options.unwrap_or_else(|| json!({}));
-        if !dynamic { options["methodIndex"] = json!(1); }
+        if !dynamic {
+            options["methodIndex"] = json!(1);
+        }
         return crate::deepseek_login::start(app, &options).await;
     }
     if !dynamic {
         // 旧入口也能带登录代理：界面上的代理选择器对内置家同样生效
         // （antigravity 这类上游在无头服务器上只有应用内代理能出网）。
         // 其余键（inputs / methodIndex）旧入口不认识，不传。
-        let proxy = options.as_ref().and_then(|value| value.get("proxy")).cloned();
+        let proxy = options
+            .as_ref()
+            .and_then(|value| value.get("proxy"))
+            .cloned();
         return start(app, edition, mode, provider, social_restore, proxy).await;
     }
     let options = options.unwrap_or(Value::Null);
-    if options.get("methodIndex").and_then(Value::as_u64)
-        .filter(|index| *index <= 9_007_199_254_740_991).is_none()
+    if options
+        .get("methodIndex")
+        .and_then(Value::as_u64)
+        .filter(|index| *index <= 9_007_199_254_740_991)
+        .is_none()
     {
         return Err("登录方式索引必须是非负安全整数".into());
     }
     crate::startup::wait().await?;
-    let id = if provider.trim().is_empty() { "workbuddy" } else { provider.trim() };
+    let id = if provider.trim().is_empty() {
+        "workbuddy"
+    } else {
+        provider.trim()
+    };
     // 动态入口只认当前已登记执行体（插件或本体 runtime provider），不让旧身份
     // 表里的 MissingPlugin 占位或任意陌生 id 绕过运行时目录。
     if !crate::server::core::providers::is_executable_provider(id) {
@@ -1119,7 +1153,13 @@ pub async fn start_with_options(
     let provider = id;
     let mut nonce = [0u8; 16];
     getrandom::getrandom(&mut nonce).map_err(|_| "无法生成登录流程标识")?;
-    let reservation = format!("starting-{}", nonce.iter().map(|byte| format!("{byte:02x}")).collect::<String>());
+    let reservation = format!(
+        "starting-{}",
+        nonce
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    );
     {
         let state = app.state::<crate::state::AppState>();
         let mut guard = state.login.lock().map_err(|_| "登录状态锁不可用")?;
@@ -1127,13 +1167,21 @@ pub async fn start_with_options(
             return Err("已有登录流程在进行，请先完成当前登录或等待超时".into());
         }
         *guard = Some(ActiveLogin {
-            state: reservation.clone(), edition: edition.clone(), mode: mode.clone(),
+            state: reservation.clone(),
+            edition: edition.clone(),
+            mode: mode.clone(),
             provider: provider.into(),
         });
     }
-    emit_login_state(app, LoginState {
-        active: true, provider: Some(provider.into()), edition: Some(edition.clone()), mode: Some(mode.clone()),
-    });
+    emit_login_state(
+        app,
+        LoginState {
+            active: true,
+            provider: Some(provider.into()),
+            edition: Some(edition.clone()),
+            mode: Some(mode.clone()),
+        },
+    );
     let mut request = json!({
         "provider": provider, "edition": edition, "mode": mode,
         "socialRestore": social_restore, "options": options,
@@ -1141,15 +1189,23 @@ pub async fn start_with_options(
     // HTTP 新契约带完整 options，同时兼容当前 API 的平铺读取。缺省字段不补
     // null（inputs 缺省是 {}，proxy 的显式 null 则必须保留为直连）。
     for key in ["methodIndex", "inputs", "proxy"] {
-        if let Some(value) = options.get(key) { request[key] = value.clone(); }
+        if let Some(value) = options.get(key) {
+            request[key] = value.clone();
+        }
     }
     let response = gateway::call("POST", "/api/session/login/start", Some(&request)).await;
     let started = match response {
         Ok(value) => value,
-        Err(error) => { clear_active_login(app, &reservation); return Err(error); }
+        Err(error) => {
+            clear_active_login(app, &reservation);
+            return Err(error);
+        }
     };
-    let Some(flow) = started.get("state").or_else(|| started.get("flow"))
-        .and_then(Value::as_str).filter(|value| !value.trim().is_empty())
+    let Some(flow) = started
+        .get("state")
+        .or_else(|| started.get("flow"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
     else {
         clear_active_login(app, &reservation);
         return Err("后端未返回登录状态".into());
@@ -1158,20 +1214,37 @@ pub async fn start_with_options(
         None | Some(Value::Null) => "",
         Some(Value::String(value)) => value.as_str(),
         Some(_) => {
-            let _ = gateway::call("POST", "/api/session/login/cancel", Some(&json!({ "state": flow }))).await;
+            let _ = gateway::call(
+                "POST",
+                "/api/session/login/cancel",
+                Some(&json!({ "state": flow })),
+            )
+            .await;
             clear_active_login(app, &reservation);
             return Err("后端返回的登录链接格式无效".into());
         }
     };
     let only_external = started.get("externalBrowser").and_then(Value::as_bool) == Some(true);
-    let mode_id = if auth_url.trim().is_empty() { "auto" }
-        else if only_external || mode == "external" { "external" } else { "embedded" };
+    let mode_id = if auth_url.trim().is_empty() {
+        "auto"
+    } else if only_external || mode == "external" {
+        "external"
+    } else {
+        "embedded"
+    };
     let claimed = {
         let state = app.state::<crate::state::AppState>();
         let claimed = match state.login.lock() {
-            Ok(mut guard) if guard.as_ref().is_some_and(|active| active.state == reservation) => {
+            Ok(mut guard)
+                if guard
+                    .as_ref()
+                    .is_some_and(|active| active.state == reservation) =>
+            {
                 *guard = Some(ActiveLogin {
-                    state: flow.into(), edition: edition.clone(), mode: mode_id.into(), provider: provider.into(),
+                    state: flow.into(),
+                    edition: edition.clone(),
+                    mode: mode_id.into(),
+                    provider: provider.into(),
                 });
                 true
             }
@@ -1180,30 +1253,72 @@ pub async fn start_with_options(
         claimed
     };
     if !claimed {
-        let _ = gateway::call("POST", "/api/session/login/cancel", Some(&json!({ "state": flow }))).await;
+        let _ = gateway::call(
+            "POST",
+            "/api/session/login/cancel",
+            Some(&json!({ "state": flow })),
+        )
+        .await;
         return Ok(json!({ "ok": false, "canceled": true }));
     }
-    let mut instructions = started.get("instructions").and_then(Value::as_str).unwrap_or("").to_string();
+    let mut instructions = started
+        .get("instructions")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     if only_external && mode == "embedded" && !auth_url.trim().is_empty() {
-        if !instructions.is_empty() { instructions.push('\n'); }
-        instructions.push_str("此登录方式只支持系统浏览器，已按提供商要求打开；不会伪装成内嵌窗口。");
+        if !instructions.is_empty() {
+            instructions.push('\n');
+        }
+        instructions
+            .push_str("此登录方式只支持系统浏览器，已按提供商要求打开；不会伪装成内嵌窗口。");
     }
     emit_login_progress(app, flow, &started, &instructions, None);
-    let result = run_dynamic_login(app, provider, flow, auth_url, mode_id, &started, &instructions).await;
-    if result.as_ref().map(|value| value.get("ok").and_then(Value::as_bool)) != Ok(Some(true)) {
-        let _ = gateway::call("POST", "/api/session/login/cancel", Some(&json!({ "state": flow }))).await;
+    let result = run_dynamic_login(
+        app,
+        provider,
+        flow,
+        auth_url,
+        mode_id,
+        &started,
+        &instructions,
+    )
+    .await;
+    if result
+        .as_ref()
+        .map(|value| value.get("ok").and_then(Value::as_bool))
+        != Ok(Some(true))
+    {
+        let _ = gateway::call(
+            "POST",
+            "/api/session/login/cancel",
+            Some(&json!({ "state": flow })),
+        )
+        .await;
     }
     clear_active_login(app, flow);
     result
 }
 
 /// 只推送公开进度，不把授权 URL、options.inputs 或回调正文放进事件/日志。
-fn emit_login_progress(app: &AppHandle, flow: &str, started: &Value, instructions: &str, hint: Option<&str>) {
-    let Some(active) = current_login(app).filter(|active| active.state == flow) else { return; };
+fn emit_login_progress(
+    app: &AppHandle,
+    flow: &str,
+    started: &Value,
+    instructions: &str,
+    hint: Option<&str>,
+) {
+    let Some(active) = current_login(app).filter(|active| active.state == flow) else {
+        return;
+    };
     let manual_callback = started.get("manualCallback").and_then(Value::as_bool) == Some(true);
-    let callback_input = if manual_callback && started.get("callbackInput").and_then(Value::as_str) == Some("code") {
+    let callback_input = if manual_callback
+        && started.get("callbackInput").and_then(Value::as_str) == Some("code")
+    {
         "code"
-    } else { "url" };
+    } else {
+        "url"
+    };
     let progress = json!({
         "active": true, "provider": active.provider, "edition": active.edition, "mode": active.mode,
         "state": flow, "manualCallback": manual_callback, "callbackInput": callback_input,
@@ -1252,10 +1367,15 @@ impl DynamicNavigation {
     fn new(auth: &url::Url, started: &Value) -> Result<Self, String> {
         let raw = match started.get("allowedHosts") {
             None | Some(Value::Null) => Vec::new(),
-            Some(Value::Array(items)) => items.iter().map(|value| {
-                value.as_str().ok_or("登录域名白名单格式无效".to_string())
-                    .map(|text| text.trim().to_string())
-            }).collect::<Result<Vec<_>, String>>()?,
+            Some(Value::Array(items)) => items
+                .iter()
+                .map(|value| {
+                    value
+                        .as_str()
+                        .ok_or("登录域名白名单格式无效".to_string())
+                        .map(|text| text.trim().to_string())
+                })
+                .collect::<Result<Vec<_>, String>>()?,
             Some(_) => return Err("登录域名白名单格式无效".into()),
         };
         let mut hosts = Vec::new();
@@ -1269,63 +1389,114 @@ impl DynamicNavigation {
                 .trim_start_matches("*.")
                 .trim_end_matches('.')
                 .to_ascii_lowercase();
-            if host.is_empty() { return Err("登录域名白名单含有空主机".to_string()); }
+            if host.is_empty() {
+                return Err("登录域名白名单含有空主机".to_string());
+            }
             hosts.push(host);
         }
         let mut callbacks = Vec::new();
         let mut capture = |key: &str, value: &str| {
-            if matches!(key, "redirect_uri" | "redirect" | "redirect_url" | "callback_url"
-                | "auth_callback_url" | "navigate_uri" | "return_url") {
+            if matches!(
+                key,
+                "redirect_uri"
+                    | "redirect"
+                    | "redirect_url"
+                    | "callback_url"
+                    | "auth_callback_url"
+                    | "navigate_uri"
+                    | "return_url"
+            ) {
                 if let Ok(callback) = url::Url::parse(value) {
-                    if callback.host_str().is_some() && callback.username().is_empty() && callback.password().is_none() {
+                    if callback.host_str().is_some()
+                        && callback.username().is_empty()
+                        && callback.password().is_none()
+                    {
                         callbacks.push(callback);
                     }
                 }
             }
         };
-        for (key, value) in auth.query_pairs() { capture(&key, &value); }
-        // SPA 授权页也会把 redirect_uri 放在 hash 路由的查询串里。
-        if let Some((_, query)) = auth.fragment().and_then(|fragment| fragment.split_once('?')) {
-            for (key, value) in url::form_urlencoded::parse(query.as_bytes()) { capture(&key, &value); }
+        for (key, value) in auth.query_pairs() {
+            capture(&key, &value);
         }
-        Ok(Self { hosts, callbacks, loopback_pages })
+        // SPA 授权页也会把 redirect_uri 放在 hash 路由的查询串里。
+        if let Some((_, query)) = auth
+            .fragment()
+            .and_then(|fragment| fragment.split_once('?'))
+        {
+            for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
+                capture(&key, &value);
+            }
+        }
+        Ok(Self {
+            hosts,
+            callbacks,
+            loopback_pages,
+        })
     }
 
     fn is_callback(&self, url: &url::Url) -> bool {
-        if matches!(url.scheme(), "file" | "javascript" | "data" | "about" | "blob") { return false; }
-        if matches!(url.scheme(), "https" | "http") && !self.allows(url) { return false; }
+        if matches!(
+            url.scheme(),
+            "file" | "javascript" | "data" | "about" | "blob"
+        ) {
+            return false;
+        }
+        if matches!(url.scheme(), "https" | "http") && !self.allows(url) {
+            return false;
+        }
         self.matches_callback(url)
     }
 
     fn matches_loopback_page(&self, url: &url::Url) -> bool {
-        let Some(host) = url.host_str() else { return false; };
-        let Some(port) = url.port_or_known_default() else { return false; };
+        let Some(host) = url.host_str() else {
+            return false;
+        };
+        let Some(port) = url.port_or_known_default() else {
+            return false;
+        };
         self.loopback_pages.iter().any(|(page_host, page_port)| {
             host.eq_ignore_ascii_case(page_host) && port == *page_port
         })
     }
 
     fn matches_callback(&self, url: &url::Url) -> bool {
-        url.username().is_empty() && url.password().is_none() && self.callbacks.iter().any(|target| {
-            url.scheme() == target.scheme() && url.host_str() == target.host_str()
-                && url.port_or_known_default() == target.port_or_known_default() && url.path() == target.path()
-        })
+        url.username().is_empty()
+            && url.password().is_none()
+            && self.callbacks.iter().any(|target| {
+                url.scheme() == target.scheme()
+                    && url.host_str() == target.host_str()
+                    && url.port_or_known_default() == target.port_or_known_default()
+                    && url.path() == target.path()
+            })
     }
 
     fn allows(&self, url: &url::Url) -> bool {
-        if !url.username().is_empty() || url.password().is_some() { return false; }
-        let Some(host) = url.host_str() else { return false; };
+        if !url.username().is_empty() || url.password().is_some() {
+            return false;
+        }
+        let Some(host) = url.host_str() else {
+            return false;
+        };
         match url.scheme() {
-            "https" => self.hosts.is_empty() || self.hosts.iter().any(|item| {
-                host.eq_ignore_ascii_case(item) || host.to_ascii_lowercase().ends_with(&format!(".{item}"))
-            }),
+            "https" => {
+                self.hosts.is_empty()
+                    || self.hosts.iter().any(|item| {
+                        host.eq_ignore_ascii_case(item)
+                            || host.to_ascii_lowercase().ends_with(&format!(".{item}"))
+                    })
+            }
             // HTTP 只用于授权地址实际登记的回环 callback，或插件明确申报的
             // 本机登录页；仅白名单写 localhost 不够。
-            "http" => matches!(host, "localhost" | "127.0.0.1" | "[::1]")
-                && (self.matches_callback(url) || self.matches_loopback_page(url))
-                && (self.hosts.is_empty() || self.hosts.iter().any(|item| {
-                    host.eq_ignore_ascii_case(item) || host.to_ascii_lowercase().ends_with(&format!(".{item}"))
-                })),
+            "http" => {
+                matches!(host, "localhost" | "127.0.0.1" | "[::1]")
+                    && (self.matches_callback(url) || self.matches_loopback_page(url))
+                    && (self.hosts.is_empty()
+                        || self.hosts.iter().any(|item| {
+                            host.eq_ignore_ascii_case(item)
+                                || host.to_ascii_lowercase().ends_with(&format!(".{item}"))
+                        }))
+            }
             _ => false,
         }
     }
@@ -1333,8 +1504,13 @@ impl DynamicNavigation {
 
 /// 动态流程独立于旧 Cookie/自定义协议支路；空 URL 也有流程，只跳过开页。
 async fn run_dynamic_login(
-    app: &AppHandle, provider: &str, flow: &str, auth_url: &str, mode: &str,
-    started: &Value, instructions: &str,
+    app: &AppHandle,
+    provider: &str,
+    flow: &str,
+    auth_url: &str,
+    mode: &str,
+    started: &Value,
+    instructions: &str,
 ) -> Result<Value, String> {
     let mut profile = None;
     let mut window = None;
@@ -1344,7 +1520,9 @@ async fn run_dynamic_login(
         }
         let auth = url::Url::parse(auth_url).map_err(|_| "登录链接无效")?;
         let policy = DynamicNavigation::new(&auth, started)?;
-        if !policy.allows(&auth) { return Err("登录链接不是允许的 HTTPS 站点或合法本机回调地址".into()); }
+        if !policy.allows(&auth) {
+            return Err("登录链接不是允许的 HTTPS 站点或合法本机回调地址".into());
+        }
         if mode == "external" {
             if std::env::var("WORKBUDDY_SKIP_OPEN_BROWSER").as_deref() != Ok("1") {
                 open_in_browser(auth_url)?;
@@ -1356,38 +1534,62 @@ async fn run_dynamic_login(
             let popup_state = nav_state.clone();
             let seen = Arc::new(AtomicBool::new(false));
             let nav_seen = seen.clone();
-            let built = WebviewWindowBuilder::new(app, login_window_label(flow), WebviewUrl::External(auth))
-                .data_directory(profile.as_ref().ok_or("登录环境不可用")?.path().to_path_buf())
-                .general_autofill_enabled(false)
-                .title(format!("登录 {} 账号", crate::server::core::providers::label_of(provider)))
-                .inner_size(1100.0, 820.0).min_inner_size(760.0, 560.0).center()
-                .on_navigation(move |url| {
-                    if nav_policy.is_callback(url) {
-                        if !nav_seen.swap(true, Ordering::SeqCst) {
-                            let state = nav_state.clone();
-                            let callback = url.as_str().to_string();
-                            tauri::async_runtime::spawn(async move { submit_callback(&state, &callback).await; });
-                        }
-                        return false;
-                    }
-                    nav_policy.allows(url)
-                })
-                .on_new_window(move |url, _| {
-                    if policy.is_callback(&url) && !seen.swap(true, Ordering::SeqCst) {
-                        let state = popup_state.clone();
+            let built = WebviewWindowBuilder::new(
+                app,
+                login_window_label(flow),
+                WebviewUrl::External(auth),
+            )
+            .data_directory(
+                profile
+                    .as_ref()
+                    .ok_or("登录环境不可用")?
+                    .path()
+                    .to_path_buf(),
+            )
+            .general_autofill_enabled(false)
+            .title(format!(
+                "登录 {} 账号",
+                crate::server::core::providers::label_of(provider)
+            ))
+            .inner_size(1100.0, 820.0)
+            .min_inner_size(760.0, 560.0)
+            .center()
+            .on_navigation(move |url| {
+                if nav_policy.is_callback(url) {
+                    if !nav_seen.swap(true, Ordering::SeqCst) {
+                        let state = nav_state.clone();
                         let callback = url.as_str().to_string();
-                        tauri::async_runtime::spawn(async move { submit_callback(&state, &callback).await; });
+                        tauri::async_runtime::spawn(async move {
+                            submit_callback(&state, &callback).await;
+                        });
                     }
-                    tauri::webview::NewWindowResponse::Deny
-                }).build().map_err(|_| "打开登录窗口失败")?;
+                    return false;
+                }
+                nav_policy.allows(url)
+            })
+            .on_new_window(move |url, _| {
+                if policy.is_callback(&url) && !seen.swap(true, Ordering::SeqCst) {
+                    let state = popup_state.clone();
+                    let callback = url.as_str().to_string();
+                    tauri::async_runtime::spawn(async move {
+                        submit_callback(&state, &callback).await;
+                    });
+                }
+                tauri::webview::NewWindowResponse::Deny
+            })
+            .build()
+            .map_err(|_| "打开登录窗口失败")?;
             let handle = app.clone();
             let state = flow.to_string();
             built.on_window_event(move |event| {
-                if matches!(event, tauri::WindowEvent::CloseRequested { .. }) && login_is_current(&handle, &state) {
+                if matches!(event, tauri::WindowEvent::CloseRequested { .. })
+                    && login_is_current(&handle, &state)
+                {
                     clear_active_login(&handle, &state);
                     let payload = json!({ "state": state });
                     tauri::async_runtime::spawn(async move {
-                        let _ = gateway::call("POST", "/api/session/login/cancel", Some(&payload)).await;
+                        let _ = gateway::call("POST", "/api/session/login/cancel", Some(&payload))
+                            .await;
                     });
                 }
             });
@@ -1395,30 +1597,48 @@ async fn run_dynamic_login(
         }
     }
     // pollIntervalMs=0 只说明插件如何完成流程，不能关闭网关 /wait 轮询。
-    let interval = Duration::from_millis(started.get("pollIntervalMs").and_then(Value::as_u64)
-        .filter(|value| *value > 0).unwrap_or(2_000).clamp(1_000, 30_000));
+    let interval = Duration::from_millis(
+        started
+            .get("pollIntervalMs")
+            .and_then(Value::as_u64)
+            .filter(|value| *value > 0)
+            .unwrap_or(2_000)
+            .clamp(1_000, 30_000),
+    );
     let deadline = tokio::time::Instant::now() + LOGIN_TIMEOUT;
     let mut last_hint = None;
     let result = loop {
-        if !login_is_current(app, flow) { break Ok(json!({ "ok": false, "canceled": true })); }
-        if tokio::time::Instant::now() >= deadline { break Err("登录等待超时（5 分钟），请重试".into()); }
+        if !login_is_current(app, flow) {
+            break Ok(json!({ "ok": false, "canceled": true }));
+        }
+        if tokio::time::Instant::now() >= deadline {
+            break Err("登录等待超时（5 分钟），请重试".into());
+        }
         match poll_once(flow).await {
-            _ if !login_is_current(app, flow) => break Ok(json!({ "ok": false, "canceled": true })),
+            _ if !login_is_current(app, flow) => {
+                break Ok(json!({ "ok": false, "canceled": true }))
+            }
             PollOutcome::Pending(hint) => {
                 if hint != last_hint {
                     emit_login_progress(app, flow, started, instructions, hint.as_deref());
                     last_hint = hint;
                 }
             }
-            PollOutcome::Done(payload) => break Ok(json!({ "ok": true, "payload": payload, "external": mode == "external" })),
+            PollOutcome::Done(payload) => {
+                break Ok(json!({ "ok": true, "payload": payload, "external": mode == "external" }))
+            }
             PollOutcome::Failed(error) => break Err(error),
-            PollOutcome::Unreachable(error) if task_gone(&error) => break Ok(json!({ "ok": false, "canceled": true })),
+            PollOutcome::Unreachable(error) if task_gone(&error) => {
+                break Ok(json!({ "ok": false, "canceled": true }))
+            }
             // 不记录 transport error 原文：它可能含带令牌的 URL。
             PollOutcome::Unreachable(_) => {}
         }
         tokio::time::sleep(interval).await;
     };
-    if let Some(window) = window { let _ = window.destroy(); }
+    if let Some(window) = window {
+        let _ = window.destroy();
+    }
     drop(profile);
     result
 }
@@ -1445,7 +1665,9 @@ pub async fn start(
     if provider == "doubaowork" {
         return crate::doubaowork_login::start(app, &mode).await;
     }
-    if let Some(region) = crate::server::core::providers::monkeycode::Region::from_provider_id(provider) {
+    if let Some(region) =
+        crate::server::core::providers::monkeycode::Region::from_provider_id(provider)
+    {
         return crate::monkeycode_login::start(app, region, &mode).await;
     }
 
@@ -1499,10 +1721,18 @@ pub async fn start(
         // —— 与后端 `login_start` 的口径相同（见 api::session 的说明）。
         "workbuddy-intl" => "intl",
         _ => {
-            if edition == "intl" { "intl" } else { "cn" }
+            if edition == "intl" {
+                "intl"
+            } else {
+                "cn"
+            }
         }
     };
-    let edition_label = if edition_id == "intl" { "国际版" } else { "国内版" };
+    let edition_label = if edition_id == "intl" {
+        "国际版"
+    } else {
+        "国内版"
+    };
     // 系统浏览器模式对 workbuddy / qoder / cline 都开放：三家的判定都在后端
     // （轮询上游 auth/token、轮询设备令牌、轮询设备授权），浏览器在哪登录都行。
     // 小浣熊**只有内嵌窗口**能收回调（自定义协议深链要靠系统注册，见模块头），
@@ -1515,12 +1745,7 @@ pub async fn start(
     if let Some(proxy) = proxy {
         request["proxy"] = proxy;
     }
-    let started = gateway::call(
-        "POST",
-        "/api/session/login/start",
-        Some(&request),
-    )
-    .await?;
+    let started = gateway::call("POST", "/api/session/login/start", Some(&request)).await?;
     let login_state = started
         .get("state")
         .and_then(serde_json::Value::as_str)
@@ -1538,7 +1763,11 @@ pub async fn start(
         *guard = Some(ActiveLogin {
             state: login_state.clone(),
             edition: edition_id.to_string(),
-            mode: if use_external { "external".into() } else { "embedded".into() },
+            mode: if use_external {
+                "external".into()
+            } else {
+                "embedded".into()
+            },
             provider: provider.to_string(),
         });
     }
@@ -1546,7 +1775,11 @@ pub async fn start(
         app,
         LoginState {
             active: true,
-            mode: Some(if use_external { "external".into() } else { "embedded".into() }),
+            mode: Some(if use_external {
+                "external".into()
+            } else {
+                "embedded".into()
+            }),
             edition: Some(edition_id.to_string()),
             provider: Some(provider.to_string()),
         },
@@ -1593,9 +1826,20 @@ pub async fn start(
     // 国内版账号」这种说不通的标题）
     let title = if matches!(
         provider,
-        "cline-free" | "cline-pass" | "zcode" | "zcode-intl" | "codearts" | "trae" | "qoder"
-        | "qoder-intl" | "qwenwork" | "qwenwork-intl" | "antigravity" | "officeace" | "lobsterai"
-        | "atomcode"
+        "cline-free"
+            | "cline-pass"
+            | "zcode"
+            | "zcode-intl"
+            | "codearts"
+            | "trae"
+            | "qoder"
+            | "qoder-intl"
+            | "qwenwork"
+            | "qwenwork-intl"
+            | "antigravity"
+            | "officeace"
+            | "lobsterai"
+            | "atomcode"
     ) {
         format!("登录 {provider_label} 账号")
     } else {
@@ -1618,11 +1862,30 @@ pub async fn start(
     let result = if use_external {
         open_external(app, &auth_url, edition_label, &login_state).await
     } else {
-        run_embedded(app, provider, &auth_url, &title, &login_state, social_restore, None, false).await
+        run_embedded(
+            app,
+            provider,
+            &auth_url,
+            &title,
+            &login_state,
+            social_restore,
+            None,
+            false,
+        )
+        .await
     };
 
-    if result.as_ref().map(|value| value.get("ok").and_then(serde_json::Value::as_bool)) != Ok(Some(true)) {
-        let _ = gateway::call("POST", "/api/session/login/cancel", Some(&json!({ "state": login_state }))).await;
+    if result
+        .as_ref()
+        .map(|value| value.get("ok").and_then(serde_json::Value::as_bool))
+        != Ok(Some(true))
+    {
+        let _ = gateway::call(
+            "POST",
+            "/api/session/login/cancel",
+            Some(&json!({ "state": login_state })),
+        )
+        .await;
     }
     clear_active_login(app, &login_state);
     result
@@ -1673,9 +1936,28 @@ async fn start_raccoon(app: &AppHandle) -> Result<serde_json::Value, String> {
     // social_restore 传 false：第三方入口恢复只针对 WorkBuddy 的登录页
     // （`run_embedded` 里也只对 provider == "workbuddy" 注入脚本），小浣熊
     // 没有这个开关概念，直传 false 表明「不参与这项能力」。
-    let result = run_embedded(app, "raccoon", &auth_url, "登录小浣熊账号", &login_state, false, None, false).await;
-    if result.as_ref().map(|value| value.get("ok").and_then(serde_json::Value::as_bool)) != Ok(Some(true)) {
-        let _ = gateway::call("POST", "/api/session/login/cancel", Some(&json!({ "state": login_state }))).await;
+    let result = run_embedded(
+        app,
+        "raccoon",
+        &auth_url,
+        "登录小浣熊账号",
+        &login_state,
+        false,
+        None,
+        false,
+    )
+    .await;
+    if result
+        .as_ref()
+        .map(|value| value.get("ok").and_then(serde_json::Value::as_bool))
+        != Ok(Some(true))
+    {
+        let _ = gateway::call(
+            "POST",
+            "/api/session/login/cancel",
+            Some(&json!({ "state": login_state })),
+        )
+        .await;
     }
     clear_active_login(app, &login_state);
     result
@@ -1741,9 +2023,28 @@ async fn start_kuku(app: &AppHandle, mode: &str) -> Result<serde_json::Value, St
         },
     );
 
-    let result = run_embedded(app, "kuku", &auth_url, "登录 KukuAI 账号", &login_state, false, None, false).await;
-    if result.as_ref().map(|value| value.get("ok").and_then(serde_json::Value::as_bool)) != Ok(Some(true)) {
-        let _ = gateway::call("POST", "/api/session/login/cancel", Some(&json!({ "state": login_state }))).await;
+    let result = run_embedded(
+        app,
+        "kuku",
+        &auth_url,
+        "登录 KukuAI 账号",
+        &login_state,
+        false,
+        None,
+        false,
+    )
+    .await;
+    if result
+        .as_ref()
+        .map(|value| value.get("ok").and_then(serde_json::Value::as_bool))
+        != Ok(Some(true))
+    {
+        let _ = gateway::call(
+            "POST",
+            "/api/session/login/cancel",
+            Some(&json!({ "state": login_state })),
+        )
+        .await;
     }
     clear_active_login(app, &login_state);
     result
@@ -1818,8 +2119,17 @@ async fn start_orcaterm(app: &AppHandle, mode: &str) -> Result<serde_json::Value
         false,
     )
     .await;
-    if result.as_ref().map(|value| value.get("ok").and_then(serde_json::Value::as_bool)) != Ok(Some(true)) {
-        let _ = gateway::call("POST", "/api/session/login/cancel", Some(&json!({ "state": login_state }))).await;
+    if result
+        .as_ref()
+        .map(|value| value.get("ok").and_then(serde_json::Value::as_bool))
+        != Ok(Some(true))
+    {
+        let _ = gateway::call(
+            "POST",
+            "/api/session/login/cancel",
+            Some(&json!({ "state": login_state })),
+        )
+        .await;
     }
     clear_active_login(app, &login_state);
     result
@@ -1835,10 +2145,7 @@ async fn start_orcaterm(app: &AppHandle, mode: &str) -> Result<serde_json::Value
 ///
 /// `mode`：内嵌窗口与系统浏览器都支持（回调打回本机网关，与浏览器在哪无关），
 /// 与 Qoder 同理；小浣熊那种「只有内嵌能收回调」的约束在这家不成立。
-async fn start_catpaw(
-    app: &AppHandle,
-    mode: &str,
-) -> Result<serde_json::Value, String> {
+async fn start_catpaw(app: &AppHandle, mode: &str) -> Result<serde_json::Value, String> {
     let started = gateway::call(
         "POST",
         "/api/session/login/start",
@@ -1884,10 +2191,29 @@ async fn start_catpaw(
         open_external(app, &auth_url, "CatPaw 官方登录页", &login_state).await
     } else {
         // social_restore 传 false：与小浣熊同理，这项能力只属于 WorkBuddy 的登录页。
-        run_embedded(app, "catpaw", &auth_url, "登录 CatPaw 账号", &login_state, false, None, false).await
+        run_embedded(
+            app,
+            "catpaw",
+            &auth_url,
+            "登录 CatPaw 账号",
+            &login_state,
+            false,
+            None,
+            false,
+        )
+        .await
     };
-    if result.as_ref().map(|value| value.get("ok").and_then(serde_json::Value::as_bool)) != Ok(Some(true)) {
-        let _ = gateway::call("POST", "/api/session/login/cancel", Some(&json!({ "state": login_state }))).await;
+    if result
+        .as_ref()
+        .map(|value| value.get("ok").and_then(serde_json::Value::as_bool))
+        != Ok(Some(true))
+    {
+        let _ = gateway::call(
+            "POST",
+            "/api/session/login/cancel",
+            Some(&json!({ "state": login_state })),
+        )
+        .await;
     }
     clear_active_login(app, &login_state);
     result
@@ -1897,9 +2223,20 @@ async fn start_catpaw(
 fn clear_active_login(app: &AppHandle, expected_state: &str) {
     let state = app.state::<crate::state::AppState>();
     if let Ok(mut guard) = state.login.lock() {
-        if guard.as_ref().is_some_and(|active| active.state == expected_state) {
+        if guard
+            .as_ref()
+            .is_some_and(|active| active.state == expected_state)
+        {
             *guard = None;
-            emit_login_state(app, LoginState { active: false, mode: None, edition: None, provider: None });
+            emit_login_state(
+                app,
+                LoginState {
+                    active: false,
+                    mode: None,
+                    edition: None,
+                    provider: None,
+                },
+            );
         }
     };
 }
@@ -1953,7 +2290,9 @@ async fn open_external(
             }
         }
     }
-    Err(format!("已打开系统浏览器完成{edition_label}登录，但等待超时（5 分钟），请重试"))
+    Err(format!(
+        "已打开系统浏览器完成{edition_label}登录，但等待超时（5 分钟），请重试"
+    ))
 }
 
 pub(crate) async fn run_cookie_login(
@@ -1980,10 +2319,26 @@ pub(crate) async fn run_cookie_login_with_proxy(
         if guard.is_some() {
             return Err("已有登录流程在进行，请先完成当前登录或等待超时".into());
         }
-        *guard = Some(ActiveLogin { state: flow.into(), edition: String::new(), mode: "embedded".into(), provider: provider.into() });
+        *guard = Some(ActiveLogin {
+            state: flow.into(),
+            edition: String::new(),
+            mode: "embedded".into(),
+            provider: provider.into(),
+        });
     }
-    emit_login_state(app, LoginState { active: true, mode: Some("embedded".into()), edition: None, provider: Some(provider.into()) });
-    let result = run_embedded_with_proxy(app, provider, auth_url, title, flow, false, None, false, proxy).await;
+    emit_login_state(
+        app,
+        LoginState {
+            active: true,
+            mode: Some("embedded".into()),
+            edition: None,
+            provider: Some(provider.into()),
+        },
+    );
+    let result = run_embedded_with_proxy(
+        app, provider, auth_url, title, flow, false, None, false, proxy,
+    )
+    .await;
     clear_active_login(app, flow);
     result
 }
@@ -2016,7 +2371,18 @@ async fn run_embedded(
     kuku_phone: Option<&str>,
     start_hidden: bool,
 ) -> Result<serde_json::Value, String> {
-    run_embedded_with_proxy(app, provider, auth_url, title, login_state, social_restore, kuku_phone, start_hidden, None).await
+    run_embedded_with_proxy(
+        app,
+        provider,
+        auth_url,
+        title,
+        login_state,
+        social_restore,
+        kuku_phone,
+        start_hidden,
+        None,
+    )
+    .await
 }
 
 async fn run_embedded_with_proxy(
@@ -2073,7 +2439,8 @@ async fn run_embedded_with_proxy(
     // 密集重试只会延长风控窗口。
     let mut kuku_retry_block_until: Option<tokio::time::Instant> = None;
     let mut doubaowork_submitted = false;
-    let monkeycode_region = crate::server::core::providers::monkeycode::Region::from_provider_id(provider);
+    let monkeycode_region =
+        crate::server::core::providers::monkeycode::Region::from_provider_id(provider);
     let mut monkeycode_submitted = false;
     let mut deepseek_submitted = false;
     let mut deepseek_capture = crate::deepseek_login::CredentialCapture::default();
@@ -2214,7 +2581,8 @@ async fn run_embedded_with_proxy(
                 clear_active_login(&handle, &state_for_close);
                 let payload = json!({ "state": state_for_close });
                 tauri::async_runtime::spawn(async move {
-                    let _ = gateway::call("POST", "/api/session/login/cancel", Some(&payload)).await;
+                    let _ =
+                        gateway::call("POST", "/api/session/login/cancel", Some(&payload)).await;
                 });
             }
         }
@@ -2256,7 +2624,7 @@ async fn run_embedded_with_proxy(
                 .unwrap_or(false);
             let mut should_submit = quick_url_hit;
             if !kuku_submitted.load(Ordering::SeqCst)
-                && (navigated || kuku_bduss_seen_at.is_some() || kuku_check_tick % 4 == 0)
+                && (navigated || kuku_bduss_seen_at.is_some() || kuku_check_tick.is_multiple_of(4))
             {
                 match read_window_cookies(&window).await {
                     Ok(cookies) => {
@@ -2269,8 +2637,8 @@ async fn run_embedded_with_proxy(
                         );
                         if has_bduss {
                             let is_first = kuku_bduss_seen_at.is_none();
-                            let first_seen = *kuku_bduss_seen_at
-                                .get_or_insert_with(tokio::time::Instant::now);
+                            let first_seen =
+                                *kuku_bduss_seen_at.get_or_insert_with(tokio::time::Instant::now);
                             if is_first {
                                 kuku_log_bduss_candidates(&cookies);
                             }
@@ -2302,9 +2670,8 @@ async fn run_embedded_with_proxy(
                     if let Err(error) = submit_kuku_login(&window, login_state).await {
                         eprintln!("[login] 交回 KukuAI 登录态失败（下轮重试）: {error}");
                         kuku_submitted.store(false, Ordering::SeqCst);
-                        kuku_retry_block_until = Some(
-                            tokio::time::Instant::now() + Duration::from_secs(30),
-                        );
+                        kuku_retry_block_until =
+                            Some(tokio::time::Instant::now() + Duration::from_secs(30));
                     } else {
                         kuku_bduss_seen_at = None;
                     }
@@ -2480,10 +2847,7 @@ fn kuku_log_bduss_candidates(cookies: &[tauri::webview::Cookie<'static>]) {
 /// KukuAI 登录态交回：用户在主站窗口里登录成功后，读 WebView2 的 Cookie
 /// 存储（含 HttpOnly —— 页面脚本 `document.cookie` 读不到 BDUSS），把完整
 /// 百度域会话拼成 Cookie 头 POST 网关收尾（见 `read_window_cookies` 的说明）。
-async fn submit_kuku_login(
-    window: &tauri::WebviewWindow,
-    login_state: &str,
-) -> Result<(), String> {
+async fn submit_kuku_login(window: &tauri::WebviewWindow, login_state: &str) -> Result<(), String> {
     let cookies = read_window_cookies(window).await?;
     let (cookie_header, has_bduss) = kuku_cookie_header(&cookies);
     if !has_bduss {
@@ -2495,7 +2859,6 @@ async fn submit_kuku_login(
         .map_err(|error| format!("网关收尾失败: {error}"))?;
     Ok(())
 }
-
 
 /// 用系统默认浏览器打开链接。
 ///
@@ -2534,7 +2897,10 @@ pub fn open_in_browser(url: &str) -> Result<(), String> {
     }
 
     let to_wide = |text: &str| -> Vec<u16> {
-        std::ffi::OsStr::new(text).encode_wide().chain(std::iter::once(0)).collect()
+        std::ffi::OsStr::new(text)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
     };
     let operation = to_wide("open");
     let file = to_wide(url);
@@ -2551,7 +2917,9 @@ pub fn open_in_browser(url: &str) -> Result<(), String> {
         )
     };
     if result as isize <= 32 {
-        return Err(format!("打开系统浏览器失败（ShellExecute 返回 {result:?}）"));
+        return Err(format!(
+            "打开系统浏览器失败（ShellExecute 返回 {result:?}）"
+        ));
     }
     Ok(())
 }
@@ -2560,7 +2928,11 @@ pub fn open_in_browser(url: &str) -> Result<(), String> {
 /// 保留分支是为了 `cargo check` 在其它平台也能过）
 #[cfg(not(windows))]
 pub fn open_in_browser(url: &str) -> Result<(), String> {
-    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
     // URL 作为独立 argv 传入，不经过 shell，`&` 不会被解释
     std::process::Command::new(opener)
         .arg(url)

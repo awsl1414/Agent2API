@@ -51,7 +51,11 @@ pub struct BillingError {
 
 impl BillingError {
     pub fn new(message: impl Into<String>, status_code: i32) -> Self {
-        Self { message: message.into(), status_code, upstream_code: None }
+        Self {
+            message: message.into(),
+            status_code,
+            upstream_code: None,
+        }
     }
 
     pub fn with_code(
@@ -59,7 +63,11 @@ impl BillingError {
         status_code: i32,
         upstream_code: Option<i64>,
     ) -> Self {
-        Self { message: message.into(), status_code, upstream_code }
+        Self {
+            message: message.into(),
+            status_code,
+            upstream_code,
+        }
     }
 
     /// 转成统一的网关错误。
@@ -157,7 +165,10 @@ impl BillingService {
         })?;
         match session {
             Some(session) if has_access_token(&session) => Ok(session),
-            _ => Err(BillingError::new("当前没有可用登录态：请先在桌面端完成登录", 401)),
+            _ => Err(BillingError::new(
+                "当前没有可用登录态：请先在桌面端完成登录",
+                401,
+            )),
         }
     }
 
@@ -228,7 +239,8 @@ impl BillingService {
             Some(session) => session.clone(),
             None => self.require_session().await?,
         };
-        self.admin(&active, "billing.checkin-status", &Value::Null).await
+        self.admin(&active, "billing.checkin-status", &Value::Null)
+            .await
     }
 
     /// 领取每日签到积分（`AuthService.claimDailyCheckin`）。
@@ -241,7 +253,10 @@ impl BillingService {
     /// （[`Self::workbuddy_daily_activity`]），并把领取结果、活动状态与保活
     /// 读数一并装进 claim 返回 —— 组合入口与签到链两条路都从这进，
     /// 一次调用不重复打上游。
-    pub async fn claim_daily_checkin(&self, session: Option<&Value>) -> Result<Value, BillingError> {
+    pub async fn claim_daily_checkin(
+        &self,
+        session: Option<&Value>,
+    ) -> Result<Value, BillingError> {
         let active = match session {
             Some(session) => session.clone(),
             None => self.require_session().await?,
@@ -269,7 +284,8 @@ impl BillingService {
             }
             return Ok(claim);
         }
-        self.admin(&active, "billing.checkin-claim", &Value::Null).await
+        self.admin(&active, "billing.checkin-claim", &Value::Null)
+            .await
     }
 
     /// 领取一次性运营奖励（`claim-gift` / `claim-compensation`）。
@@ -376,7 +392,10 @@ impl BillingService {
                 }
             },
         };
-        match self.admin(&active, "billing.ambassador", &Value::Null).await {
+        match self
+            .admin(&active, "billing.ambassador", &Value::Null)
+            .await
+        {
             Ok(value) => value,
             Err(error) => {
                 logging::verbose(
@@ -434,7 +453,11 @@ impl BillingService {
             Err(error) => json!({ "success": false, "code": -1, "msg": error.message }),
         };
         // 额度可能因签到变化，稍等一下再查（对照 Node 的 sleep(500)）
-        if claim.get("success").and_then(Value::as_bool).unwrap_or(false) {
+        if claim
+            .get("success")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
         let usage = match self.query_credits_summary(Some(&active), locale).await {
@@ -469,18 +492,26 @@ impl BillingService {
     /// **用户的**配置，留在网关的 config.json 里，插件不持有影子副本。
     /// 用户没配时是空数组 —— 缺省链在插件里（「上游此刻有哪些免费模型」是
     /// 上游知识，不该在网关留一份会过时的名单）。
-    pub async fn workbuddy_daily_activity(&self, session: &Value, mode: WorkbuddyActivity) -> Value {
+    pub async fn workbuddy_daily_activity(
+        &self,
+        session: &Value,
+        mode: WorkbuddyActivity,
+    ) -> Value {
         let mut blocked = None;
         let mode = if mode != WorkbuddyActivity::Claim {
             match keepalive::authorized_models() {
                 Ok(_) => mode,
-                Err(error) if mode == WorkbuddyActivity::Keepalive => return activity_failure(&error.message),
+                Err(error) if mode == WorkbuddyActivity::Keepalive => {
+                    return activity_failure(&error.message)
+                }
                 Err(error) => {
                     blocked = Some(error.message);
                     WorkbuddyActivity::Claim
                 }
             }
-        } else { mode };
+        } else {
+            mode
+        };
         let payload = json!({
             "mode": mode.as_str(),
             "models": keepalive::models(),
@@ -488,7 +519,9 @@ impl BillingService {
         match self.admin(session, "activity.run", &payload).await {
             Ok(mut result) => {
                 if let Some(reason) = blocked {
-                    if let Some(activity) = result.get_mut("activity").and_then(Value::as_object_mut) {
+                    if let Some(activity) =
+                        result.get_mut("activity").and_then(Value::as_object_mut)
+                    {
                         activity.insert("error".to_string(), json!(reason));
                         activity.insert("modelCallsSkipped".to_string(), Value::Bool(true));
                     }
@@ -509,7 +542,10 @@ impl BillingService {
 /// 这次连请求都没发出去（没装插件 / 会话对不上账号），原因写进 `claim.msg`
 /// 与 `activity.report.msg`，用户看得见。
 fn activity_failure(reason: &str) -> Value {
-    logging::verbose("[Checkin]", &format!("WorkBuddy 国际版每日活跃未执行: {reason}"));
+    logging::verbose(
+        "[Checkin]",
+        &format!("WorkBuddy 国际版每日活跃未执行: {reason}"),
+    );
     json!({
         "status": Value::Null,
         "claim": {

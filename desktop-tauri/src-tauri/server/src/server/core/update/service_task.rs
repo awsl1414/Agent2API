@@ -13,7 +13,10 @@ pub struct ServiceUpdateTask {
 
 impl ServiceUpdateTask {
     pub fn active(&self) -> bool {
-        matches!(self.phase.as_str(), "downloading" | "verifying" | "installing" | "restarting")
+        matches!(
+            self.phase.as_str(),
+            "downloading" | "verifying" | "installing" | "restarting"
+        )
     }
 
     pub(super) fn set_phase(&mut self, phase: &str, error: Option<String>) {

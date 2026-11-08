@@ -182,9 +182,15 @@ async fn call_tool(
             } else if name == "web_fetch" {
                 "fetch"
             } else {
-                return Err(ToolCallError::InvalidParams(format!("Unknown tool: {name}")));
+                return Err(ToolCallError::InvalidParams(format!(
+                    "Unknown tool: {name}"
+                )));
             };
-            let field = if operation == "search" { "queries" } else { "urls" };
+            let field = if operation == "search" {
+                "queries"
+            } else {
+                "urls"
+            };
             let items = batch_items(args.get(field), field)
                 .map_err(|error| ToolCallError::InvalidParams(error.message))?;
             let started = logging::now_ms();
@@ -222,10 +228,12 @@ async fn call_tool(
         }
         McpServerKind::Vision => {
             if name != "image_analyze" {
-                return Err(ToolCallError::InvalidParams(format!("Unknown tool: {name}")));
+                return Err(ToolCallError::InvalidParams(format!(
+                    "Unknown tool: {name}"
+                )));
             }
-            let (images, prompt) = super::vision::parse_vision_args(args)
-                .map_err(ToolCallError::InvalidParams)?;
+            let (images, prompt) =
+                super::vision::parse_vision_args(args).map_err(ToolCallError::InvalidParams)?;
             match super::run_vision(&ctx.base_url, images, prompt).await {
                 Ok(payload) => Ok(tool_result(payload)),
                 Err(error) => Ok(tool_error(error)),
@@ -245,10 +253,18 @@ async fn dispatch_one(
     ctx: &McpRequestContext,
 ) -> Option<Value> {
     if message.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
-        return Some(rpc_error(Value::Null, INVALID_REQUEST, "Invalid JSON-RPC 2.0 request"));
+        return Some(rpc_error(
+            Value::Null,
+            INVALID_REQUEST,
+            "Invalid JSON-RPC 2.0 request",
+        ));
     }
     let Some(method) = message.get("method").and_then(Value::as_str) else {
-        return Some(rpc_error(Value::Null, INVALID_REQUEST, "Invalid JSON-RPC 2.0 request"));
+        return Some(rpc_error(
+            Value::Null,
+            INVALID_REQUEST,
+            "Invalid JSON-RPC 2.0 request",
+        ));
     };
     if method.starts_with("notifications/") {
         return None;
@@ -263,52 +279,78 @@ async fn dispatch_one(
     match method {
         "initialize" => {
             let requested = params.get("protocolVersion").and_then(Value::as_str);
-            Some(rpc_result(id, json!({
-                "protocolVersion": negotiate_version(requested),
-                "capabilities": { "tools": {} },
-                "serverInfo": spec.server_info,
-                "instructions": spec.instructions,
-            })))
+            Some(rpc_result(
+                id,
+                json!({
+                    "protocolVersion": negotiate_version(requested),
+                    "capabilities": { "tools": {} },
+                    "serverInfo": spec.server_info,
+                    "instructions": spec.instructions,
+                }),
+            ))
         }
-        "server/discover" => Some(rpc_result(id, json!({
-            "resultType": "complete",
-            "ttlMs": MCP_LIST_TTL_MS,
-            "cacheScope": "public",
-            "supportedVersions": [MCP_MODERN_VERSION, MCP_LEGACY_VERSIONS[0], MCP_LEGACY_VERSIONS[1], MCP_LEGACY_VERSIONS[2], MCP_LEGACY_VERSIONS[3]],
-            "capabilities": { "tools": {} },
-            "_meta": { "io.modelcontextprotocol/serverInfo": spec.server_info },
-            "instructions": spec.instructions,
-        }))),
+        "server/discover" => Some(rpc_result(
+            id,
+            json!({
+                "resultType": "complete",
+                "ttlMs": MCP_LIST_TTL_MS,
+                "cacheScope": "public",
+                "supportedVersions": [MCP_MODERN_VERSION, MCP_LEGACY_VERSIONS[0], MCP_LEGACY_VERSIONS[1], MCP_LEGACY_VERSIONS[2], MCP_LEGACY_VERSIONS[3]],
+                "capabilities": { "tools": {} },
+                "_meta": { "io.modelcontextprotocol/serverInfo": spec.server_info },
+                "instructions": spec.instructions,
+            }),
+        )),
         "ping" => Some(rpc_result(id, json!({}))),
-        "tools/list" => Some(rpc_result(id, json!({
-            "resultType": "complete",
-            "ttlMs": MCP_LIST_TTL_MS,
-            "cacheScope": "public",
-            "tools": spec.tools,
-        }))),
+        "tools/list" => Some(rpc_result(
+            id,
+            json!({
+                "resultType": "complete",
+                "ttlMs": MCP_LIST_TTL_MS,
+                "cacheScope": "public",
+                "tools": spec.tools,
+            }),
+        )),
         "tools/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
-            if !spec.tools.iter().any(|tool| tool.get("name").and_then(Value::as_str) == Some(name)) {
-                return Some(rpc_error(id, INVALID_PARAMS, format!("Unknown tool: {name}")));
+            if !spec
+                .tools
+                .iter()
+                .any(|tool| tool.get("name").and_then(Value::as_str) == Some(name))
+            {
+                return Some(rpc_error(
+                    id,
+                    INVALID_PARAMS,
+                    format!("Unknown tool: {name}"),
+                ));
             }
-            let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            let args = params
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
             match call_tool(kind, name, &args, ctx).await {
                 Ok(result) => Some(rpc_result(id, result)),
-                Err(ToolCallError::InvalidParams(message)) => Some(rpc_error(id, INVALID_PARAMS, message)),
+                Err(ToolCallError::InvalidParams(message)) => {
+                    Some(rpc_error(id, INVALID_PARAMS, message))
+                }
             }
         }
-        _ => Some(rpc_error(id, METHOD_NOT_FOUND, format!("Method not found: {method}"))),
+        _ => Some(rpc_error(
+            id,
+            METHOD_NOT_FOUND,
+            format!("Method not found: {method}"),
+        )),
     }
 }
 
 /// 处理一个请求体（单条或批量），返回响应体；纯通知返回 None
-pub async fn dispatch(
-    body: &Value,
-    kind: McpServerKind,
-    ctx: &McpRequestContext,
-) -> Option<Value> {
+pub async fn dispatch(body: &Value, kind: McpServerKind, ctx: &McpRequestContext) -> Option<Value> {
     if body.is_null() || (!body.is_object() && !body.is_array()) {
-        return Some(rpc_error(Value::Null, PARSE_ERROR, "Request body must be a JSON-RPC 2.0 message"));
+        return Some(rpc_error(
+            Value::Null,
+            PARSE_ERROR,
+            "Request body must be a JSON-RPC 2.0 message",
+        ));
     }
     let messages: Vec<&Value> = match body {
         Value::Array(items) => items.iter().collect(),

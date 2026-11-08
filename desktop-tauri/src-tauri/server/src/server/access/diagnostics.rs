@@ -88,11 +88,19 @@ pub(crate) fn log_rejection(headers: &HeaderMap, method: &Method, path: &str, li
     );
     let message = format!("[Security] {summary}（{method} {path}，HTTP 401）");
     // 控制台与日志库各一份，不再用 log() 根据「失败」等字样猜级别。
-    logging::console_line("[Security]", &format!("{summary}（{method} {path}，HTTP 401）\n{detail}"));
-    let credential_headers: Vec<&str> = ["x-panel-token", "x-panel-refresh", "authorization", "x-api-key"]
-        .into_iter()
-        .filter(|name| headers.contains_key(*name))
-        .collect();
+    logging::console_line(
+        "[Security]",
+        &format!("{summary}（{method} {path}，HTTP 401）\n{detail}"),
+    );
+    let credential_headers: Vec<&str> = [
+        "x-panel-token",
+        "x-panel-refresh",
+        "authorization",
+        "x-api-key",
+    ]
+    .into_iter()
+    .filter(|name| headers.contains_key(*name))
+    .collect();
     logging::log_event(
         diagnosis.level,
         "auth",

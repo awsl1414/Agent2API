@@ -160,28 +160,26 @@ pub(crate) fn run(store: &AccountStore) {
         }
         // 规则迁移**没落盘**时不写标记（下次启动重来一次，好过让用户的启停状态
         // 停在半迁移位置）。另两条各自独立落盘，失败也只影响自己。
-        if outcome.allows_marking_done() {
-            if !crate::server::config::mark_workbuddy_split_migrated() {
-                logging::log(
+        if outcome.allows_marking_done() && !crate::server::config::mark_workbuddy_split_migrated()
+        {
+            logging::log(
                     "[Models]",
                     "⚠️  WorkBuddy 拆家迁移标记未能落盘：下次启动会再核对一遍（三条迁移都幂等，不会重复改动）",
                 );
-            }
         }
     }
     // Trae 旧模型 ID（`-solo` / `-solo-max`）清理：只跑一次，改的是我们保存的
     // 配置与目录缓存，不改下游正在发的请求名（旧名在入口仍会归一）。
     // 必须排在限额冷却键修复之前：它会把 Trae 账号上的限流键改成原始 ID，
     // 后一步再做「这个键是不是上游真名」的判定。
-    if !crate::server::core::trae_model_ids::migrated() {
-        if crate::server::core::trae_model_ids::migrate(store) {
-            if !crate::server::core::trae_model_ids::mark_migrated() {
-                logging::log(
-                    "[Models]",
-                    "⚠️  Trae 历史模型 ID 清理标记未能落盘：下次启动会再核对一遍（迁移幂等）",
-                );
-            }
-        }
+    if !crate::server::core::trae_model_ids::migrated()
+        && crate::server::core::trae_model_ids::migrate(store)
+        && !crate::server::core::trae_model_ids::mark_migrated()
+    {
+        logging::log(
+            "[Models]",
+            "⚠️  Trae 历史模型 ID 清理标记未能落盘：下次启动会再核对一遍（迁移幂等）",
+        );
     }
     // 限额冷却键的存量修复：把按**请求名**记下的键（映射别名）清掉。
     //

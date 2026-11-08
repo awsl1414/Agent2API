@@ -305,7 +305,10 @@ impl Query {
     pub fn has_filters(&self) -> bool {
         self.outcome.as_deref().is_some_and(|text| !text.is_empty())
             || self.kind.as_deref().is_some_and(|text| !text.is_empty())
-            || self.provider.as_deref().is_some_and(|text| !text.is_empty())
+            || self
+                .provider
+                .as_deref()
+                .is_some_and(|text| !text.is_empty())
             || self.keyword.as_deref().is_some_and(|text| !text.is_empty())
             || self.start.is_some()
             || self.end.is_some()
@@ -319,17 +322,24 @@ impl Query {
             conditions.push("outcome = ?".to_string());
             params_json.push(json!(outcome));
         }
-        match self.kind.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
+        match self
+            .kind
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        {
             // 手动签到：手动批量 / 条目立即执行、单账号签到、国际版活动的手动
             // 领取与保活 —— 三者都是人在面板上点的
-            Some("manual") => conditions.push("source IN ('manual', 'single', 'activity')".to_string()),
+            Some("manual") => {
+                conditions.push("source IN ('manual', 'single', 'activity')".to_string())
+            }
             // 定时签到：定时条目主轮与窗口重试。补签行在 `makeup` 来源上线
             // 之前也记成 schedule，按 reason 的「补签」前缀排除掉（那条轮次
             // 的 reason 固定是「补签（条目名）」）；上线之后的新行不会命中
             // 这条兜底
-            Some("schedule") => conditions.push(
-                "source = 'schedule' AND reason NOT LIKE '补签%'".to_string(),
-            ),
+            Some("schedule") => {
+                conditions.push("source = 'schedule' AND reason NOT LIKE '补签%'".to_string())
+            }
             // 定时补签：补签轮（`makeup`）与旧的启动补签（`startup`），外加
             // 按旧口径记成 schedule 的历史补签行
             Some("makeup") => conditions.push(
@@ -392,9 +402,8 @@ pub fn query(query: &Query, limit: usize, offset: usize) -> Value {
     let sql_count = format!("SELECT COUNT(*) FROM checkin_records{where_clause}");
     let loaded = db
         .with(|conn| -> Result<Value, rusqlite::Error> {
-            let params_from_json = |values: &[Value]| -> Vec<String> {
-                values.iter().map(value_to_text).collect()
-            };
+            let params_from_json =
+                |values: &[Value]| -> Vec<String> { values.iter().map(value_to_text).collect() };
             let total: i64 = conn.query_row(
                 &sql_count,
                 rusqlite::params_from_iter(params_from_json(&filter_params)),
@@ -443,12 +452,14 @@ pub fn clear_where(query: &Query) -> Option<usize> {
     let db = database()?;
     let (where_clause, filter_params) = query.clause();
     let sql = format!("DELETE FROM checkin_records{where_clause}");
-    let params_from_json = |values: &[Value]| -> Vec<String> {
-        values.iter().map(value_to_text).collect()
-    };
+    let params_from_json =
+        |values: &[Value]| -> Vec<String> { values.iter().map(value_to_text).collect() };
     db.with_mut(|conn| {
-        conn.execute(&sql, rusqlite::params_from_iter(params_from_json(&filter_params)))
-            .ok()
+        conn.execute(
+            &sql,
+            rusqlite::params_from_iter(params_from_json(&filter_params)),
+        )
+        .ok()
     })
     .flatten()
 }
@@ -456,7 +467,8 @@ pub fn clear_where(query: &Query) -> Option<usize> {
 /// 清空全部（API 层护栏已过）。返回删除条数。
 pub fn clear_all() -> Option<usize> {
     let db = database()?;
-    db.with_mut(|conn| conn.execute("DELETE FROM checkin_records", []).ok()).flatten()
+    db.with_mut(|conn| conn.execute("DELETE FROM checkin_records", []).ok())
+        .flatten()
 }
 
 /// rusqlite 的参数都是 ToSql：这里统一转文本（数字 / 字符串都安全）

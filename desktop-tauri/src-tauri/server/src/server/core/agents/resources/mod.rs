@@ -4,15 +4,19 @@ mod mcp;
 mod paths;
 mod skills;
 
-use std::path::Path;
-use serde_json::{json, Value};
 use super::{backups, clients::Plan, files, preview, ClientDef, Profile};
+use serde_json::{json, Value};
+use std::path::Path;
 
-pub fn revision(bytes: Option<&[u8]>) -> String { backups::hash(bytes) }
+pub fn revision(bytes: Option<&[u8]>) -> String {
+    backups::hash(bytes)
+}
 
 pub fn reject_links(path: &Path) -> Result<(), String> {
     for ancestor in path.ancestors() {
-        if std::fs::symlink_metadata(ancestor).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        if std::fs::symlink_metadata(ancestor)
+            .is_ok_and(|metadata| metadata.file_type().is_symlink())
+        {
             return Err(format!("{} 是链接，拒绝修改客户端资源", ancestor.display()));
         }
     }
@@ -34,7 +38,10 @@ pub fn skill_roots(def: &ClientDef) -> Vec<std::path::PathBuf> {
 
 /// 该客户端 MCP 配置文件的路径（不支持 MCP 的客户端返回 None）。
 pub fn mcp_config_path(def: &ClientDef) -> Option<std::path::PathBuf> {
-    paths::for_client(def).mcp.as_ref().map(|(path, _, _)| path.clone())
+    paths::for_client(def)
+        .mcp
+        .as_ref()
+        .map(|(path, _, _)| path.clone())
 }
 
 pub fn snapshot(def: &ClientDef, kind: &str) -> Result<Value, String> {
@@ -43,7 +50,9 @@ pub fn snapshot(def: &ClientDef, kind: &str) -> Result<Value, String> {
         "prompt" => {
             let path = paths.prompt.ok_or(paths.note)?;
             let bytes = files::read_limited(&path, 1024 * 1024)?;
-            Ok(json!({ "path": path, "exists": bytes.is_some(), "content": files::text(bytes.as_deref())?, "revision": revision(bytes.as_deref()) }))
+            Ok(
+                json!({ "path": path, "exists": bytes.is_some(), "content": files::text(bytes.as_deref())?, "revision": revision(bytes.as_deref()) }),
+            )
         }
         "skills" => skills::list(&paths),
         "mcp" => mcp::read(&paths),
@@ -55,7 +64,9 @@ pub fn skill(def: &ClientDef, id: &str) -> Result<Value, String> {
     let paths = paths::for_client(def);
     let path = skills::doc(&paths, id)?;
     let bytes = files::read_limited(&path, 1024 * 1024)?;
-    Ok(json!({ "id": id, "path": path, "content": files::text(bytes.as_deref())?, "revision": revision(bytes.as_deref()) }))
+    Ok(
+        json!({ "id": id, "path": path, "content": files::text(bytes.as_deref())?, "revision": revision(bytes.as_deref()) }),
+    )
 }
 
 fn plan(def: &ClientDef, payload: &Value) -> Result<Plan, String> {
@@ -69,17 +80,41 @@ fn plan(def: &ClientDef, payload: &Value) -> Result<Plan, String> {
             reject_links(&path)?;
             let mut change = files::Change::load(path)?;
             let content = field("content");
-            if content.len() > 1024 * 1024 { return Err("提示词超过 1 MB".into()); }
+            if content.len() > 1024 * 1024 {
+                return Err("提示词超过 1 MB".into());
+            }
             change.after = Some(content.as_bytes().to_vec());
             change
         }
         "skills" => skills::change(&paths, field("id"), field("content"), delete)?,
-        "mcp" => mcp::change(def, &paths, field("name"), if delete { None } else { Some(payload.get("config").ok_or("缺少 MCP 配置")?) })?,
+        "mcp" => mcp::change(
+            def,
+            &paths,
+            field("name"),
+            if delete {
+                None
+            } else {
+                Some(payload.get("config").ok_or("缺少 MCP 配置")?)
+            },
+        )?,
         _ => return Err("客户端资源类型无效".into()),
     };
-    if field("revision") != revision(change.before.as_deref()) { return Err("客户端资源已被其他程序修改，请重新读取后再编辑".into()); }
-    Ok(Plan { changes: vec![change], warnings: vec![paths.note.into(), "此操作作用在网关所在机器，不会执行 Skill 脚本或启动 MCP 服务。".into()],
-        profile: Profile { id: format!("{kind}:{}{}", field("id"), field("name")), kind: "resource".into(), ..Default::default() }, operation: "resource".into() })
+    if field("revision") != revision(change.before.as_deref()) {
+        return Err("客户端资源已被其他程序修改，请重新读取后再编辑".into());
+    }
+    Ok(Plan {
+        changes: vec![change],
+        warnings: vec![
+            paths.note.into(),
+            "此操作作用在网关所在机器，不会执行 Skill 脚本或启动 MCP 服务。".into(),
+        ],
+        profile: Profile {
+            id: format!("{kind}:{}{}", field("id"), field("name")),
+            kind: "resource".into(),
+            ..Default::default()
+        },
+        operation: "resource".into(),
+    })
 }
 
 pub fn create_preview(def: &ClientDef, payload: &Value) -> Result<Value, String> {
@@ -93,5 +128,8 @@ pub fn apply(def: &ClientDef, payload: &Value) -> Result<Value, String> {
     preview::verify(&plan, def.id, token)?;
     let path = plan.changes[0].path.clone();
     super::apply::apply_resource(def, &path, &plan)?;
-    snapshot(def, payload.get("kind").and_then(Value::as_str).unwrap_or(""))
+    snapshot(
+        def,
+        payload.get("kind").and_then(Value::as_str).unwrap_or(""),
+    )
 }

@@ -64,13 +64,13 @@
 pub mod account_order;
 pub mod account_store;
 // 本机 AI 客户端的接管注册表（「Agent」页）：客户端定义 + 配置读写
-pub mod agents;
 pub mod account_transfer;
+pub mod agents;
 pub mod api_keys;
+pub mod assistant_images;
+pub mod assistant_sessions;
 pub mod auth;
 pub mod auth_http;
-pub mod assistant_sessions;
-pub mod assistant_images;
 pub mod auto_checkin;
 pub mod beijing;
 pub mod billing;
@@ -110,10 +110,10 @@ pub mod plugin_host;
 pub mod prompt;
 pub mod protocol;
 pub mod providers;
+pub mod proxies;
 pub mod proxy_pool;
 pub mod proxy_rotate;
 pub mod proxy_settings;
-pub mod proxies;
 pub mod routing;
 pub(crate) mod routing_groups;
 pub mod routing_order;

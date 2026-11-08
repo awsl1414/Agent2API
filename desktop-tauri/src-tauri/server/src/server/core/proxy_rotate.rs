@@ -84,7 +84,11 @@ fn configured_ids(config: &Value) -> Vec<String> {
 }
 
 fn text_of(value: &Value, key: &str) -> String {
-    value.get(key).and_then(Value::as_str).unwrap_or("").to_string()
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
 }
 
 /// 轮询候选的条目 id（按配置取，见模块头）。
@@ -101,7 +105,11 @@ pub fn candidate_ids(config: &Value) -> Vec<String> {
         .filter(|item| is_enabled(item))
         .filter_map(|item| {
             let id = text_of(item, "id");
-            if id.is_empty() { None } else { Some(id) }
+            if id.is_empty() {
+                None
+            } else {
+                Some(id)
+            }
         })
         .collect()
 }
@@ -213,10 +221,7 @@ pub fn summary(config: &Value) -> Summary {
         }
     } else {
         for id in configured_ids(config) {
-            if let Some(item) = items
-                .iter()
-                .find(|item| text_of(item, "id") == id)
-            {
+            if let Some(item) = items.iter().find(|item| text_of(item, "id") == id) {
                 consider(item);
             }
         }
@@ -232,5 +237,10 @@ pub fn summary(config: &Value) -> Summary {
     } else {
         None
     };
-    Summary { all, total, usable, error }
+    Summary {
+        all,
+        total,
+        usable,
+        error,
+    }
 }

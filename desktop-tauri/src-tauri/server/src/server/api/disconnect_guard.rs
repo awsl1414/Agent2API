@@ -56,8 +56,18 @@ pub struct DisconnectGuard {
 
 impl DisconnectGuard {
     /// 在 `record_started` 之后创建（此刻进行中行已经在库里）。
-    pub fn new(stats: Arc<RequestStats>, telemetry: Arc<RequestTelemetry>, started_at: i64) -> Self {
-        Self { stats, id: telemetry.id(), telemetry, started_at, armed: true }
+    pub fn new(
+        stats: Arc<RequestStats>,
+        telemetry: Arc<RequestTelemetry>,
+        started_at: i64,
+    ) -> Self {
+        Self {
+            stats,
+            id: telemetry.id(),
+            telemetry,
+            started_at,
+            armed: true,
+        }
     }
 
     /// 记账已完成 —— 解除兜底并注销取消令牌（请求不再在途）。
@@ -83,13 +93,19 @@ impl Drop for DisconnectGuard {
         if self.armed {
             let mut snapshot = self.telemetry.snapshot();
             let error = snapshot.error.clone().unwrap_or_else(|| {
-                if self.telemetry.cancel_token().is_some_and(|token| token.is_cancelled()) {
+                if self
+                    .telemetry
+                    .cancel_token()
+                    .is_some_and(|token| token.is_cancelled())
+                {
                     cancellation::MANUAL_TERMINATED.to_string()
                 } else {
                     DISCONNECTED.to_string()
                 }
             });
-            let error = if self.telemetry.capture().is_some() || crate::server::core::debug_traffic::enabled() {
+            let error = if self.telemetry.capture().is_some()
+                || crate::server::core::debug_traffic::enabled()
+            {
                 error
             } else {
                 pipeline::truncate_chars(&error, pipeline::ERROR_SUMMARY_CHARS)
@@ -99,7 +115,8 @@ impl Drop for DisconnectGuard {
             let progress = pipeline::running_progress(&snapshot, self.started_at);
             // 必须与终态同事务保存，不能等限频队列再写回。
             crate::server::core::blocking::in_place(|| {
-                self.stats.finalize_interrupted(&self.id, &error, &progress, finished_at);
+                self.stats
+                    .finalize_interrupted(&self.id, &error, &progress, finished_at);
             });
             cancellation::unregister(&self.id);
         }

@@ -95,11 +95,17 @@ pub struct UpdateError {
 
 impl UpdateError {
     pub fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into(), status_code: 502 }
+        Self {
+            message: message.into(),
+            status_code: 502,
+        }
     }
 
     pub fn with_status(status_code: i32, message: impl Into<String>) -> Self {
-        Self { message: message.into(), status_code }
+        Self {
+            message: message.into(),
+            status_code,
+        }
     }
 
     /// 转成统一的网关错误。更新路由的失败 body 走 OpenAI 风格
@@ -199,7 +205,11 @@ fn compare_prerelease(left: &str, right: &str) -> i32 {
                     (Err(_), Err(_)) => a.cmp(b),
                 };
                 if order != std::cmp::Ordering::Equal {
-                    return if order == std::cmp::Ordering::Less { -1 } else { 1 };
+                    return if order == std::cmp::Ordering::Less {
+                        -1
+                    } else {
+                        1
+                    };
                 }
             }
         }
@@ -257,7 +267,10 @@ pub fn pick_listed_release(payload: &Value, channels: UpdateChannels) -> Option<
         let take = match best {
             None => true,
             Some(current) => {
-                let current_tag = current.get("tag_name").and_then(Value::as_str).unwrap_or("");
+                let current_tag = current
+                    .get("tag_name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 compare_versions(tag, current_tag) == Some(1)
             }
         };
@@ -276,8 +289,8 @@ pub fn pick_listed_release(payload: &Value, channels: UpdateChannels) -> Option<
 /// 非 https 抛 400「下载地址必须是 https」，域名不在列表抛 400
 /// 「下载地址域名不在允许列表内: <host>」。
 pub fn assert_downloadable(url: &str) -> Result<url::Url, UpdateError> {
-    let parsed = url::Url::parse(url)
-        .map_err(|_| UpdateError::with_status(400, "下载地址不是合法 URL"))?;
+    let parsed =
+        url::Url::parse(url).map_err(|_| UpdateError::with_status(400, "下载地址不是合法 URL"))?;
     if !parsed.username().is_empty() || parsed.password().is_some() {
         return Err(UpdateError::with_status(400, "下载地址不能包含凭证"));
     }
@@ -590,7 +603,9 @@ pub fn asset_suffixes(assets: &[Value]) -> Vec<String> {
         let name = asset_name(item).to_lowercase();
         // 只认最后一个点之后的片段：`.tar.gz` 归到 `.gz`（容器内更新包按完整
         // 文件名认，见 [`server_bundle_name`]，不看这条）
-        let Some(index) = name.rfind('.') else { continue };
+        let Some(index) = name.rfind('.') else {
+            continue;
+        };
         let suffix = &name[index..];
         if suffix.len() > 1 && !seen.iter().any(|known| known == suffix) {
             seen.push(suffix.to_string());
@@ -651,11 +666,7 @@ fn js_trim(value: &str) -> &str {
 /// 有差别 —— 但紧接着的替换会把残留的 `\` 变成 `_`，最终文件名同样不含路径分隔符，
 /// 安全性一致（这里是**有意**用 Windows 语义，避免把 `..\evil.exe` 原样留下）。
 pub fn safe_file_name(name: &str) -> String {
-    let base = name
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or("")
-        .to_string();
+    let base = name.rsplit(['/', '\\']).next().unwrap_or("").to_string();
     let cleaned: String = base
         .chars()
         .map(|ch| {

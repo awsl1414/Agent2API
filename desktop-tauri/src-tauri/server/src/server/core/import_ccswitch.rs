@@ -189,9 +189,13 @@ fn split_one_m_marker(model: &str) -> (String, String) {
     const MARKER: &str = "[1M]";
     let trimmed = model.trim();
     if trimmed.len() > MARKER.len()
-        && trimmed.to_ascii_lowercase().ends_with(&MARKER.to_ascii_lowercase())
+        && trimmed
+            .to_ascii_lowercase()
+            .ends_with(&MARKER.to_ascii_lowercase())
     {
-        let clean = trimmed[..trimmed.len() - MARKER.len()].trim_end().to_string();
+        let clean = trimmed[..trimmed.len() - MARKER.len()]
+            .trim_end()
+            .to_string();
         if !clean.is_empty() {
             return (clean, trimmed.to_string());
         }
@@ -221,7 +225,10 @@ fn collect_claude_models(env: Option<&Value>) -> (Vec<String>, Vec<Value>) {
         if clean.is_empty() {
             return;
         }
-        if !models.iter().any(|known| known.eq_ignore_ascii_case(&clean)) {
+        if !models
+            .iter()
+            .any(|known| known.eq_ignore_ascii_case(&clean))
+        {
             if models.len() >= MAX_MODELS {
                 return;
             }
@@ -229,7 +236,8 @@ fn collect_claude_models(env: Option<&Value>) -> (Vec<String>, Vec<Value>) {
         }
         if !alias.is_empty() {
             let known = mappings.iter().any(|item| {
-                item.get("alias").and_then(Value::as_str)
+                item.get("alias")
+                    .and_then(Value::as_str)
                     .is_some_and(|text| text.eq_ignore_ascii_case(&alias))
             });
             if !known && mappings.len() < MAX_MODELS {
@@ -301,7 +309,10 @@ fn scan_entry(
 
     // 不可导入的原因（按确定性排序：类型 → 端点 → 凭证 → 同名）
     let reason = if !SUPPORTED_TYPES.contains(&app_type) {
-        format!("cc-switch 的 {} 配置，暂不支持导入", unsupported_label(app_type))
+        format!(
+            "cc-switch 的 {} 配置，暂不支持导入",
+            unsupported_label(app_type)
+        )
     } else if base_url.is_empty() {
         if app_type.starts_with("claude") {
             "官方直连配置，没有可导入的自定义端点".to_string()
@@ -370,15 +381,14 @@ pub fn scan() -> Value {
 
     // 本地已建自定义提供商的名字集合（同名跳过判据）。list() 按盘上数据
     // 现读，成本可忽略（条目是个位数）。
-    let local_names: std::collections::HashSet<String> = custom_providers
-        ::list()
+    let local_names: std::collections::HashSet<String> = custom_providers::list()
         .iter()
         .filter_map(|item| item.get("name").and_then(Value::as_str).map(str::to_string))
         .collect();
 
-    let mut stmt = match conn.prepare(
-        "SELECT id, app_type, name, settings_config, COALESCE(notes, '') FROM providers",
-    ) {
+    let mut stmt = match conn
+        .prepare("SELECT id, app_type, name, settings_config, COALESCE(notes, '') FROM providers")
+    {
         Ok(stmt) => stmt,
         Err(error) => {
             return json!({
@@ -422,7 +432,14 @@ pub fn scan() -> Value {
         } else {
             Value::Object(Map::new())
         };
-        entries.push(scan_entry(id, app_type, name.trim(), notes.trim(), &settings, &local_names));
+        entries.push(scan_entry(
+            id,
+            app_type,
+            name.trim(),
+            notes.trim(),
+            &settings,
+            &local_names,
+        ));
     }
 
     // 排序：可导入的在前（claude → codex → 名称），不支持 / 跳过的在后按
@@ -435,7 +452,7 @@ pub fn scan() -> Value {
             string_field(Some(entry), "name").to_lowercase(),
         )
     };
-    entries.sort_by(|a, b| rank(a).cmp(&rank(b)));
+    entries.sort_by_key(|a| rank(a));
 
     json!({
         "available": true,

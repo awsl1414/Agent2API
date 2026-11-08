@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use super::super::{paths, ClientDef, ConfigFormat};
+use std::path::PathBuf;
 
 pub struct ResourcePaths {
     pub prompt: Option<PathBuf>,
@@ -9,13 +9,19 @@ pub struct ResourcePaths {
 }
 
 fn dir(env: &str, fallback: PathBuf) -> PathBuf {
-    std::env::var_os(env).filter(|value| !value.is_empty()).map(PathBuf::from).unwrap_or(fallback)
+    std::env::var_os(env)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or(fallback)
 }
 
 pub fn for_client(def: &ClientDef) -> ResourcePaths {
     let home = paths::home();
     let config = paths::detect(def).path;
-    let parent = config.parent().map(PathBuf::from).unwrap_or_else(|| home.clone());
+    let parent = config
+        .parent()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.clone());
     let json_mcp = |path, keys| Some((path, ConfigFormat::Json, keys));
     match def.id {
         "claude-code" => {

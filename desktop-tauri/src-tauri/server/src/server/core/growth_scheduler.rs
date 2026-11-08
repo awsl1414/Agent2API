@@ -415,7 +415,7 @@ mod tests {
     #[test]
     fn due_time_matches_plan_time_not_actual_time() {
         let times = ["09:00".to_string(), "21:00".to_string()];
-        let fired = vec!["09:00".to_string()];
+        let fired = ["09:00".to_string()];
         let now_text = "09:00".to_string();
         // 09:00 已跑过 → 21:00 还没到 → 无事可做
         let due = times.iter().find(|time| {
@@ -423,7 +423,7 @@ mod tests {
         });
         assert_eq!(due, None);
         // 若把 fired 换成实际执行时刻（09:01），会误判成「没跑过」→ 重复执行
-        let wrong_fired = vec!["09:01".to_string()];
+        let wrong_fired = ["09:01".to_string()];
         let due_wrong = times.iter().find(|time| {
             time.as_str() <= now_text.as_str() && !wrong_fired.iter().any(|item| *item == **time)
         });
@@ -445,7 +445,7 @@ mod tests {
         });
         assert_eq!(due.map(|time| time.as_str()), Some("09:00"));
         // 09:00 跑过之后 → 13:00
-        let fired = vec!["09:00".to_string()];
+        let fired = ["09:00".to_string()];
         let due = times.iter().find(|time| {
             time.as_str() <= now_text.as_str() && !fired.iter().any(|item| *item == **time)
         });

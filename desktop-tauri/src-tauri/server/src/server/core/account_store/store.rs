@@ -53,7 +53,10 @@ pub struct AccountStoreError {
 
 impl AccountStoreError {
     pub fn new(message: impl Into<String>, status_code: i32) -> Self {
-        Self { message: message.into(), status_code }
+        Self {
+            message: message.into(),
+            status_code,
+        }
     }
 
     pub(crate) fn bad_request(message: impl Into<String>) -> Self {
@@ -145,7 +148,13 @@ impl AccountStore {
             None => crate::server::config::config_dir().join(crate::server::db::FILE_NAME),
         };
         Self {
-            inner: Arc::new(Inner { db, file_path, lock: Mutex::new(()), cache: Default::default(), validation: Mutex::new(None) }),
+            inner: Arc::new(Inner {
+                db,
+                file_path,
+                lock: Mutex::new(()),
+                cache: Default::default(),
+                validation: Mutex::new(None),
+            }),
         }
     }
 
@@ -188,7 +197,9 @@ impl AccountStore {
         &self.inner.cache
     }
 
-    pub(crate) fn validation_cache(&self) -> &Mutex<Option<crate::server::core::providers::catalog::ValidationCache>> {
+    pub(crate) fn validation_cache(
+        &self,
+    ) -> &Mutex<Option<crate::server::core::providers::catalog::ValidationCache>> {
         &self.inner.validation
     }
 
@@ -266,12 +277,17 @@ impl AccountStore {
         let Some(db) = self.inner.db.as_ref() else {
             return AccountState::default();
         };
-        let (rows, priority_scope) = db.with(|conn| {
-            (super::read_rows::all(conn), sql::load_priority_scope(conn))
-        }).unwrap_or_else(|| (Ok(Vec::new()), Ok(None)));
+        let (rows, priority_scope) = db
+            .with(|conn| (super::read_rows::all(conn), sql::load_priority_scope(conn)))
+            .unwrap_or_else(|| (Ok(Vec::new()), Ok(None)));
         let accounts = super::read_rows::decode_many(rows.unwrap_or_default(), "读取全部账号")
-            .into_iter().map(|(_, record)| record).collect();
-        AccountState { accounts, priority_scope: priority_scope.ok().flatten() }
+            .into_iter()
+            .map(|(_, record)| record)
+            .collect();
+        AccountState {
+            accounts,
+            priority_scope: priority_scope.ok().flatten(),
+        }
     }
 
     /// 写回全部账号（**按差异写**，见 `sql::save_state`）。
@@ -329,14 +345,21 @@ impl AccountStore {
     /// 「读全量 → 在数组里 find」，现在是一次主键查询 —— 转发链路上这些函数
     /// 是**每个请求**都会调到的（`rotate` 按 id 取会话、适配器按 id 取记录），
     /// 于是「每次转发少解析 20 条记录的 JSON」是这条改造里收益最直接的一处。
-    pub(crate) fn record_by_id(&self, _guard: &MutexGuard<'_, ()>, id: &str) -> Option<StoredAccount> {
+    pub(crate) fn record_by_id(
+        &self,
+        _guard: &MutexGuard<'_, ()>,
+        id: &str,
+    ) -> Option<StoredAccount> {
         let db = self.inner.db.as_ref()?;
         let result = db.with(|conn| super::read_rows::by_id(conn, id));
         match result {
             Some(Ok(Some(raw))) => match super::read_rows::decode(raw) {
                 Ok((_, record)) => Some(record),
                 Err(error) => {
-                    sql::warn_load_failure("按 id 读取账号", &format!("账号 {id} 读不出来：{}", error.describe()));
+                    sql::warn_load_failure(
+                        "按 id 读取账号",
+                        &format!("账号 {id} 读不出来：{}", error.describe()),
+                    );
                     None
                 }
             },
@@ -362,10 +385,14 @@ impl AccountStore {
         let Some(db) = self.inner.db.as_ref() else {
             return Vec::new();
         };
-        let rows = db.with(|conn| super::read_rows::provider(conn, provider))
-            .and_then(Result::ok).unwrap_or_default();
+        let rows = db
+            .with(|conn| super::read_rows::provider(conn, provider))
+            .and_then(Result::ok)
+            .unwrap_or_default();
         super::read_rows::decode_many(rows, &format!("读取 {provider} 的账号"))
-            .into_iter().map(|(_, record)| record).collect()
+            .into_iter()
+            .map(|(_, record)| record)
+            .collect()
     }
 
     // ─── 派生：当前账号 ──────────────────────────────────────
@@ -429,11 +456,17 @@ impl AccountStore {
     /// provider 里比优先级），收窄到某一家就没有意义了。
     pub fn current_account_id(&self) -> Option<String> {
         let snapshot = self.routing_snapshot();
-        snapshot.accounts.iter().filter(|account| {
-            account.get("enabled").and_then(Value::as_bool) != Some(false)
-                && account.get("hasCredentials").and_then(Value::as_bool) == Some(true)
-                && snapshot.forwarding_providers.contains(crate::server::core::routing::provider_of(account))
-        }).min_by_key(|account| route_order_key(account))
+        snapshot
+            .accounts
+            .iter()
+            .filter(|account| {
+                account.get("enabled").and_then(Value::as_bool) != Some(false)
+                    && account.get("hasCredentials").and_then(Value::as_bool) == Some(true)
+                    && snapshot
+                        .forwarding_providers
+                        .contains(crate::server::core::routing::provider_of(account))
+            })
+            .min_by_key(|account| route_order_key(account))
             .and_then(|account| account.get("id")?.as_str().map(str::to_string))
     }
 
@@ -655,7 +688,11 @@ impl AccountStore {
             uid: record.uid(),
             access_token,
             refresh_token,
-            expires_at: if expires_at > 0.0 { Some(expires_at) } else { None },
+            expires_at: if expires_at > 0.0 {
+                Some(expires_at)
+            } else {
+                None
+            },
             endpoint: record.endpoint().unwrap_or_default(),
             prefix_path: record.prefix_path().unwrap_or_default(),
             platform: record.platform().unwrap_or_default(),
@@ -702,9 +739,7 @@ impl AccountStore {
         if !crate::server::core::proxies::is_rotate_config(&config) {
             return Ok(None);
         }
-        crate::server::core::proxy_rotate::next(&config, record.id())
-            .map(Some)
-            .map_err(|reason| reason)
+        crate::server::core::proxy_rotate::next(&config, record.id()).map(Some)
     }
 }
 
@@ -746,8 +781,13 @@ pub(super) fn provider_forwards_requests(provider: &str) -> bool {
 }
 
 pub(super) fn route_order_key(account: &Value) -> (i64, i64) {
-    (account.get("priority").and_then(Value::as_i64).unwrap_or(super::priority::DEFAULT_PRIORITY),
-        account.get("addedAt").and_then(Value::as_i64).unwrap_or(0))
+    (
+        account
+            .get("priority")
+            .and_then(Value::as_i64)
+            .unwrap_or(super::priority::DEFAULT_PRIORITY),
+        account.get("addedAt").and_then(Value::as_i64).unwrap_or(0),
+    )
 }
 
 /// 把解析结果拆成 `(proxy, proxyError)`：失败时 proxy 为 null、
@@ -758,9 +798,7 @@ pub(super) fn route_order_key(account: &Value) -> (i64, i64) {
 fn split_resolution(resolution: Option<ProxyResolution>) -> (Value, Option<String>) {
     match resolution {
         None => (Value::Null, None),
-        Some(ProxyResolution::Resolved(ref proxy)) => {
-            (json!(proxy_json(proxy)), None)
-        }
+        Some(ProxyResolution::Resolved(ref proxy)) => (json!(proxy_json(proxy)), None),
         Some(ProxyResolution::Failed(message)) => (Value::Null, Some(message)),
     }
 }

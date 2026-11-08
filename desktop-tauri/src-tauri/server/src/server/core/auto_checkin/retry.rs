@@ -131,7 +131,10 @@ pub(super) fn due_accounts_scoped(
     let due: Vec<String> = retry
         .iter()
         .filter(|(id, at)| {
-            attempts.get(*id).map(|count| *count < limit).unwrap_or(true)
+            attempts
+                .get(*id)
+                .map(|count| *count < limit)
+                .unwrap_or(true)
                 && at.as_i64().is_some_and(|at| at <= now)
         })
         .map(|(id, _)| id.clone())
@@ -231,7 +234,9 @@ pub(super) fn merge(
         .unwrap_or_default();
     let mut attempts = previous_today.map(attempts_of).unwrap_or_default();
     let retry_enabled = config.gap_ms > 0 && config.limit > 0;
-    if !retry_enabled { retry.clear(); }
+    if !retry_enabled {
+        retry.clear();
+    }
     if let Some(retried) = retried {
         for id in retried {
             retry.remove(id);
@@ -313,7 +318,12 @@ pub(super) fn next_at(result: Option<&Value>, today: &str, limit: i64) -> Option
         .and_then(Value::as_object)?
         .iter()
         // 次数用完的账号不会再被执行，不该拿它的时刻去报「下次执行」
-        .filter(|(id, _)| attempts.get(*id).map(|count| *count < limit).unwrap_or(true))
+        .filter(|(id, _)| {
+            attempts
+                .get(*id)
+                .map(|count| *count < limit)
+                .unwrap_or(true)
+        })
         .filter_map(|(_, at)| at.as_i64())
         .min()
 }
@@ -355,7 +365,9 @@ pub(super) fn unsigned_accounts(store: &AccountStore) -> Vec<String> {
         .map(|items| {
             items
                 .iter()
-                .filter(|account| !crate::server::core::account_store::checkin_state::checked_in_today(account))
+                .filter(|account| {
+                    !crate::server::core::account_store::checkin_state::checked_in_today(account)
+                })
                 .filter_map(|account| account.get("id").and_then(Value::as_str))
                 .map(str::to_string)
                 .collect()

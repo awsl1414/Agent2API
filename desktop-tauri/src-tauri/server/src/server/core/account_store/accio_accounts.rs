@@ -47,7 +47,10 @@ impl AccountStore {
             "tokenTail",
             "expiresAt",
         ] {
-            public.insert(key.to_string(), record.get(key).cloned().unwrap_or(Value::Null));
+            public.insert(
+                key.to_string(),
+                record.get(key).cloned().unwrap_or(Value::Null),
+            );
         }
         public.insert(
             "edition".to_string(),
@@ -72,7 +75,10 @@ impl AccountStore {
         );
         public.insert(
             "rateLimits".to_string(),
-            record.get("rateLimits").cloned().unwrap_or_else(|| json!({})),
+            record
+                .get("rateLimits")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
         );
         public.insert("desktop".to_string(), Value::Bool(false));
         public.insert("available".to_string(), Value::Bool(available));

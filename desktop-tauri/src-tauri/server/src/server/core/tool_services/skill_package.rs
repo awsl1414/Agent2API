@@ -267,7 +267,11 @@ fn node_client_script(base_url: &str) -> String {
 
 pub fn build_skill_files(raw_base_url: &str, variant: &str) -> Vec<SkillFile> {
     let base_url = normalized_base_url(raw_base_url);
-    let selected = if variant == "python" { SkillVariant::Python } else { SkillVariant::Node };
+    let selected = if variant == "python" {
+        SkillVariant::Python
+    } else {
+        SkillVariant::Node
+    };
     let script = match selected {
         SkillVariant::Node => node_client_script(&base_url),
         SkillVariant::Python => python_client_script(&base_url),
@@ -282,8 +286,20 @@ pub fn build_skill_files(raw_base_url: &str, variant: &str) -> Vec<SkillFile> {
         "variants": skill_variants(),
     });
     vec![
-        SkillFile { path: "SKILL.md", content: skill_markdown(&base_url, selected) },
-        SkillFile { path: "skill.json", content: format!("{}\n", serde_json::to_string_pretty(&skill_json).unwrap_or_default()) },
-        SkillFile { path: selected.entrypoint(), content: script },
+        SkillFile {
+            path: "SKILL.md",
+            content: skill_markdown(&base_url, selected),
+        },
+        SkillFile {
+            path: "skill.json",
+            content: format!(
+                "{}\n",
+                serde_json::to_string_pretty(&skill_json).unwrap_or_default()
+            ),
+        },
+        SkillFile {
+            path: selected.entrypoint(),
+            content: script,
+        },
     ]
 }

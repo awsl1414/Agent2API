@@ -16,13 +16,13 @@
 //! ── 硬约束 ──────────────────────────────────────────────────
 //! release 是 `panic=abort`：本文件零 unwrap/expect/panic。
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use crate::server::core::providers::{kind_id, ProviderKind};
 use crate::server::errors::GatewayError;
 use crate::server::logging;
 
-use super::{LoginService, finish_task_error};
+use super::{finish_task_error, LoginService};
 
 impl LoginService {
     /// 浏览器回调：校验归属 → 用授权码换凭证 → 落账号 → 标记任务完成。
@@ -64,8 +64,7 @@ impl LoginService {
             // 幂等：重复回调不是错误（见校验口径 3）
             return Ok(String::new());
         }
-        let Some(adapter) = crate::server::core::providers::adapter::adapter_by_id(provider)
-        else {
+        let Some(adapter) = crate::server::core::providers::adapter::adapter_by_id(provider) else {
             return Err(GatewayError::with_status(
                 400,
                 "LobsterAI 的提供商插件没有安装，无法完成登录",

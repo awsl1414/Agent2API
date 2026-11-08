@@ -55,7 +55,10 @@ pub async fn put_debug(State(_state): State<ServerState>, body: Bytes) -> Respon
         );
     };
     if !config::set_debug_mode(enabled) {
-        logging::log("[Config]", "⚠️  调试模式设置写入 config.json 失败，本次运行内仍生效");
+        logging::log(
+            "[Config]",
+            "⚠️  调试模式设置写入 config.json 失败，本次运行内仍生效",
+        );
     }
     logging::log(
         "[Config]",
@@ -72,7 +75,10 @@ pub async fn put_debug(State(_state): State<ServerState>, body: Bytes) -> Respon
 ///
 /// 找不到（开关没开过 / 已超出保留条数 / id 为空）时给 404：前端据此显示
 /// 「该请求没有保存原始报文」而不是空面板。
-pub async fn get_traffic(State(_state): State<ServerState>, Query(params): Query<Params>) -> Response {
+pub async fn get_traffic(
+    State(_state): State<ServerState>,
+    Query(params): Query<Params>,
+) -> Response {
     let id = params.id.trim();
     if id.is_empty() {
         return errors::management_error(400, "缺少 id");

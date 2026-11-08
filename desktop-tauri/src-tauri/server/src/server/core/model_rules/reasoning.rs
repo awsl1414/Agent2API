@@ -109,8 +109,9 @@ use serde_json::Value;
 ///
 /// 顺序有意义（由弱到强，`off` 在最前）：界面上就按这个顺序铺选项。
 /// 值本身是上游约定的字符串，**不要**改写大小写或翻译。
-pub const REASONING_LEVELS: &[&str] =
-    &["off", "none", "minimal", "low", "medium", "high", "xhigh", "max"];
+pub const REASONING_LEVELS: &[&str] = &[
+    "off", "none", "minimal", "low", "medium", "high", "xhigh", "max",
+];
 
 /// 通用表里**可以翻译给上游**的正向档位（由弱到强，不含 `off` / `none`）。
 ///
@@ -195,7 +196,13 @@ pub fn effort_rank(level: &str) -> Option<usize> {
 /// [`normalize`]（trim、非空、≤32 字符）：与映射绑定同一条规矩，超长的
 /// 自定义值同样不显示。
 pub fn read_client_level(body: &Value) -> Option<String> {
-    for key in ["reasoning_effort", "reasoningEffort", "effort", "reasoning", "thinking"] {
+    for key in [
+        "reasoning_effort",
+        "reasoningEffort",
+        "effort",
+        "reasoning",
+        "thinking",
+    ] {
         match body.get(key) {
             Some(Value::String(text)) => return normalize(text),
             // responses API 的对象形态：reasoning: { effort: "high" }

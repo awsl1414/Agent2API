@@ -54,7 +54,10 @@ pub struct CheckinError {
 
 impl CheckinError {
     fn new(message: impl Into<String>, status_code: i32) -> Self {
-        Self { message: message.into(), status_code }
+        Self {
+            message: message.into(),
+            status_code,
+        }
     }
 }
 
@@ -305,7 +308,11 @@ pub async fn checkin_for(
     account: &Value,
     manual: bool,
 ) -> Value {
-    let id = account.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+    let id = account
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     // 结果行的 name 是**签到记录台账与前端结果卡的展示名快照**：优先读统一
     // 展示名 `displayName`（与账号页 / 请求日志同一口径，见
     // `store_view::display_name_of`；「以邮箱报名字」的三家在这里同样显示邮箱），
@@ -363,16 +370,21 @@ pub async fn checkin_for(
             let activity = billing
                 .workbuddy_daily_activity(&entry.session, WorkbuddyActivity::Full)
                 .await;
-            let claim = activity
-                .get("claim")
-                .cloned()
-                .unwrap_or_else(|| json!({ "success": false, "code": -1, "msg": "活跃任务未返回领取结果" }));
-            let claim_success = claim.get("success").and_then(Value::as_bool).unwrap_or(false);
+            let claim = activity.get("claim").cloned().unwrap_or_else(
+                || json!({ "success": false, "code": -1, "msg": "活跃任务未返回领取结果" }),
+            );
+            let claim_success = claim
+                .get("success")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             let message = claim.get("msg").and_then(Value::as_str).unwrap_or("");
             if claim_success {
                 logging::log("[Accounts]", &format!("账号 {display}: 签到成功"));
             } else {
-                logging::log("[Accounts]", &format!("账号 {display}: WorkBuddy 国际版 {message}"));
+                logging::log(
+                    "[Accounts]",
+                    &format!("账号 {display}: WorkBuddy 国际版 {message}"),
+                );
             }
             json!({
                 "id": id,
@@ -434,58 +446,62 @@ pub async fn checkin_for(
                 // 全在**插件**里（`workbuddy::admin` 的 `growth.daily`）。
                 // 网关这边只剩「把读数落库 + 记日志」——`mark_streak_days`
                 // 动的是网关的账号库，插件写不到。
-                let growth_row = match crate::server::core::providers::adapter::adapter_by_id(
-                    provider_id,
-                ) {
-                    Some(adapter) => {
-                        match adapter
-                            .admin_action(store, &id, "growth.daily", &Value::Null)
-                            .await
-                        {
-                            Ok(row) => {
-                                let days = row.get("streakDays").and_then(Value::as_i64);
-                                if let Some(days) = days {
-                                    if !store.mark_streak_days(&id, days) {
+                let growth_row =
+                    match crate::server::core::providers::adapter::adapter_by_id(provider_id) {
+                        Some(adapter) => {
+                            match adapter
+                                .admin_action(store, &id, "growth.daily", &Value::Null)
+                                .await
+                            {
+                                Ok(row) => {
+                                    let days = row.get("streakDays").and_then(Value::as_i64);
+                                    if let Some(days) = days {
+                                        if !store.mark_streak_days(&id, days) {
+                                            logging::verbose(
+                                                "[Accounts]",
+                                                &format!("账号 {id} 的连登天数未能落盘"),
+                                            );
+                                        }
+                                    }
+                                    let sent = row
+                                        .get("reported")
+                                        .and_then(Value::as_bool)
+                                        .unwrap_or(false);
+                                    if sent {
                                         logging::verbose(
                                             "[Accounts]",
-                                            &format!("账号 {id} 的连登天数未能落盘"),
+                                            &format!(
+                                                "账号 {display}: 每日活跃已上报{}",
+                                                days.map(|days| format!("（连登 {days} 天）"))
+                                                    .unwrap_or_default()
+                                            ),
                                         );
                                     }
+                                    row
                                 }
-                                let sent =
-                                    row.get("reported").and_then(Value::as_bool).unwrap_or(false);
-                                if sent {
+                                // 附加收益失败：只记日志，绝不影响签到结果
+                                Err(error) => {
                                     logging::verbose(
                                         "[Accounts]",
                                         &format!(
-                                            "账号 {display}: 每日活跃已上报{}",
-                                            days.map(|days| format!("（连登 {days} 天）"))
-                                                .unwrap_or_default()
+                                            "账号 {display} 每日活跃上报失败: {}",
+                                            error.message
                                         ),
                                     );
+                                    json!({
+                                        "reported": false,
+                                        "streakDays": Value::Null,
+                                        "error": error.message,
+                                    })
                                 }
-                                row
-                            }
-                            // 附加收益失败：只记日志，绝不影响签到结果
-                            Err(error) => {
-                                logging::verbose(
-                                    "[Accounts]",
-                                    &format!("账号 {display} 每日活跃上报失败: {}", error.message),
-                                );
-                                json!({
-                                    "reported": false,
-                                    "streakDays": Value::Null,
-                                    "error": error.message,
-                                })
                             }
                         }
-                    }
-                    None => json!({
-                        "reported": false,
-                        "streakDays": Value::Null,
-                        "error": "没有可用的 WorkBuddy 适配器（未安装插件？）",
-                    }),
-                };
+                        None => json!({
+                            "reported": false,
+                            "streakDays": Value::Null,
+                            "error": "没有可用的 WorkBuddy 适配器（未安装插件？）",
+                        }),
+                    };
                 if let Some(object) = row.as_object_mut() {
                     object.insert("growth".to_string(), growth_row);
                 }
@@ -512,10 +528,7 @@ pub async fn checkin_for(
                             if credited {
                                 let message =
                                     reward.get("msg").and_then(Value::as_str).unwrap_or("");
-                                logging::log(
-                                    "[Accounts]",
-                                    &format!("账号 {display}: {message}"),
-                                );
+                                logging::log("[Accounts]", &format!("账号 {display}: {message}"));
                             }
                             rewards.push(reward);
                         }
@@ -542,9 +555,7 @@ pub async fn checkin_for(
             // 走到这里只剩两种可能：没有插件接管、且不在上面任一内置分支里。
             // 再问一次适配器是为了覆盖「内置家但没有签到执行体」的那几档
             // （插件统一实现之后它们也可能申报了能力），判据与上面一致。
-            if let Some(adapter) =
-                crate::server::core::providers::adapter::adapter_by_id(other)
-            {
+            if let Some(adapter) = crate::server::core::providers::adapter::adapter_by_id(other) {
                 if adapter.plugin_checkin_capability() == Some(true) {
                     let claim = adapter
                         .checkin_claim(store, &id)
@@ -590,7 +601,10 @@ fn claim_result(
 ) -> Value {
     match result {
         Ok(claim) => {
-            let success = claim.get("success").and_then(Value::as_bool).unwrap_or(false);
+            let success = claim
+                .get("success")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             let msg = claim.get("msg").and_then(Value::as_str).unwrap_or("");
             if success {
                 if log_success_msg && !msg.is_empty() {
@@ -599,7 +613,10 @@ fn claim_result(
                     logging::log("[Accounts]", &format!("账号 {display}: 签到成功"));
                 }
             } else {
-                logging::log("[Accounts]", &format!("账号 {display}: 签到未领取（{msg}）"));
+                logging::log(
+                    "[Accounts]",
+                    &format!("账号 {display}: 签到未领取（{msg}）"),
+                );
             }
             json!({ "id": id, "name": name, "claim": claim, "error": Value::Null })
         }
@@ -635,7 +652,11 @@ fn claim_result(
 /// 实测见过自动签到 4 个账号全部未领取、17 秒后手动逐个重试全部成功
 /// （批次撞上上游风控），所以判据必须收紧到「上游说签过了」。
 pub fn checkin_completed_today(claim: &Value) -> bool {
-    if claim.get("error").and_then(Value::as_str).is_some_and(|text| !text.trim().is_empty()) {
+    if claim
+        .get("error")
+        .and_then(Value::as_str)
+        .is_some_and(|text| !text.trim().is_empty())
+    {
         return false;
     }
     if let Some(outcome) = claim.get("outcome").and_then(Value::as_str) {
@@ -647,7 +668,10 @@ pub fn checkin_completed_today(claim: &Value) -> bool {
         return true;
     }
     let message = claim.get("msg").and_then(Value::as_str).unwrap_or("");
-    !(message.contains("可能") || message.contains("未能") || message.contains("未见") || message.contains("失败"))
+    !(message.contains("可能")
+        || message.contains("未能")
+        || message.contains("未见")
+        || message.contains("失败"))
         && (message.contains("已签到") || message.contains("已领取"))
 }
 
@@ -692,7 +716,11 @@ pub fn web_conversation_ok(row: &Value) -> bool {
 /// 上游的活跃计数不认它；失败（网络错误 / 凭证失效）也不算 —— 失败行照旧
 /// 显示待签，与 [`checkin_completed_today`] 的收紧原则一致。
 pub fn day_completed(row: &Value) -> bool {
-    if row.get("error").and_then(Value::as_str).is_some_and(|text| !text.trim().is_empty()) {
+    if row
+        .get("error")
+        .and_then(Value::as_str)
+        .is_some_and(|text| !text.trim().is_empty())
+    {
         return false;
     }
     row.get("claim")
@@ -710,7 +738,11 @@ pub fn claim_pending(claim: &Value) -> bool {
         return false;
     }
     // error 字段非空 = 执行出错（网络 / 凭证），那不是「等窗口」能解决的
-    if claim.get("error").and_then(Value::as_str).is_some_and(|text| !text.trim().is_empty()) {
+    if claim
+        .get("error")
+        .and_then(Value::as_str)
+        .is_some_and(|text| !text.trim().is_empty())
+    {
         return false;
     }
     if let Some(outcome) = claim.get("outcome").and_then(Value::as_str) {
@@ -755,8 +787,12 @@ pub(crate) async fn run_checkin_selected(
 ) -> Result<Value, CheckinError> {
     let (mut targets, mut skipped) = resolve_checkin_targets(store, providers, id)?;
     if let Some(selected) = selected {
-        targets.retain(|account| account.get("id").and_then(Value::as_str)
-            .is_some_and(|id| selected.iter().any(|selected| selected == id)));
+        targets.retain(|account| {
+            account
+                .get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| selected.iter().any(|selected| selected == id))
+        });
         skipped = selected.len().saturating_sub(targets.len());
     }
     // 「这次是用户在面板上点的吗」——只有 CodeArts 用得上（它的福利是写请求，
@@ -786,7 +822,10 @@ pub(crate) async fn run_checkin_selected(
         // 记录带上（结果行里没有这个字段，记录页的提供商筛选列要用）。
         crate::server::core::checkin_records::record_row(
             &row,
-            account.get("provider").and_then(Value::as_str).unwrap_or(""),
+            account
+                .get("provider")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
             source,
             reason,
         );
@@ -801,9 +840,11 @@ pub(crate) async fn run_checkin_selected(
     let succeeded = results
         .iter()
         .filter(|item| {
-            day_completed(item) && item.get("claim")
-                .map(checkin_completed_today)
-                .unwrap_or(false)
+            day_completed(item)
+                && item
+                    .get("claim")
+                    .map(checkin_completed_today)
+                    .unwrap_or(false)
         })
         .count();
     let active = results
@@ -902,8 +943,7 @@ fn spawn_streak_bonus(store: AccountStore, targets: Vec<Value>) {
         // 连登管家的执行体在插件里（`growth.streak.batch` 自己列本家账号、
         // 自己门控、自己错峰）。网关只拿回 `{done, failed}` 两个计数记日志。
         // 插件没装时安静跳过 —— 这是个附加动作，不该在日志里刷错误。
-        let Some(adapter) =
-            crate::server::core::providers::adapter::adapter_by_id("workbuddy")
+        let Some(adapter) = crate::server::core::providers::adapter::adapter_by_id("workbuddy")
         else {
             RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
             return;
@@ -927,7 +967,11 @@ fn spawn_streak_bonus(store: AccountStore, targets: Vec<Value>) {
                 "[Streak]",
                 &format!(
                     "连登管家完成：{done} 项动作{}",
-                    if failed > 0 { format!("，{failed} 项失败") } else { String::new() }
+                    if failed > 0 {
+                        format!("，{failed} 项失败")
+                    } else {
+                        String::new()
+                    }
                 ),
             );
         }

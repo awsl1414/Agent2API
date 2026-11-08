@@ -26,8 +26,8 @@ use serde_json::{json, Map, Value};
 
 use super::{
     content_parts, content_text, event_frame, freeform, is_truthy, json_text, native_tool,
-    random_id, string_field, string_value, tool_plan, SseLineBuffer, TOOL_IMAGE_PLACEHOLDER,
-    FIELD_ENCRYPTED_CONTENT,
+    random_id, string_field, string_value, tool_plan, SseLineBuffer, FIELD_ENCRYPTED_CONTENT,
+    TOOL_IMAGE_PLACEHOLDER,
 };
 use crate::server::logging;
 
@@ -38,8 +38,12 @@ use crate::server::logging;
 pub type ConvertError = String;
 
 /// 有状态字段：本网关无状态，这些字段一律拒绝（理由见模块头）
-const STATEFUL_FIELDS: [&str; 4] =
-    ["previous_response_id", "conversation", "prompt", "background"];
+const STATEFUL_FIELDS: [&str; 4] = [
+    "previous_response_id",
+    "conversation",
+    "prompt",
+    "background",
+];
 
 // ─── 请求：Responses → Chat ─────────────────────────────────
 
@@ -56,7 +60,10 @@ pub fn chat_from_responses(body: &Value) -> Result<Value, ConvertError> {
         }
     }
     let mut out = Map::new();
-    out.insert("model".to_string(), body.get("model").cloned().unwrap_or(Value::Null));
+    out.insert(
+        "model".to_string(),
+        body.get("model").cloned().unwrap_or(Value::Null),
+    );
 
     let messages = messages_from_input(body.get("instructions"), body.get("input"))?;
     out.insert("messages".to_string(), Value::Array(messages));
@@ -66,10 +73,20 @@ pub fn chat_from_responses(body: &Value) -> Result<Value, ConvertError> {
     );
 
     // max_output_tokens → max_completion_tokens（Responses 的字段名）
-    if let Some(value) = body.get("max_output_tokens").filter(|value| is_truthy(value)) {
+    if let Some(value) = body
+        .get("max_output_tokens")
+        .filter(|value| is_truthy(value))
+    {
         out.insert("max_completion_tokens".to_string(), value.clone());
     }
-    for key in ["temperature", "top_p", "service_tier", "parallel_tool_calls", "user", "metadata"] {
+    for key in [
+        "temperature",
+        "top_p",
+        "service_tier",
+        "parallel_tool_calls",
+        "user",
+        "metadata",
+    ] {
         if let Some(value) = body.get(key) {
             if !value.is_null() {
                 out.insert(key.to_string(), value.clone());
@@ -145,11 +162,17 @@ pub fn chat_from_responses(body: &Value) -> Result<Value, ConvertError> {
         out.insert("tool_choice".to_string(), tool_choice_to_chat(choice));
     }
     // text.format → response_format
-    if let Some(format) = body.pointer("/text/format").filter(|value| is_truthy(value)) {
+    if let Some(format) = body
+        .pointer("/text/format")
+        .filter(|value| is_truthy(value))
+    {
         out.insert("response_format".to_string(), format_to_chat(format));
     }
     // reasoning.effort → reasoning_effort（本项目的上游都认这个 Chat 扩展字段）
-    if let Some(effort) = body.pointer("/reasoning/effort").filter(|value| has_effort(value)) {
+    if let Some(effort) = body
+        .pointer("/reasoning/effort")
+        .filter(|value| has_effort(value))
+    {
         out.insert("reasoning_effort".to_string(), effort.clone());
     }
     Ok(Value::Object(out))
@@ -171,7 +194,10 @@ fn messages_from_input(
     input: Option<&Value>,
 ) -> Result<Vec<Value>, ConvertError> {
     let mut messages: Vec<Value> = Vec::new();
-    if let Some(text) = instructions.and_then(Value::as_str).filter(|text| !text.trim().is_empty()) {
+    if let Some(text) = instructions
+        .and_then(Value::as_str)
+        .filter(|text| !text.trim().is_empty())
+    {
         messages.push(json!({ "role": "system", "content": text }));
     }
     let Some(input) = input else {
@@ -504,18 +530,20 @@ fn push_input_item(
             let name = tool_plan::flatten_call_name(item);
             let arguments = {
                 let raw = json_text(item.get("arguments").unwrap_or(&Value::Null));
-                if raw.is_empty() { "{}".to_string() } else { raw }
+                if raw.is_empty() {
+                    "{}".to_string()
+                } else {
+                    raw
+                }
             };
-            let mut call_message = tool_call_message(
-                &call_id,
-                &name,
-                arguments,
-                pending.attach(),
-            );
+            let mut call_message = tool_call_message(&call_id, &name, arguments, pending.attach());
             // 加密载体只挂本轮第一条 assistant（见 take_encrypted 的说明）
             if let Some(encrypted) = pending.take_encrypted() {
                 if let Some(object) = call_message.as_object_mut() {
-                    object.insert(FIELD_ENCRYPTED_CONTENT.to_string(), Value::String(encrypted));
+                    object.insert(
+                        FIELD_ENCRYPTED_CONTENT.to_string(),
+                        Value::String(encrypted),
+                    );
                 }
             }
             messages.push(call_message);
@@ -597,7 +625,13 @@ fn push_input_item(
         _ => {
             let role = {
                 let raw = string_field(item, "role").to_lowercase();
-                if raw == "developer" { "system".to_string() } else if raw.is_empty() { "user".to_string() } else { raw }
+                if raw == "developer" {
+                    "system".to_string()
+                } else if raw.is_empty() {
+                    "user".to_string()
+                } else {
+                    raw
+                }
             };
             let content = item.get("content").or_else(|| item.get("text"));
             let Some(content) = content else {
@@ -645,7 +679,10 @@ fn push_input_item(
                 }
                 // 加密载体只挂本轮第一条 assistant（见 take_encrypted 的说明）
                 if let Some(encrypted) = pending.take_encrypted() {
-                    message.insert(FIELD_ENCRYPTED_CONTENT.to_string(), Value::String(encrypted));
+                    message.insert(
+                        FIELD_ENCRYPTED_CONTENT.to_string(),
+                        Value::String(encrypted),
+                    );
                 }
             } else if role != "tool" {
                 // 非 assistant、非 tool 的消息 = 上一轮结束：清掉本轮的 reasoning，
@@ -732,7 +769,11 @@ fn text_blocks_of(blocks: Option<&Value>) -> Option<String> {
         .filter(|text| !text.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
-    if text.is_empty() { None } else { Some(text) }
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
 }
 
 /// 工具输出拆出来的两部分（见 [`tool_output_parts`]）
@@ -767,7 +808,11 @@ pub(super) fn tool_output_parts(output: Option<&Value>) -> ToolOutput {
     };
     match output {
         Value::String(text) => {
-            if text.is_empty() { text_only("(empty)".to_string()) } else { text_only(text.clone()) }
+            if text.is_empty() {
+                text_only("(empty)".to_string())
+            } else {
+                text_only(text.clone())
+            }
         }
         Value::Null => text_only("(empty)".to_string()),
         Value::Array(parts) => {
@@ -791,7 +836,10 @@ pub(super) fn tool_output_parts(output: Option<&Value>) -> ToolOutput {
 }
 
 fn text_only(text: String) -> ToolOutput {
-    ToolOutput { text, images: Vec::new() }
+    ToolOutput {
+        text,
+        images: Vec::new(),
+    }
 }
 
 /// 是不是图片块（Responses 的 `input_image` 与 Chat 的 `image_url` 都认）
@@ -818,13 +866,20 @@ fn report_unknown_parts(parts: &[Value]) {
         })
         .map(|part| {
             let kind = string_field(part, "type");
-            if kind.is_empty() { "(缺 type)".to_string() } else { kind }
+            if kind.is_empty() {
+                "(缺 type)".to_string()
+            } else {
+                kind
+            }
         })
         .collect();
     if !unknown.is_empty() {
         logging::log(
             "[Responses]",
-            &format!("⚠️ 工具输出里的 {} 块跨协议表达不了，已丢弃", unknown.join(" / ")),
+            &format!(
+                "⚠️ 工具输出里的 {} 块跨协议表达不了，已丢弃",
+                unknown.join(" / ")
+            ),
         );
     }
 }
@@ -933,11 +988,18 @@ fn tool_choice_to_chat(choice: &Value) -> Value {
     // `{type:"function", name}` → `{type:"function", function:{name}}`
     let name = {
         let flat = string_field(choice, "name");
-        if flat.is_empty() { string_field(choice, "function.name") } else { flat }
+        if flat.is_empty() {
+            string_field(choice, "function.name")
+        } else {
+            flat
+        }
     };
     // `function.name` 是嵌套路径，string_field 取不到，单独处理
     let name = if name.is_empty() {
-        choice.pointer("/function/name").map(string_value).unwrap_or_default()
+        choice
+            .pointer("/function/name")
+            .map(string_value)
+            .unwrap_or_default()
     } else {
         name
     };
@@ -1009,7 +1071,10 @@ fn format_to_chat(format: &Value) -> Value {
 pub fn responses_from_chat(chat: &Value, model: &str, request: &Value) -> Value {
     let plan = tool_plan::plan_tools(request);
     let choice = chat.pointer("/choices/0");
-    let message = choice.and_then(|choice| choice.get("message")).cloned().unwrap_or(Value::Null);
+    let message = choice
+        .and_then(|choice| choice.get("message"))
+        .cloned()
+        .unwrap_or(Value::Null);
     let finish = choice
         .and_then(|choice| choice.get("finish_reason"))
         .map(string_value)
@@ -1018,7 +1083,11 @@ pub fn responses_from_chat(chat: &Value, model: &str, request: &Value) -> Value 
     let mut output: Vec<Value> = Vec::new();
     let reasoning = {
         let from_field = string_field(&message, "reasoning_content");
-        if from_field.is_empty() { string_field(&message, "reasoning") } else { from_field }
+        if from_field.is_empty() {
+            string_field(&message, "reasoning")
+        } else {
+            from_field
+        }
     };
     if !reasoning.is_empty() {
         output.push(json!({
@@ -1042,14 +1111,21 @@ pub fn responses_from_chat(chat: &Value, model: &str, request: &Value) -> Value 
     }
     if let Some(calls) = tool_calls {
         for call in calls {
-            let name = call.pointer("/function/name").map(string_value).unwrap_or_default();
+            let name = call
+                .pointer("/function/name")
+                .map(string_value)
+                .unwrap_or_default();
             let arguments = call
                 .pointer("/function/arguments")
                 .map(json_text)
                 .unwrap_or_else(|| "{}".to_string());
             let call_id = {
                 let raw = string_field(call, "id");
-                if raw.is_empty() { random_id("call") } else { raw }
+                if raw.is_empty() {
+                    random_id("call")
+                } else {
+                    raw
+                }
             };
             output.push(tool_call_item(&name, &call_id, &arguments, &plan));
         }
@@ -1062,14 +1138,22 @@ pub fn responses_from_chat(chat: &Value, model: &str, request: &Value) -> Value 
     } else {
         None
     };
-    let status = if incomplete.is_some() { "incomplete" } else { "completed" };
+    let status = if incomplete.is_some() {
+        "incomplete"
+    } else {
+        "completed"
+    };
     let created = chat
         .get("created")
         .and_then(Value::as_i64)
         .unwrap_or_else(|| logging::now_ms() / 1000);
     let id = {
         let raw = string_field(chat, "id");
-        if raw.is_empty() { random_id("resp") } else { raw }
+        if raw.is_empty() {
+            random_id("resp")
+        } else {
+            raw
+        }
     };
     let mut body = response_envelope(
         &id,
@@ -1102,7 +1186,11 @@ pub fn response_envelope(
 ) -> Value {
     // 请求侧字段如实回显（缺省值与官方文档一致）
     let passthrough = |key: &str, fallback: Value| -> Value {
-        request.get(key).filter(|value| !value.is_null()).cloned().unwrap_or(fallback)
+        request
+            .get(key)
+            .filter(|value| !value.is_null())
+            .cloned()
+            .unwrap_or(fallback)
     };
     let reasoning_effort = request
         .pointer("/reasoning/effort")
@@ -1202,7 +1290,11 @@ pub fn usage_to_responses(usage: Option<&Value>) -> Value {
             .pointer("/prompt_tokens_details/cached_tokens")
             .and_then(Value::as_i64)
             .unwrap_or(0);
-        if nested != 0 { nested } else { cached }
+        if nested != 0 {
+            nested
+        } else {
+            cached
+        }
     };
     let reasoning = usage
         .pointer("/completion_tokens_details/reasoning_tokens")
@@ -1223,7 +1315,10 @@ pub fn usage_to_responses(usage: Option<&Value>) -> Value {
     }
     out.insert("output_tokens".to_string(), Value::from(output));
     if !output_details.is_empty() {
-        out.insert("output_tokens_details".to_string(), Value::Object(output_details));
+        out.insert(
+            "output_tokens_details".to_string(),
+            Value::Object(output_details),
+        );
     }
     out.insert(
         "total_tokens".to_string(),
@@ -1357,11 +1452,9 @@ impl ResponsesStream {
         }
         // 先冲刷缓冲里残留的最后一帧
         let mut out = Vec::new();
-        for payload in self.buffer.finish() {
-            if let Some(data) = payload {
-                if let Ok(value) = serde_json::from_str::<Value>(&data) {
-                    out.extend(self.consume(&value));
-                }
+        for data in self.buffer.finish().into_iter().flatten() {
+            if let Ok(value) = serde_json::from_str::<Value>(&data) {
+                out.extend(self.consume(&value));
             }
         }
         if self.finished {
@@ -1416,7 +1509,11 @@ impl ResponsesStream {
             Some("content_filter") => Some("content_filter"),
             _ => None,
         };
-        let status = if incomplete.is_some() { "incomplete" } else { "completed" };
+        let status = if incomplete.is_some() {
+            "incomplete"
+        } else {
+            "completed"
+        };
         let response = response_envelope(
             &self.response_id,
             &self.model,
@@ -1443,9 +1540,17 @@ impl ResponsesStream {
             out.extend(self.emit_created());
             let message = {
                 let text = string_field(error, "message");
-                if text.is_empty() { string_value(error) } else { text }
+                if text.is_empty() {
+                    string_value(error)
+                } else {
+                    text
+                }
             };
-            let code = error.get("code").filter(|value| is_truthy(value)).cloned().unwrap_or(Value::Null);
+            let code = error
+                .get("code")
+                .filter(|value| is_truthy(value))
+                .cloned()
+                .unwrap_or(Value::Null);
             out.push(self.event(
                 "error",
                 json!({ "code": code, "message": message, "param": Value::Null }),
@@ -1469,7 +1574,11 @@ impl ResponsesStream {
             out.push(self.event("response.failed", json!({ "response": failed })));
             return out;
         }
-        if let Some(id) = chunk.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+        if let Some(id) = chunk
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+        {
             if !self.created_sent {
                 self.response_id = id.to_string();
             }
@@ -1492,7 +1601,11 @@ impl ResponsesStream {
         // 思考增量
         let reasoning = {
             let from_field = string_field(delta, "reasoning_content");
-            if from_field.is_empty() { string_field(delta, "reasoning") } else { from_field }
+            if from_field.is_empty() {
+                string_field(delta, "reasoning")
+            } else {
+                from_field
+            }
         };
         if !reasoning.is_empty() {
             out.extend(self.open_reasoning());
@@ -1508,7 +1621,11 @@ impl ResponsesStream {
             ));
         }
         // 正文增量：思考必须先收尾（同一时刻只能有一个项在写）
-        if let Some(text) = delta.get("content").and_then(Value::as_str).filter(|text| !text.is_empty()) {
+        if let Some(text) = delta
+            .get("content")
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
+        {
             out.extend(self.close_reasoning());
             out.extend(self.open_text());
             self.text.push_str(text);
@@ -1562,7 +1679,11 @@ impl ResponsesStream {
             let Some(tool) = self.tools.get_mut(&key) else {
                 return out;
             };
-            if let Some(id) = call.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+            if let Some(id) = call
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+            {
                 tool.call_id = id.to_string();
             }
             if let Some(name) = call.pointer("/function/name").and_then(Value::as_str) {
@@ -1630,7 +1751,9 @@ impl ResponsesStream {
             ));
             // 宣告前已攒下的参数要补发（名字与参数可能同一帧到达）
             if !buffered.is_empty() {
-                out.extend(self.tool_delta_event(index, &item_id, &call_id, &name, &buffered, is_custom));
+                out.extend(
+                    self.tool_delta_event(index, &item_id, &call_id, &name, &buffered, is_custom),
+                );
             }
         }
         let arguments = call
@@ -1638,7 +1761,9 @@ impl ResponsesStream {
             .and_then(Value::as_str)
             .unwrap_or("");
         if !arguments.is_empty() && !announced_now {
-            out.extend(self.tool_delta_event(index, &item_id, &call_id, &name, arguments, is_custom));
+            out.extend(
+                self.tool_delta_event(index, &item_id, &call_id, &name, arguments, is_custom),
+            );
         }
         out
     }
@@ -1858,11 +1983,23 @@ impl ResponsesStream {
             let Some(tool) = self.tools.get_mut(&key) else {
                 continue;
             };
-            let call_id = if tool.call_id.is_empty() { random_id("call") } else { tool.call_id.clone() };
+            let call_id = if tool.call_id.is_empty() {
+                random_id("call")
+            } else {
+                tool.call_id.clone()
+            };
             // 只拿到 index、没拿到名字的残片：不能宣告（宣告要 name），
             // 但也不能丢 —— 补一个占位名，否则客户端少一次工具调用
-            let name = if tool.name.is_empty() { "unknown".to_string() } else { tool.name.clone() };
-            let arguments = if tool.arguments.is_empty() { "{}".to_string() } else { tool.arguments.clone() };
+            let name = if tool.name.is_empty() {
+                "unknown".to_string()
+            } else {
+                tool.name.clone()
+            };
+            let arguments = if tool.arguments.is_empty() {
+                "{}".to_string()
+            } else {
+                tool.arguments.clone()
+            };
             // 用统一口径构造 item：custom 命中时要输出 custom_tool_call 与
             // 裸文本 input，类型给错客户端就按 JSON 解析，工具照样跑不起来
             let item = {
@@ -1978,27 +2115,27 @@ impl ResponsesCollector {
     }
 
     pub fn push(&mut self, chunk: &[u8]) {
-        for payload in self.buffer.push(chunk) {
-            if let Some(data) = payload {
-                if let Ok(value) = serde_json::from_str::<Value>(&data) {
-                    self.consume(&value);
-                }
+        for data in self.buffer.push(chunk).into_iter().flatten() {
+            if let Ok(value) = serde_json::from_str::<Value>(&data) {
+                self.consume(&value);
             }
         }
     }
 
     pub fn finish(&mut self) {
-        for payload in self.buffer.finish() {
-            if let Some(data) = payload {
-                if let Ok(value) = serde_json::from_str::<Value>(&data) {
-                    self.consume(&value);
-                }
+        for data in self.buffer.finish().into_iter().flatten() {
+            if let Ok(value) = serde_json::from_str::<Value>(&data) {
+                self.consume(&value);
             }
         }
     }
 
     fn consume(&mut self, chunk: &Value) {
-        if let Some(id) = chunk.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+        if let Some(id) = chunk
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+        {
             if self.id.is_empty() {
                 self.id = id.to_string();
             }
@@ -2022,7 +2159,11 @@ impl ResponsesCollector {
         };
         let reasoning = {
             let from_field = string_field(delta, "reasoning_content");
-            if from_field.is_empty() { string_field(delta, "reasoning") } else { from_field }
+            if from_field.is_empty() {
+                string_field(delta, "reasoning")
+            } else {
+                from_field
+            }
         };
         self.reasoning.push_str(&reasoning);
         if let Some(text) = delta.get("content").and_then(Value::as_str) {
@@ -2032,7 +2173,11 @@ impl ResponsesCollector {
             for call in calls {
                 let key = call.get("index").and_then(Value::as_i64).unwrap_or(0);
                 let entry = self.tools.entry(key).or_default();
-                if let Some(id) = call.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+                if let Some(id) = call
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty())
+                {
                     entry.call_id = id.to_string();
                 }
                 if let Some(name) = call.pointer("/function/name").and_then(Value::as_str) {
@@ -2040,7 +2185,8 @@ impl ResponsesCollector {
                         entry.name = name.to_string();
                     }
                 }
-                if let Some(arguments) = call.pointer("/function/arguments").and_then(Value::as_str) {
+                if let Some(arguments) = call.pointer("/function/arguments").and_then(Value::as_str)
+                {
                     entry.arguments.push_str(arguments);
                 }
             }
@@ -2068,9 +2214,21 @@ impl ResponsesCollector {
             }));
         }
         for (_, tool) in self.tools {
-            let name = if tool.name.is_empty() { "unknown".to_string() } else { tool.name };
-            let call_id = if tool.call_id.is_empty() { random_id("call") } else { tool.call_id };
-            let arguments = if tool.arguments.is_empty() { "{}".to_string() } else { tool.arguments };
+            let name = if tool.name.is_empty() {
+                "unknown".to_string()
+            } else {
+                tool.name
+            };
+            let call_id = if tool.call_id.is_empty() {
+                random_id("call")
+            } else {
+                tool.call_id
+            };
+            let arguments = if tool.arguments.is_empty() {
+                "{}".to_string()
+            } else {
+                tool.arguments
+            };
             // 与另外两个回程出口共用口径：custom 命中时输出 custom_tool_call
             // （item id 的前缀由 tool_call_item 内部按类型选，不必在这里管）
             output.push(tool_call_item(&name, &call_id, &arguments, &plan));
@@ -2080,8 +2238,16 @@ impl ResponsesCollector {
             Some("content_filter") => Some("content_filter"),
             _ => None,
         };
-        let status = if incomplete.is_some() { "incomplete" } else { "completed" };
-        let id = if self.id.is_empty() { random_id("resp") } else { self.id.clone() };
+        let status = if incomplete.is_some() {
+            "incomplete"
+        } else {
+            "completed"
+        };
+        let id = if self.id.is_empty() {
+            random_id("resp")
+        } else {
+            self.id.clone()
+        };
         let mut body = response_envelope(
             &id,
             model,
