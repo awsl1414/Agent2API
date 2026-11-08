@@ -12,7 +12,28 @@ use crate::server::core::update::client::{
 };
 use crate::server::core::update::{compare_versions, is_prerelease_version, source};
 
-pub const INDEX_REPO: &str = "Agent2plugin/Agent2plugin";
+/// 插件索引仓：fork 自有索引（`awsl1414/Agent2plugin`，Agent2plugin/Agent2plugin
+/// 的 fork）。
+///
+/// ── 为什么不指上游 ────────────────────────────────────
+/// 上游索引把 app.json 的 `app.repo` 指向 Agent2Builder 构建仓、插件包也
+/// 发布在构建仓 —— 索引可达时更新检查全部落在上游。fork 的桌面安装包与
+/// 插件包都发在自己仓库（awsl1414/Agent2API / awsl1414/Agent2Providers），
+/// 所以自建索引并在这里切过来：`index.json`、`app.json`、`plugins/*.json`
+/// 都从本仓库的 `main` 分支读（`read_index_result` / `index_path` 拼的是
+/// raw.githubusercontent.com/{INDEX_REPO}/main/…），上游索引仓零依赖。
+/// 把它改回上游等于把更新通道整个交回去——同步上游代码时盯住这个常量。
+///
+/// 附带一句：配套插件包的版本门（`compatibility::minimum_version`）要求
+/// 包版本 ≥ 网关版本，上游最新包 3.4.2 过不了 fork 的门，这也是索引必须
+/// 自有的原因之一（上游索引只会给出上游的包）。
+pub const INDEX_REPO: &str = "awsl1414/Agent2plugin";
+/// 官方配套插件包的内置兜底源：上游构建仓（`Agent2Builder`）的发布仓。
+///
+/// 网页提供商包（agent2api-web-providers）仍从这里取：上游 web-v3.4.3
+/// 过版本门且带官方签名，fork 未改动它的发布链路。主包（
+/// agent2api-providers）的实际来源由索引条目的 `source.repo` 决定，本
+/// 常量只在索引读不到时的兜底路径与 required.rs 的默认 detail 里生效。
 pub const FALLBACK_REPO: &str = "Agent2Builder/agent2api-providers-releases";
 const GITHUB_API: &str = "https://api.github.com";
 const QUERY_TIMEOUT_MS: u64 = 30_000;
@@ -634,6 +655,21 @@ fn pick_asset(release: &Value, id: &str, target: &str) -> Option<PackAsset> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 更新通道指向 fork 自有仓库的钉子：上游同步若把这些常量带回上游
+    /// （历史上它们就是上游的值），更新检查会静默落回上游仓库 —— 不报错，
+    /// 只是 fork 的版本永远「已是最新」。钉住这个回归点，错就错在测试上。
+    #[test]
+    fn update_channel_points_at_own_repos() {
+        assert_eq!(INDEX_REPO, "awsl1414/Agent2plugin");
+        // 网页提供商包仍走上游发布仓（web-v3.4.3 过版本门且带官方签名），
+        // 这是记录在案的保守取舍，不是遗漏。
+        assert_eq!(FALLBACK_REPO, "Agent2Builder/agent2api-providers-releases");
+        assert_eq!(
+            format!("https://raw.githubusercontent.com/{INDEX_REPO}/main/index.json"),
+            "https://raw.githubusercontent.com/awsl1414/Agent2plugin/main/index.json"
+        );
+    }
 
     /// 资产名必须与打包脚本的产出名逐字一致（两处任一处改了命名，
     /// 更新就会变成「找不到对应平台的包」）。

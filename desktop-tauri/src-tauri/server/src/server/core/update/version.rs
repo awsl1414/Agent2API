@@ -27,11 +27,12 @@ use crate::server::config::UpdateChannels;
 ///
 /// ── 它只是兜底，索引可达时索引优先 ──────────────────────────
 /// 仓库解析顺序（见 `core::update` 的 `resolve_repository`）：
-/// `WORKBUDDY_UPDATE_REPO` 环境变量 > 索引 `app.repo`（上游
-/// `Agent2plugin/Agent2plugin` 的 app.json，fork 不改上游）> 本常量。
-/// 也就是说索引可达时本值不生效，更新检查仍落在上游构建仓；要把 fork
-/// 安装包的更新通道完整切过来，还得备一份 fork 自有的索引（另立事项）。
-///
+/// `WORKBUDDY_UPDATE_REPO` 环境变量 > 索引 `app.repo` > 本常量。
+/// 索引也是 fork 自有的（`awsl1414/Agent2plugin`，见
+/// `plugin_host::update::INDEX_REPO`），其 app.json 的 `app.repo` 同样指
+/// `awsl1414/Agent2API` —— 三级解析现在全部落在自有仓库，更新通道已完整
+/// 切换，不再依赖上游构建仓。本常量仅在索引读不到时兜底，取值与索引的
+/// app.repo 保持一致（换仓库时两处要一起改）。
 /// `WORKBUDDY_UPDATE_REPO` 环境变量仍可覆盖（最高优先级，且不读索引）。
 pub const DEFAULT_REPO: &str = "awsl1414/Agent2API";
 

@@ -245,3 +245,19 @@ pub(super) fn clear_cooldown() {
     }
     super::catalog::wake();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// fork 自出插件包的版本与网关保持一致（3.4.3-beta.1 对
+    /// 3.4.3-beta.1），「同版本不得拒载」是它能被装上/加载的前提；上游
+    /// 最新包 3.4.2 低于 fork 网关版本，正是必须自出包的原因。断言写死
+    /// 3.4.2 的前提是网关版本只会往上走（低于它时这条断言本身就错了）。
+    #[test]
+    fn companion_pack_version_gate() {
+        assert!(version_error("agent2api-providers", CURRENT_VERSION).is_none());
+        assert!(version_error("agent2api-web-providers", CURRENT_VERSION).is_none());
+        assert!(version_error("agent2api-providers", "3.4.2").is_some());
+    }
+}

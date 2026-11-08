@@ -1,4 +1,11 @@
 //! 应用更新与强制更新共用插件索引仓库的 app.json；只信任官方确认过的策略。
+//!
+//! ── 「官方」在 fork 里指哪份索引 ───────────────────────
+//! 这里的来源字符串（见 [`AppIndex::required`] 拼的 `source` 字段）与
+//! `resolve()` 读的 URL 都跟着 [`plugin_host::update::INDEX_REPO`] 走，
+//! fork 已把它指向自有索引 `awsl1414/Agent2plugin`：app.repo 指回
+//! awsl1414/Agent2API，强制更新策略也由 fork 自己发布。所以「官方确认」
+//! 的实际含义是 fork 维护者在自有索引里发布的内容，不再经过上游。
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -142,4 +149,55 @@ fn is_repo_slug(value: &str) -> bool {
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// fork 自有索引的 app.json 必须能被 parse 接受 —— 这是「更新检查完全
+    /// 走自有链路」的最后一环：索引格式或仓库 slug 的校验收紧时，如果自
+    /// 家的 app.json 过不了，用户侧表现是静默回退到兜底仓库。内容与
+    /// awsl1414/Agent2plugin 的 app.json 保持同形，改索引格式时同步这里。
+    #[test]
+    fn parse_accepts_own_fork_index() {
+        let document = json!({
+            "schema": 1,
+            "updated": "2026-11-08",
+            "app": {
+                "repo": "awsl1414/Agent2API",
+                "forceUpdate": {
+                    "stable": { "minimumVersion": null, "targetVersion": null, "message": "" },
+                    "beta": { "minimumVersion": null, "targetVersion": null, "message": "" }
+                }
+            }
+        });
+        let index = parse(&document).expect("自有索引的 app.json 应当通过校验");
+        assert_eq!(index.repo, "awsl1414/Agent2API");
+        assert!(index.force_update.stable.minimum_version.is_none());
+        assert!(index.required("3.4.3-beta.1").is_none());
+    }
+
+    /// 强制更新的 source 字段跟着 INDEX_REPO 走：用户看到的「策略来源」
+    /// 应当指向 fork 自有索引，而不是上游。
+    #[test]
+    fn required_source_points_at_own_index() {
+        let index = AppIndex {
+            repo: "awsl1414/Agent2API".to_string(),
+            force_update: ForceUpdate {
+                stable: ForceRule {
+                    minimum_version: Some("3.0.0".to_string()),
+                    target_version: None,
+                    message: String::new(),
+                },
+                beta: ForceRule::default(),
+            },
+        };
+        let required = index.required("2.9.0").expect("低于最低版本应触发强制更新");
+        assert_eq!(
+            required["source"].as_str().unwrap(),
+            "https://github.com/awsl1414/Agent2plugin/blob/main/app.json"
+        );
+    }
 }
