@@ -66,14 +66,26 @@ pub use super::pack_view::{
 /// 表里可以有多条：新密钥先加进来（旧包仍能验过），插件包重新签名后再删旧的。
 /// `key_id` 是给这件事用的标识，不是安全边界 —— 验签只认「表里有没有这把」。
 ///
-/// ── 现在这一把是什么 ────────────────────────────────────────
-/// `official-2026`：2026-10 生成，私钥只存在发布方与插件仓库的 GitHub
-/// Actions secret（`AGENT2API_PLUGIN_KEY`）里，CI 打包后自动签名。
-/// 轮换时把新公钥加进来、等插件包全部重签后再删旧的。
-pub const OFFICIAL_PUBKEYS: &[(&str, &str)] = &[(
-    "official-2026",
-    "7cdac378ff9bf23b72ae1b686f19859b3c802c26eed13c699f7df39f027352d6",
-)];
+/// ── 现在表里有哪几把 ────────────────────────────────────────
+/// `official-2026`：上游发布者（2026-10 生成，私钥只存在上游构建仓与插件
+/// 仓库的 GitHub Actions secret 里）。**必须保留**——网页提供商继续跟上游
+/// 发版，删了它上游签名包全变 Invalid。
+/// `fork-2026`：fork 自建签名链（2026-11-08 生成），私钥存 awsl1414/
+/// Agent2Providers 的 Actions secret（`AGENT2API_PLUGIN_KEY`）与发布者
+/// 本地（`~/.config/agent2api-signing/`，权限 600，永不进仓库）；fork 的
+/// 插件包 CI 打包后自动签名，无人值守路径靠这把验过。
+/// key_id 换新钥时必须**换名字**——查表按 key_id 精确匹配，重名会解析到
+/// 错的那把。轮换顺序：新钥追加进来 → 全部包重签 → 再删旧钥。
+pub const OFFICIAL_PUBKEYS: &[(&str, &str)] = &[
+    (
+        "official-2026",
+        "7cdac378ff9bf23b72ae1b686f19859b3c802c26eed13c699f7df39f027352d6",
+    ),
+    (
+        "fork-2026",
+        "b1b265d1a78031431455eb2f134704695a94759fede9213fc448b5678da85d96",
+    ),
+];
 
 /// 验签结果。
 ///
@@ -734,6 +746,94 @@ mod tests {
         let (state, reason) = verify_signature(&dir, &manifest(1), "x86_64-pc-windows-msvc");
         assert_eq!(state, SignatureState::Unsigned);
         assert!(reason.is_none(), "未签名不该带失败原因");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── 信任根（fork 自建签名链）──────────────────────────────
+    //
+    // fork-2026 是 fork 自己的发布钥（私钥在 Agent2Providers 的 Actions
+    // secret 与发布者本地，永不进仓库）；official-2026 是上游的。两条钉子
+    // 各防一种回归：
+    //   · 上游公钥被删 → 上游签名包（网页提供商，跟上游发版）全变 Invalid；
+    //   · fork 公钥丢失 → fork 签的包全报「密钥不在信任列表」，无人值守
+    //     路径重新被拒 —— 正是这条链要修的问题。
+    #[test]
+    fn trust_root_keeps_upstream_and_fork_keys() {
+        let keys: Vec<_> = OFFICIAL_PUBKEYS.iter().collect();
+        assert!(
+            keys.iter().any(|(id, _)| *id == "official-2026"),
+            "上游公钥必须保留：上游签名包仍要能验过（追加不替换）"
+        );
+        assert!(
+            keys.iter().any(|(id, _)| *id == "fork-2026"),
+            "fork 公钥必须在表里：fork 签的包靠它过无人值守路径"
+        );
+        for (id, hex) in keys {
+            assert!(
+                hex_to_32(hex).is_some(),
+                "公钥 {id} 必须是可解析的 32 字节十六进制"
+            );
+        }
+    }
+
+    /// fork 签名过真实信任根：签名常量是 fork 私钥对下面这份**固定载荷**
+    /// 的 ed25519 签名。载荷全由测试内固定输入决定（manifest、目标、固定
+    /// 字节的入口二进制），无随机成分 —— 私钥不进仓库也能钉住「真实公钥
+    /// 表接受 fork 签名」这条路。改载荷任何一字节都会验不过。
+    #[test]
+    fn fork_signed_pack_verifies_through_real_trust_root() {
+        let target = "x86_64-pc-windows-msvc";
+        let dir = staged_dir("forkpin", b"fork-trust-root-2026");
+        let binary_hash = sha256_file(&dir.join("bin/x.exe")).expect("算摘要");
+        // 签名常量只对这份固定二进制有效：改了 staged 字节，这里先给出明确
+        // 错因，而不是留到验签时笼统报「签名与本包内容不匹配」。
+        assert_eq!(
+            binary_hash, "e26399afe2818c6567784c23c36d8ea18baf127d887bf5c6f3411d2d1fee77c5",
+            "staged 二进制变了：签名常量要随载荷重生成（fork 私钥在仓库外）"
+        );
+        let mut m = manifest(1);
+        m.signature = Some(proto::PackSignature {
+            algorithm: "ed25519".into(),
+            key_id: "fork-2026".into(),
+            // 固定载荷（id=test, version=1.0.0, providers=demo:0:1,
+            // entry=…=bin/x.exe, binary=固定字节的 sha256, ui=空）的 fork
+            // 签名；重生成需 fork 私钥（仓库外，见汇报）。
+            value: "pGKuRGp3O1ekgGtlkIpSbkU2KhH+sRafKDq+dBbEAreSz6Ea7vo0/zRZupWD5EI9MYNeBdkg+y7ExCAio18dDg==".into(),
+            target: Some(target.into()),
+        });
+        let (state, reason) = verify_signature(&dir, &m, target);
+        assert_eq!(
+            state,
+            SignatureState::Verified,
+            "fork 签名必须过真实信任根: {reason:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 端到端验收（本地手跑，CI 无样本不跑）：上游构建仓发布的官方签名包
+    /// （official-2026）在本仓信任根下仍然验过 —— 证明追加 fork 公钥没有
+    /// 动摇上游链路。用 AGENT2API_E2E_UPSTREAM_ZIP 指向一份上游 zip。
+    #[test]
+    #[ignore = "需要本地样本：AGENT2API_E2E_UPSTREAM_ZIP 指向上游签名包"]
+    fn e2e_upstream_signed_sample_still_verifies() {
+        let Some(zip_path) = std::env::var_os("AGENT2API_E2E_UPSTREAM_ZIP") else {
+            panic!("设 AGENT2API_E2E_UPSTREAM_ZIP 指向上游签名包 zip 后重跑");
+        };
+        let bytes = std::fs::read(&zip_path).expect("读样本包");
+        let dir = std::env::temp_dir().join(format!(
+            "a2a-upstream-sample-{}",
+            crate::server::logging::now_ms()
+        ));
+        std::fs::create_dir_all(&dir).expect("建临时目录");
+        extract_zip(&bytes, &dir).expect("解包");
+        let m = read_manifest(&dir).expect("读 pack.json");
+        let target = super::super::host_target();
+        let (state, reason) = verify_signature(&dir, &m, &target);
+        assert_eq!(
+            state,
+            SignatureState::Verified,
+            "上游签名包必须仍然验过（key official-2026）: {reason:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
