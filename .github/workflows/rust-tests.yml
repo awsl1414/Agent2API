@@ -1,0 +1,72 @@
+name: rust-tests
+
+# fork 的日常改动、PR 与上游吸收都落 beta；main 只在发版时收一次 squash 合入，
+# PR 的 base 也必须选 beta（release-flow §1）。在触发里写 main 会给一条只用于
+# 发版的分支加门禁，还读不到本次提交里的这份工作流。
+on:
+  push:
+    branches: [beta]
+    paths:
+      - 'desktop-tauri/src-tauri/**'
+      - 'scripts/cargo-test.mjs'
+      - 'scripts/rust-tests-ci.test.mjs'
+      - '.github/workflows/rust-tests.yml'
+  pull_request:
+    branches: [beta]
+    paths:
+      - 'desktop-tauri/src-tauri/**'
+      - 'scripts/cargo-test.mjs'
+      - 'scripts/rust-tests-ci.test.mjs'
+      - '.github/workflows/rust-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# warm-cache 用静态并发组是因为它只由 main push 触发；这份工作流有 PR 触发，
+# PR 与 push 共用静态组会让一次 push 取消掉正在跑的 PR 检查。
+concurrency:
+  group: rust-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_INCREMENTAL: '0'
+
+jobs:
+  # 上游的 server 作业会 checkout 上游插件仓编一份 demo 插件做联调，另起 coverage
+  # 作业跑 llvm-cov。fork 没有读 AGENT2API_TEST_PLUGIN_EXE 的用例（plugin_host 的
+  # 忽略测试要的是本地签名包样本），也没有覆盖率产物链：两处都没有消费端，删去，
+  # 只留 #490 要补的「服务端单测真正在 CI 跑起来」。
+  server:
+    name: 服务端单测 (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # workspaces 与 build.yml / warm-cache.yml 逐字一致：rust-cache 的键包含这段
+      # 参数，写法不同就把测试缓存算到另一套键上；也不另设 key，沿用 fork 的缓存
+      # 作用域。codearts_daily_pool 是 fork 基线既有失败，job 会因此报红，而
+      # rust-cache 默认失败不写缓存，留住 cache-on-failure 免得每次冷编整套依赖。
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop-tauri/src-tauri -> ../../target
+          cache-on-failure: true
+
+      - name: 校验测试入口与工作流配置
+        run: node scripts/rust-tests-ci.test.mjs
+
+      - name: 服务端单测
+        run: node scripts/cargo-test.mjs
