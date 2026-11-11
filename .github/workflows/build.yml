@@ -327,8 +327,11 @@ jobs:
           ( cd dist && sha256sum "$name" > "$name.sha256" )
           cat "dist/$name.sha256"
           ls -lh dist
-          echo "── 包内条目 ──"
-          tar -tzf "dist/$name" | head -20
+          echo "── 包内条目（前 20 行）──"
+          # 不能写 `tar -tzf ... | head`：head 读完就关管道，tar 收到 SIGPIPE
+          # 报 "stdout: write error"，在 pipefail 下整步失败
+          tar -tzf "dist/$name" > /tmp/bundle-entries.txt
+          sed -n '1,20p' /tmp/bundle-entries.txt
 
       - name: 上传产物
         uses: actions/upload-artifact@v7
