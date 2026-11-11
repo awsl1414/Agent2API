@@ -7,10 +7,10 @@
 [English](../README.md) | **简体中文** | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | [한국어](./README.ko.md) | [Português (BR)](./README.pt-BR.md)
 
 [![license](https://img.shields.io/badge/license-AGPL--3.0-green)](../LICENSE)
-[![release](https://img.shields.io/github/v/release/aimod-cc/Agent2API?include_prereleases)](https://github.com/aimod-cc/Agent2API/releases/latest)
-[![docker pulls](https://img.shields.io/docker/pulls/aimodcc/agent2api)](https://hub.docker.com/r/aimodcc/agent2api)
-[![stars](https://img.shields.io/github/stars/aimod-cc/Agent2API?style=flat&color=yellow)](https://github.com/aimod-cc/Agent2API/stargazers)
-[![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Docker-blue)](https://github.com/aimod-cc/Agent2API/releases/latest)
+[![release](https://img.shields.io/github/v/release/awsl1414/Agent2API?include_prereleases)](https://github.com/awsl1414/Agent2API/releases/latest)
+[![container](https://img.shields.io/badge/container-ghcr.io-blue?logo=docker)](https://github.com/awsl1414/Agent2API/pkgs/container/agent2api)
+[![stars](https://img.shields.io/github/stars/awsl1414/Agent2API?style=flat&color=yellow)](https://github.com/awsl1414/Agent2API/stargazers)
+[![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Docker-blue)](https://github.com/awsl1414/Agent2API/releases/latest)
 
 [✨ 核心特性](#-核心特性) • [💬 社区与支持](#-社区与支持) • [🚀 快速开始](#-快速开始) • [📦 安装与部署](./install.md) • [📸 界面预览](#-界面预览) • [🔧 开发与构建](#-开发与构建) • [📜 使用声明](#-使用声明)
 
@@ -60,7 +60,7 @@ Agent2API 是一个 **AI 路由网关 + Agent 客户端接管**项目。它将�
 | --- | --- | --- |
 | **桌面端**（Windows / macOS / Linux） | `Agent2API_<版本>_x64-setup.exe`、`_universal.dmg`、`_amd64.deb`、`_amd64.AppImage` | 应用窗口 |
 | **服务端**（Windows Server / Linux，无 GUI） | `agent2api-server-windows-amd64.zip`、`agent2api-server-linux-<arch>.tar.gz` | 浏览器面板 |
-| **Docker** | `aimodcc/agent2api:latest`（amd64 / arm64） | 浏览器面板 |
+| **Docker** | `ghcr.io/awsl1414/agent2api:beta`（amd64 / arm64；正式版发布后可用 `:latest`） | 浏览器面板 |
 
 **桌面端**：启动后添加自定义提供商与账号，创建网关 Key，再在「Agent」页应用连接配置，或在客户端填入 `http://127.0.0.1:3065/v1` 和该 Key。额外提供商能力需先安装对应插件。
 
@@ -80,7 +80,7 @@ cd C:\agent2api-pkg; .\install-service.ps1
 **Docker**：
 
 ```bash
-docker run -d --name agent2api --restart unless-stopped -p 3065:3065 -v ./data:/data aimodcc/agent2api:latest
+docker run -d --name agent2api --restart unless-stopped -p 3065:3065 -v ./data:/data ghcr.io/awsl1414/agent2api:beta
 ```
 
 三种形态装完后都打开面板（`http://127.0.0.1:3065/`，服务端与 Docker 换成主机 IP）注册管理员账号，再在「网关 Key」页建一把 Key。连通性自测：`curl http://127.0.0.1:3065/health`
@@ -149,17 +149,17 @@ macOS 的 `.dmg` **只能在 macOS 上构建**（`npm --prefix desktop-tauri run
 
 ## ⭐ Star History
 
-<a href="https://star-history.com/#aimod-cc/Agent2API&Date">
+<a href="https://star-history.com/#awsl1414/Agent2API&Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=aimod-cc/Agent2API&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=aimod-cc/Agent2API&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=aimod-cc/Agent2API&type=Date" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=awsl1414/Agent2API&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=awsl1414/Agent2API&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=awsl1414/Agent2API&type=Date" />
   </picture>
 </a>
 
 <div align="center">
 
-**[下载最新版](https://github.com/aimod-cc/Agent2API/releases/latest)** • **[问题反馈](https://github.com/aimod-cc/Agent2API/issues)**
+**[下载最新版](https://github.com/awsl1414/Agent2API/releases/latest)** • **[问题反馈](https://github.com/awsl1414/Agent2API/issues)**
 
 如果这个项目对你有帮助，欢迎点一个 ⭐️ Star！
 

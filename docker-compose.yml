@@ -1,6 +1,7 @@
 # Agent2API 部署（单容器：默认一个 3065 端口，既是管理面板也是 OpenAI 兼容网关）。
 #
-#   docker compose up -d --build
+#   docker compose up -d                     # 直接拉已发布镜像
+#   docker compose up -d --build             # 从本仓库源码构建
 #
 #   面板     http://<主机>:3065    （首次打开注册管理员账号，之后账号密码登录）
 #   网关     http://<主机>:3065/v1 （API Key 在面板「网关 Key」页创建；OpenAI 兼容）
@@ -17,8 +18,11 @@
 
 services:
   agent2api:
+    # `docker compose up -d` 拉这里写的已发布镜像；`up -d --build` 则用本
+    # 仓库源码本地构建，产物同样打这个名字（本地构建会盖掉本地那一份缓存，
+    # 不影响远端仓库）。本仓库目前只发过预发布版，正式版出来之后可换成 :latest
+    image: ghcr.io/awsl1414/agent2api:beta
     build: .
-    image: agent2api:local
     container_name: agent2api
     restart: unless-stopped
     # 可选：给容器设内存上限。超限时内核杀掉进程，再由上面的 restart 策略拉起 ——

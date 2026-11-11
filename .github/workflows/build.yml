@@ -37,12 +37,14 @@ name: build
 # Windows 过 SmartScreen 时选「仍要运行」。消除这两步需要 Apple Developer
 # 账号与代码签名证书，现阶段没有。
 #
-# ── 产物（8 个附件）───────────────────────────────────────────
+# ── 产物（12 个附件）─────────────────────────────────────────
 #   Agent2API_<版本>_universal.dmg      macos job（x86_64 + aarch64 合一）
 #   Agent2API_<版本>_x64-setup.exe      windows job（NSIS）
 #   Agent2API_<版本>_amd64.deb          linux-desktop job
 #   Agent2API_<版本>_amd64.AppImage     linux-desktop job
-#   └ 每个安装包各带一份 <文件名>.sha256，由 release job 生成
+#   agent2api-server-linux-amd64.tar.gz   linux-server job（无 GUI）
+#   agent2api-server-linux-arm64.tar.gz   linux-server job（无 GUI）
+#   └ 每个包各带一份 <文件名>.sha256，由 release job 生成
 # 文件名里的版本号来自 tauri.conf.json；release job 会核对它与 tag 一致，
 # 不一致直接失败 —— 版本号与 tag 对不上的包不能出门。
 
@@ -266,17 +268,86 @@ jobs:
             target/release/bundle/appimage/*.AppImage
           if-no-files-found: error
 
+  # ── Linux 服务端包（无 GUI，注册成 systemd 服务）──────────────
+  # 两份用途共用同一个包：
+  #   · 裸机安装：解包后跑 packaging/linux/install.sh，装成 systemd 服务；
+  #   · 容器内一键更新：selfupdate 模块按名取包内的 agent2api-server 与
+  #     ui/，原地替换后优雅退出、由 restart 策略拉起同一个容器。
+  #
+  # 走 Dockerfile 的 bundle 阶段而不是直接 cargo build：那条路径已经验证过
+  # amd64 原生 / arm64 交叉编译，产出的可执行文件与镜像里那份同源同工具链，
+  # glibc 版本天然对齐（不变量见 Dockerfile 的 bundle 阶段注释）。bundle 是
+  # FROM scratch + 纯 COPY，导出时不进 QEMU。
+  #
+  # 包名与版本号**必须**与 update/version.rs 的 server_bundle_name() 逐字
+  # 一致：面板按这个名字在 Release 资产里找包，找不到就拒绝安装。
+  linux-server:
+    needs: meta
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.meta.outputs.ref }}
+
+      - name: 设置 buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: 构建服务端二进制与界面
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --platform linux/${{ matrix.arch }} \
+            --target bundle \
+            --output type=local,dest=out \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            .
+
+      - name: 打包并生成校验和
+        run: |
+          set -euo pipefail
+          name="agent2api-server-linux-${{ matrix.arch }}.tar.gz"
+          mkdir -p dist
+          rm -rf stage/pkg
+          mkdir -p stage/pkg
+          # 包内布局：agent2api-server 与 ui/ 在根下，是容器内更新链的
+          # 硬约定；install.sh / 单元文件 / env 样例跟它们同级，更新链读完
+          # 即丢，裸机安装则正好用上。
+          cp -r out/bundle/agent2api-server out/bundle/ui stage/pkg/
+          cp packaging/linux/install.sh \
+             packaging/linux/agent2api.service \
+             packaging/linux/agent2api.env.example stage/pkg/
+          # 不能「先 tar 再 -r 追加」：gzip 流无法原地追加，
+          # tar 会直接报 "Cannot update compressed archives"
+          tar -C stage/pkg -czf "dist/$name" agent2api-server ui \
+            install.sh agent2api.service agent2api.env.example
+          ( cd dist && sha256sum "$name" > "$name.sha256" )
+          cat "dist/$name.sha256"
+          ls -lh dist
+          echo "── 包内条目 ──"
+          tar -tzf "dist/$name" | head -20
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-server-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
   # ── 发布 ─────────────────────────────────────────────────────
-  # 四个安装包各补一份 .sha256 后挂 Release。正文不是 tag 附注的逐字照
-  # 搬：解析步按行首类别前缀把它拆成分节 Markdown，末尾固定追加
-  # 「## 说明」；一条条目都解析不出来就直接失败——多半是 tag 忘了写
-  # 更新日志，空正文挂出去还得手工返工。
+  # 六个包（四个桌面端安装包 + 两个架构的服务端包）各补一份 .sha256 后挂
+  # Release。正文不是 tag 附注的逐字照搬：解析步按行首类别前缀把它拆成
+  # 分节 Markdown，末尾固定追加「## 说明」；一条条目都解析不出来就直接
+  # 失败——多半是 tag 忘了写更新日志，空正文挂出去还得手工返工。
   # 幂等：Release 已存在（补附件重跑）就改标题 / 正文 / 预发布标记后覆盖
   # 上传，不存在才 create —— 「删旧 tag 重打」与「dispatch 补发」两条
   # 重试路都走得通。上传逐文件 --clobber：gh 批量上传遇到「附件已存在」
   # 会报 HTTP 422 中断整批，--clobber 让重跑天然幂等。
   release:
-    needs: [meta, macos, windows, linux-desktop]
+    needs: [meta, macos, windows, linux-desktop, linux-server]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -285,10 +356,10 @@ jobs:
           # 读 tag 附注要拿到 annotated tag 对象本身，浅克隆拿不到
           fetch-depth: 0
 
-      - name: 下载三个平台的产物
+      - name: 下载各平台的产物
         uses: actions/download-artifact@v7
         with:
-          pattern: '{macos-universal,windows-nsis,linux-desktop}'
+          pattern: '{macos-universal,windows-nsis,linux-desktop,linux-server-*}'
           merge-multiple: true
           path: dist
 
@@ -317,6 +388,17 @@ jobs:
               exit 1
             fi
             sha256sum "$f" > "$f.sha256"
+          done
+          # 服务端包名不带版本号（面板按 server_bundle_name() 逐字找），
+          # 所以只核对数量与校验和
+          servers=( agent2api-server-linux-*.tar.gz )
+          if [[ ${#servers[@]} -ne 2 ]]; then
+            echo "期望 2 个服务端包（amd64 / arm64），实际 ${#servers[@]} 个" >&2
+            ls -l >&2
+            exit 1
+          fi
+          for f in "${servers[@]}"; do
+            sha256sum -c "$f.sha256"
           done
           cat ./*.sha256
           ls -lh
@@ -434,6 +516,10 @@ jobs:
             # 桌面端「软件更新」的兜底仓库就是本仓库（core/update/version.rs
             # 的 DEFAULT_REPO），通道说明跟着仓库走
             echo '- 自动更新通道已指向本仓库 Releases'
+            # 服务端包同样在本仓库，容器内一键更新按 release 资产名取包。
+            # 不提这句的话，Docker 用户点「下载并更新」失败时无从判断是
+            # 包没挂上还是通道指向了别处
+            echo '- 容器内一键更新使用本仓库 Release 中的服务端包'
           } > /tmp/notes.md
 
           # 版本号带 - 即预发布（与 core::update::version::is_prerelease_version

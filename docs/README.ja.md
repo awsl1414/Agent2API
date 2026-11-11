@@ -7,10 +7,10 @@
 [English](../README.md) | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | **日本語** | [한국어](./README.ko.md) | [Português (BR)](./README.pt-BR.md)
 
 [![license](https://img.shields.io/badge/license-AGPL--3.0-green)](../LICENSE)
-[![release](https://img.shields.io/github/v/release/aimod-cc/Agent2API?include_prereleases)](https://github.com/aimod-cc/Agent2API/releases/latest)
-[![docker pulls](https://img.shields.io/docker/pulls/aimodcc/agent2api)](https://hub.docker.com/r/aimodcc/agent2api)
-[![stars](https://img.shields.io/github/stars/aimod-cc/Agent2API?style=flat&color=yellow)](https://github.com/aimod-cc/Agent2API/stargazers)
-[![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Docker-blue)](https://github.com/aimod-cc/Agent2API/releases/latest)
+[![release](https://img.shields.io/github/v/release/awsl1414/Agent2API?include_prereleases)](https://github.com/awsl1414/Agent2API/releases/latest)
+[![container](https://img.shields.io/badge/container-ghcr.io-blue?logo=docker)](https://github.com/awsl1414/Agent2API/pkgs/container/agent2api)
+[![stars](https://img.shields.io/github/stars/awsl1414/Agent2API?style=flat&color=yellow)](https://github.com/awsl1414/Agent2API/stargazers)
+[![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Docker-blue)](https://github.com/awsl1414/Agent2API/releases/latest)
 
 [✨ 主な機能](#-主な機能) • [💬 コミュニティとサポート](#-コミュニティとサポート) • [🚀 クイックスタート](#-クイックスタート) • [📦 インストールとデプロイ](./install.ja.md) • [📸 画面プレビュー](#-画面プレビュー) • [🔧 開発とビルド](#-開発とビルド) • [📜 使用に関する告知](#-使用に関する告知)
 
@@ -60,7 +60,7 @@ Agent2API は **AI ルーティングゲートウェイと Agent クライアン
 | --- | --- | --- |
 | **デスクトップ**（Windows / macOS / Linux） | `Agent2API_<バージョン>_x64-setup.exe`、`_universal.dmg`、`_amd64.deb`、`_amd64.AppImage` | アプリウィンドウ |
 | **サーバー**（Windows Server / Linux、GUI なし） | `agent2api-server-windows-amd64.zip`、`agent2api-server-linux-<arch>.tar.gz` | ブラウザーパネル |
-| **Docker** | `aimodcc/agent2api:latest`（amd64 / arm64） | ブラウザーパネル |
+| **Docker** | `ghcr.io/awsl1414/agent2api:beta`（amd64 / arm64。正式版が出たら `:latest` も使えます） | ブラウザーパネル |
 
 **デスクトップ**: カスタムプロバイダーとアカウントを追加し、ゲートウェイキーを作成。「Agent」ページで接続設定を適用するか、クライアントに `http://127.0.0.1:3065/v1` とそのキーを設定してください。追加の機能は対応プラグインのインストールが必要です。
 
@@ -80,7 +80,7 @@ cd C:\agent2api-pkg; .\install-service.ps1
 **Docker**:
 
 ```bash
-docker run -d --name agent2api --restart unless-stopped -p 3065:3065 -v ./data:/data aimodcc/agent2api:latest
+docker run -d --name agent2api --restart unless-stopped -p 3065:3065 -v ./data:/data ghcr.io/awsl1414/agent2api:beta
 ```
 
 どの形態でも、導入後にパネル（`http://127.0.0.1:3065/`。サーバーと Docker はホストの IP に読み替え）を開いて管理者アカウントを登録し、「ゲートウェイキー」ページでキーを作成してください。疎通確認: `curl http://127.0.0.1:3065/health`
@@ -149,17 +149,17 @@ macOS の `.dmg` は **macOS 上でしかビルドできません**（`npm --pre
 
 ## ⭐ Star History
 
-<a href="https://star-history.com/#aimod-cc/Agent2API&Date">
+<a href="https://star-history.com/#awsl1414/Agent2API&Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=aimod-cc/Agent2API&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=aimod-cc/Agent2API&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=aimod-cc/Agent2API&type=Date" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=awsl1414/Agent2API&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=awsl1414/Agent2API&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=awsl1414/Agent2API&type=Date" />
   </picture>
 </a>
 
 <div align="center">
 
-**[最新版をダウンロード](https://github.com/aimod-cc/Agent2API/releases/latest)** • **[問題を報告](https://github.com/aimod-cc/Agent2API/issues)**
+**[最新版をダウンロード](https://github.com/awsl1414/Agent2API/releases/latest)** • **[問題を報告](https://github.com/awsl1414/Agent2API/issues)**
 
 このプロジェクトが役に立ったら、⭐️ Star をもらえるとうれしいです！
 

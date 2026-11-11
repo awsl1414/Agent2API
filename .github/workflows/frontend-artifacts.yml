@@ -27,9 +27,9 @@ name: frontend-artifacts
 
 on:
   push:
-    branches: [main, beta]
+    branches: [main]
   pull_request:
-    branches: [main, beta]
+    branches: [main]
   workflow_dispatch:
 
 permissions:

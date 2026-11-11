@@ -25,9 +25,9 @@
 | **Windows デスクトップ**（推奨） | `Agent2API_<バージョン>_x64-setup.exe` | アプリウィンドウ | NSIS インストーラー。既定では `C:\Program Files\Agent2API` にインストールされ、セットアップ時に管理者権限が必要 |
 | **macOS デスクトップ** | `Agent2API_<バージョン>_universal.dmg` | アプリウィンドウ | ユニバーサルバイナリ（Apple Silicon と Intel をそれぞれビルドして統合）。macOS 10.15 以上 |
 | **Linux デスクトップ** | `Agent2API_<バージョン>_amd64.deb` または `Agent2API_<バージョン>_amd64.AppImage` | アプリウィンドウ | deb はシステムにインストール（webkit2gtk-4.1 / gtk3 に依存）。AppImage はインストール不要の単一ファイルで、どのディストリビューションでも動作 |
-| **Windows サーバー**（GUI なし） | `agent2api-server-windows-amd64.zip` | **ブラウザーパネル** | コマンドラインでインストールし Windows サービスとして登録 —— [サーバー](#サーバーwindows--linuxヘッドレス) を参照 |
+| **Windows サーバー**（GUI なし） | `agent2api-server-windows-amd64.zip` | **ブラウザーパネル** | コマンドラインでインストールし Windows サービスとして登録。この fork の Releases では未提供 —— [サーバー](#サーバーwindows--linuxヘッドレス) を参照 |
 | **Linux サーバー**（GUI なし） | `agent2api-server-linux-<arch>.tar.gz` | **ブラウザーパネル** | コマンドラインでインストールし systemd で常駐。同じパッケージはコンテナ内更新のペイロードも兼ねます |
-| **Docker** | `aimodcc/agent2api:latest` | **ブラウザーパネル** | amd64 / arm64 の 2 アーキテクチャ。詳しくは [Docker デプロイ](#docker) |
+| **Docker** | `ghcr.io/awsl1414/agent2api:beta` | **ブラウザーパネル** | amd64 / arm64 の 2 アーキテクチャ。詳しくは [Docker デプロイ](#docker)。正式版が出たら `:latest` も使えます |
 
 > どれを選ぶか: **デスクトップがある**（トレイ、起動時の自動起動、本機ログイン状態の取り込みが欲しい）→ デスクトップ版。
 > **サーバーにグラフィカルインターフェースが無い**（Windows Server / Linux サーバー）→ サーバーパッケージ。
@@ -57,6 +57,11 @@
 **グラフィカルインターフェースの無いサーバー**（Windows Server、Linux サーバー、クラウドインスタンス）向けです。成果物はいずれも同じ `agent2api-server` バイナリで、ウィンドウもトレイも無く、WebView / GTK にもリンクせず、実行時に Node などのランタイムも不要です。コマンドが行うのは**インストールだけ**で、その後の管理（アカウント追加、キー作成、レポート閲覧）はすべてブラウザーパネルで行います。
 
 サービスはシステムサービスとして常駐します: 起動時の自動開始、クラッシュ後の自動再起動、コンソールなしのバックグラウンド動作。
+
+> **この fork の Releases には Linux サーバーパッケージのみが含まれます**（`agent2api-server-linux-{amd64,arm64}.tar.gz`）。
+> Windows パッケージ `agent2api-server-windows-amd64.zip` はここではビルドしていません。
+> 同じか新しいバージョンを上流の [aimod-cc/Agent2API Releases](https://github.com/aimod-cc/Agent2API/releases)
+> から取得するか、以下のコマンドでソースからビルドしてください。Windows の手順はどちらにも当てはまります。
 
 ### Windows Server
 
@@ -159,12 +164,12 @@ Linux では `/etc/agent2api/agent2api.env` に、Windows ではサービスの�
 
 ## Docker
 
-イメージタグ：`latest` は最新の正式版、`beta` は最新の beta プレリリースを追従します。`3.3.0-beta.3` のような完全なバージョン番号で固定することもできます。beta を使うには、以下のコマンドまたは Compose 設定の `aimodcc/agent2api:latest` を `aimodcc/agent2api:beta` に変更し、更新時は `docker compose pull && docker compose up -d` を実行してください。beta の公開で `latest` は変更されず、手動の開発ビルドは `dev` のみ更新します。同じイメージは GitHub Container Registry にも公開しています。イメージ名を `ghcr.io/aimod-cc/agent2api` に置き換えてください（タグ規則は同じです）。
+イメージタグ：`latest` は最新の正式版、`beta` は最新の beta プレリリースを追従します。`3.4.3-beta.2` のような完全なバージョン番号で固定することもできます。以下のコマンドと Compose 設定は `:beta` を使っています（このリポジトリはまだプレリリースしか出していないため）。正式版が出たら `:latest` に切り替えてください。更新時は `docker compose pull && docker compose up -d` を実行してください。beta の公開で `latest` は変更されず、手動の開発ビルドは `dev` のみ更新します。イメージは GitHub Container Registry（GHCR）に公開しており、ログインなしで取得できます。Docker Hub の `aimodcc/agent2api` は上流プロジェクトのイメージであり、この fork の成果物ではありません。**このリポジトリで正式版をまだリリースしていない間は `latest` は存在しません**。`:beta` か完全なバージョン番号をお使いください。
 
 ```bash
 docker run -d --name agent2api --restart unless-stopped \
   -p 3065:3065 -v ./data:/data \
-  aimodcc/agent2api:latest
+  ghcr.io/awsl1414/agent2api:beta
 ```
 
 ブラウザーで `http://<ホスト>:3065` を開くと、初回は**管理者アカウントの登録**へ案内されます。ログイン後、「ゲートウェイキー」ページでクライアント用の API キーを作成してください —— `http://<ホスト>:3065/v1` が OpenAI 互換エンドポイントです（キーを作成するまで転送は拒否されます）。すべての状態（SQLite データベース / 設定 / ログ）は `./data` ボリューム 1 つに収まります。
@@ -174,7 +179,7 @@ compose を使う場合（amd64 / arm64 のイメージがあります）:
 ```yaml
 services:
   agent2api:
-    image: aimodcc/agent2api:latest
+    image: ghcr.io/awsl1414/agent2api:beta
     container_name: agent2api
     restart: unless-stopped
     ports:
@@ -196,7 +201,7 @@ services:
 | `AGENT2API_IMAGE_CACHE_MB` | 生成画像のダウンロード用メモリキャッシュ上限（MiB、既定 `128`、範囲 8〜4096）。不正 / 範囲外は既定値にフォールバック |
 | `AGENT2API_IMAGE_COMPRESS_CACHE_MB` | セッション画像の圧縮結果メモリキャッシュ上限（MiB、既定 `128`、範囲 8〜4096、扱いは同じ） |
 | `AGENT2API_PLUGIN_LOADER` | 上級（Linux）：プラグイン ELF のダイナミックリンカーが既定パスにない場合、`ld-linux` のパスを設定すると、ゲートウェイは「`<loader> --library-path <プラグインディレクトリ> <プラグイン>`」の形でプラグインを起動します。未設定なら動作は変わりません。エントリー自体は存在するのに起動できない場合、エラーメッセージにこの変数とインタープリターのパスが表示されます |
-| `WORKBUDDY_UPDATE_REPO` + `WORKBUDDY_UPDATE_API_BASE` | 上級: 「更新確認 / 更新ダウンロード」を自前のソースに差し替えます。前者はリポジトリを変更（既定は上流の `aimod-cc/Agent2API`。fork 後は変更可）、後者は API ルートを変更（既定 `https://api.github.com`。GitHub と同じ形の release JSON を返す必要があります）。自前ソース設定後、ダウンロードの許可リストは**そのソース自身のホスト**のみを追加で許可します（スキームはソースに従う: `http://` を設定すれば平文ダウンロードも許可。ローカル演習 / 内部ミラー向け） |
+| `WORKBUDDY_UPDATE_REPO` + `WORKBUDDY_UPDATE_API_BASE` | 上級: 「更新確認 / 更新ダウンロード」を自前のソースに差し替えます。前者はリポジトリを変更（既定は `awsl1414/Agent2API`、この fork の Releases）、後者は API ルートを変更（既定 `https://api.github.com`。GitHub と同じ形の release JSON を返す必要があります）。自前ソース設定後、ダウンロードの許可リストは**そのソース自身のホスト**のみを追加で許可します（スキームはソースに従う: `http://` を設定すれば平文ダウンロードも許可。ローカル演習 / 内部ミラー向け） |
 
 ソースからビルドする場合: 本リポジトリをクローンして `docker compose up -d --build`（イメージにはゲートウェイとパネルのみが入り、Rust ツールチェーンは含まれません）。
 
@@ -210,7 +215,7 @@ services:
 # docker run
 docker run -d --name agent2api --restart unless-stopped --memory=1g \
   -p 3065:3065 -v ./data:/data \
-  aimodcc/agent2api:latest
+  ghcr.io/awsl1414/agent2api:beta
 ```
 
 compose の場合はサービスに `mem_limit: 1g` を 1 行追加します（`docker-compose.yml` にコメント例があります）。swarm や `docker compose --compatibility` では `deploy.resources.limits.memory` を使います。1g はあくまで出発点で、実際の並行数に合わせて調整してください。

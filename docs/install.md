@@ -23,9 +23,9 @@
 | **Windows 桌面端** | `Agent2API_<版本>_x64-setup.exe` | 应用窗口 | NSIS 安装包，默认装到 `C:\Program Files\Agent2API`，安装时需要管理员授权 |
 | **macOS 桌面端** | `Agent2API_<版本>_universal.dmg` | 应用窗口 | 通用二进制（Apple Silicon 与 Intel 各编一遍再合并），最低 macOS 10.15 |
 | **Linux 桌面端** | `Agent2API_<版本>_amd64.deb` 或 `Agent2API_<版本>_amd64.AppImage` | 应用窗口 | deb 装进系统（依赖 webkit2gtk-4.1 / gtk3）；AppImage 免安装单文件，任意发行版可用 |
-| **Windows 服务端**（无 GUI） | `agent2api-server-windows-amd64.zip` | **浏览器面板** | 命令行安装、注册成 Windows 服务，见 [服务端](#服务端windows--linux无界面) |
+| **Windows 服务端**（无 GUI） | `agent2api-server-windows-amd64.zip` | **浏览器面板** | 命令行安装、注册成 Windows 服务。本 fork 的 Release 暂不提供该包，见 [服务端](#服务端windows--linux无界面) |
 | **Linux 服务端**（无 GUI） | `agent2api-server-linux-<arch>.tar.gz` | **浏览器面板** | 命令行安装、systemd 托管，同一个包也是容器内更新载荷 |
-| **Docker** | `aimodcc/agent2api:latest` | **浏览器面板** | amd64 / arm64 双架构，见 [Docker](#docker) |
+| **Docker** | `ghcr.io/awsl1414/agent2api:beta` | **浏览器面板** | amd64 / arm64 双架构，见 [Docker](#docker)；正式版发布后可用 `:latest` |
 
 > 选哪个：**自己有桌面**（要托盘、开机自启、本机登录态导入）→ 桌面端；
 > **服务器上没有图形界面**（Windows Server / Linux 服务器）→ 服务端包；
@@ -58,6 +58,11 @@ Node 或任何其它运行时。命令只负责**安装**，装完之后的管�
 看报表）都在浏览器面板里做。
 
 服务以系统服务方式常驻：开机自启、崩溃自动拉起、无控制台后台运行。
+
+> **本 fork 的 Release 只带 Linux 服务端包**（`agent2api-server-linux-{amd64,arm64}.tar.gz`）。
+> Windows 服务端包 `agent2api-server-windows-amd64.zip` 目前不在本仓库构建，
+> 需要的话从上游 [aimod-cc/Agent2API Releases](https://github.com/aimod-cc/Agent2API/releases)
+> 取同版本或更新的包，或按下文命令从源码自行编译。下面的 Windows 步骤对两者都适用。
 
 ### Windows Server
 
@@ -173,12 +178,12 @@ Linux 写在 `/etc/agent2api/agent2api.env`；Windows 改服务注册表的
 
 ## Docker
 
-镜像标签：`latest` 跟随最新正式版，`beta` 跟随最新 beta 预发布版；也可用完整版本号（例如 `3.3.0-beta.3`）固定版本。要使用 beta，把下方命令或 Compose 配置中的 `aimodcc/agent2api:latest` 改为 `aimodcc/agent2api:beta`；更新时运行 `docker compose pull && docker compose up -d`。beta 发布不会改动 `latest`，手动开发构建只更新 `dev`。同一份镜像也同步发布在 GitHub 容器镜像库：把镜像名换成 `ghcr.io/aimod-cc/agent2api` 即可，标签规则完全相同。
+镜像标签：`latest` 跟随最新正式版，`beta` 跟随最新 beta 预发布版；也可用完整版本号（例如 `3.4.3-beta.2`）固定版本。下面的命令与 Compose 配置用 `:beta`，因为本仓库目前只发过预发布版；正式版出来之后把标签换成 `:latest` 即可。更新时运行 `docker compose pull && docker compose up -d`。beta 发布不会改动 `latest`，手动开发构建只更新 `dev`。镜像发布在 GitHub 容器镜像库（GHCR），公开拉取无需登录；Docker Hub 上同名的 `aimodcc/agent2api` 是上游的镜像，不是本 fork 的产物。**本仓库还没发过正式版时 `latest` 不存在**，先用 `:beta` 或完整版本号。
 
 ```bash
 docker run -d --name agent2api --restart unless-stopped \
   -p 3065:3065 -v ./data:/data \
-  aimodcc/agent2api:latest
+  ghcr.io/awsl1414/agent2api:beta
 ```
 
 浏览器打开 `http://<主机>:3065`，首次进入会引导**注册管理员账号**；登录后在「网关 Key」页建一把 API Key 给客户端用 —— `http://<主机>:3065/v1` 即 OpenAI 兼容端点（未建 Key 前拒绝转发）。状态（SQLite 库 / 配置 / 日志）都在 `./data` 一个卷里。
@@ -188,7 +193,7 @@ compose 用户（amd64 / arm64 都有镜像）：
 ```yaml
 services:
   agent2api:
-    image: aimodcc/agent2api:latest
+    image: ghcr.io/awsl1414/agent2api:beta
     container_name: agent2api
     restart: unless-stopped
     ports:
@@ -210,7 +215,7 @@ services:
 | `AGENT2API_IMAGE_CACHE_MB` | 生成图片的内存下载缓存上限（MiB，默认 `128`，范围 8~4096）。写坏 / 越界回落默认值 |
 | `AGENT2API_IMAGE_COMPRESS_CACHE_MB` | 会话图片压缩结果的内存缓存上限（MiB，默认 `128`，范围 8~4096，口径同上） |
 | `AGENT2API_PLUGIN_LOADER` | 进阶（Linux）：插件 ELF 的动态解释器不在默认路径时，设成 `ld-linux` 路径，网关会以「`<loader> --library-path <插件目录> <插件>`」拉起插件进程；不设行为不变。入口起不来但文件完好时，错误信息里会带可用环境变量与解释器路径的提示 |
-| `WORKBUDDY_UPDATE_REPO` + `WORKBUDDY_UPDATE_API_BASE` | 进阶：把「检查更新 / 下载更新」换成自建源。前者换仓库（默认跟上游 `aimod-cc/Agent2API`，fork 后可改），后者换 API 根（默认 `https://api.github.com`，需返回与 GitHub 同形的 release JSON）。配了自建源后，下载白名单只额外放行**该源自己的域名**（按源的 scheme：配 `http://` 就允许明文下载，仅建议本地演练/内网镜像用）|
+| `WORKBUDDY_UPDATE_REPO` + `WORKBUDDY_UPDATE_API_BASE` | 进阶：把「检查更新 / 下载更新」换成自建源。前者换仓库（默认 `awsl1414/Agent2API`，即本 fork 的 Releases），后者换 API 根（默认 `https://api.github.com`，需返回与 GitHub 同形的 release JSON）。配了自建源后，下载白名单只额外放行**该源自己的域名**（按源的 scheme：配 `http://` 就允许明文下载，仅建议本地演练/内网镜像用）|
 
 从源码构建：克隆本仓库后 `docker compose up -d --build`（镜像里只有网关与面板，不含 Rust 工具链）。
 
@@ -224,7 +229,7 @@ services:
 # docker run
 docker run -d --name agent2api --restart unless-stopped --memory=1g \
   -p 3065:3065 -v ./data:/data \
-  aimodcc/agent2api:latest
+  ghcr.io/awsl1414/agent2api:beta
 ```
 
 compose 用户在服务里加一行 `mem_limit: 1g`（`docker-compose.yml` 里已附注释示例）；swarm 或 `docker compose --compatibility` 用 `deploy.resources.limits.memory`。1g 只是起点，按实际并发量调。

@@ -7,10 +7,10 @@
 [English](../README.md) | [简体中文](./README.zh-CN.md) | [繁體中文](./README.zh-Hant.md) | [日本語](./README.ja.md) | **한국어** | [Português (BR)](./README.pt-BR.md)
 
 [![license](https://img.shields.io/badge/license-AGPL--3.0-green)](../LICENSE)
-[![release](https://img.shields.io/github/v/release/aimod-cc/Agent2API?include_prereleases)](https://github.com/aimod-cc/Agent2API/releases/latest)
-[![docker pulls](https://img.shields.io/docker/pulls/aimodcc/agent2api)](https://hub.docker.com/r/aimodcc/agent2api)
-[![stars](https://img.shields.io/github/stars/aimod-cc/Agent2API?style=flat&color=yellow)](https://github.com/aimod-cc/Agent2API/stargazers)
-[![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Docker-blue)](https://github.com/aimod-cc/Agent2API/releases/latest)
+[![release](https://img.shields.io/github/v/release/awsl1414/Agent2API?include_prereleases)](https://github.com/awsl1414/Agent2API/releases/latest)
+[![container](https://img.shields.io/badge/container-ghcr.io-blue?logo=docker)](https://github.com/awsl1414/Agent2API/pkgs/container/agent2api)
+[![stars](https://img.shields.io/github/stars/awsl1414/Agent2API?style=flat&color=yellow)](https://github.com/awsl1414/Agent2API/stargazers)
+[![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Docker-blue)](https://github.com/awsl1414/Agent2API/releases/latest)
 
 [✨ 핵심 기능](#-핵심-기능) • [💬 커뮤니티 및 지원](#-커뮤니티-및-지원) • [🚀 빠른 시작](#-빠른-시작) • [📦 설치와 배포](./install.ko.md) • [📸 화면 미리보기](#-화면-미리보기) • [🔧 개발 및 빌드](#-개발-및-빌드) • [📜 사용 고지](#-사용-고지)
 
@@ -60,7 +60,7 @@ Agent2API는 **AI 라우팅 게이트웨이와 Agent 클라이언트 설정 관�
 | --- | --- | --- |
 | **데스크톱**(Windows / macOS / Linux) | `Agent2API_<버전>_x64-setup.exe`, `_universal.dmg`, `_amd64.deb`, `_amd64.AppImage` | 앱 창 |
 | **서버**(Windows Server / Linux, GUI 없음) | `agent2api-server-windows-amd64.zip`, `agent2api-server-linux-<arch>.tar.gz` | 브라우저 패널 |
-| **Docker** | `aimodcc/agent2api:latest`(amd64 / arm64) | 브라우저 패널 |
+| **Docker** | `ghcr.io/awsl1414/agent2api:beta`(amd64 / arm64. 정식 버전이 나오면 `:latest`도 사용 가능) | 브라우저 패널 |
 
 **데스크톱**: 사용자 지정 공급자와 계정을 추가하고 게이트웨이 키를 만드세요. "Agent" 페이지에서 연결 설정을 적용하거나 클라이언트에 `http://127.0.0.1:3065/v1`과 해당 키를 입력하세요. 추가 기능은 해당 플러그인을 먼저 설치해야 합니다.
 
@@ -80,7 +80,7 @@ cd C:\agent2api-pkg; .\install-service.ps1
 **Docker**:
 
 ```bash
-docker run -d --name agent2api --restart unless-stopped -p 3065:3065 -v ./data:/data aimodcc/agent2api:latest
+docker run -d --name agent2api --restart unless-stopped -p 3065:3065 -v ./data:/data ghcr.io/awsl1414/agent2api:beta
 ```
 
 어느 형태든 설치 후 패널(`http://127.0.0.1:3065/`. 서버와 Docker 는 호스트 IP 로 바꿔서)을 열어 관리자 계정을 등록하고, "게이트웨이 키" 페이지에서 키를 만드세요. 연결 확인: `curl http://127.0.0.1:3065/health`
@@ -149,17 +149,17 @@ macOS 의 `.dmg` 는 **macOS 에서만 빌드할 수 있습니다**(`npm --prefi
 
 ## ⭐ Star History
 
-<a href="https://star-history.com/#aimod-cc/Agent2API&Date">
+<a href="https://star-history.com/#awsl1414/Agent2API&Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=aimod-cc/Agent2API&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=aimod-cc/Agent2API&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=aimod-cc/Agent2API&type=Date" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=awsl1414/Agent2API&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=awsl1414/Agent2API&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=awsl1414/Agent2API&type=Date" />
   </picture>
 </a>
 
 <div align="center">
 
-**[최신 버전 내려받기](https://github.com/aimod-cc/Agent2API/releases/latest)** • **[문제 보고](https://github.com/aimod-cc/Agent2API/issues)**
+**[최신 버전 내려받기](https://github.com/awsl1414/Agent2API/releases/latest)** • **[문제 보고](https://github.com/awsl1414/Agent2API/issues)**
 
 이 프로젝트가 도움이 되었다면 ⭐️ Star 를 눌러 주세요!
 

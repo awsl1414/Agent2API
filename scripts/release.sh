@@ -5,23 +5,21 @@
 #   bash scripts/release.sh vX.Y.Z            # 自动找该 tag 的可用构建 run
 #   bash scripts/release.sh vX.Y.Z <run-id>   # 或显式指定 run
 #
-# ── 2026-10：构建与发布都在独立构建仓库 ────────────────────────
-# 编译已搬到 `Agent2Builder/agent2api-releases`（主仓库推 tag 只发一条
-# `repository_dispatch`，见 `.github/workflows/build.yml`）。所以本脚本
-# 找 run、下载 artifact、建 Release 全部指向**构建仓库**，不是当前目录的
-# origin。目标仓库可用 `BUILD_REPO` 环境变量覆盖：
+# ── 目标仓库：默认就是本仓库 ──────────────────────────────────
+# 本 fork 的构建在 `.github/workflows/build.yml` 里仓内直构（推 v* tag
+# 触发），产物与 Release 都落在本仓库，所以 BUILD_REPO 默认取 origin。
+# 上游那套「源码仓派发 / 独立构建账号编译」在这里不适用；保留
+# BUILD_REPO 只是留着跨仓补发的能力：
 #
 #   BUILD_REPO=SomeOwner/some-repo bash scripts/release.sh v3.2.0
 #
-# 之所以不写死成「当前 origin」：本脚本在源码仓库里运行，而 run 在构建仓库里。
 # 这个值与 `desktop-tauri/src-tauri/server/src/server/core/update/version.rs`
 # 的 `DEFAULT_REPO`、以及索引仓库 `app.json` 的 `app.repo` 必须指向同一个
 # 地方 —— 三处不一致的症状是「Release 建出来了，但没有人收到更新」。
 #
 # 做三件事：
 #   1. 下载构建工作流的产物 artifact（windows-nsis / macos-universal /
-#      linux-desktop / android-apk / ios-ipa，以及 linux-server-amd64 / -arm64
-#      两个容器内更新包）到 dist/；
+#      linux-desktop，以及 linux-server-amd64 / -arm64 两个服务端包）到 dist/；
 #   2. 用 tag 所指提交的提交信息（= 更新日志，见 .agents/skills/release-flow/SKILL.md
 #      第 5 节）创建 / 更新 GitHub Release 并挂全部附件；
 #   3. 打印验收提示。
@@ -43,7 +41,7 @@ RUN_ID="${2:-}"
 
 # 构建 run 与 Release 所在的仓库（见文件头）。默认值与 `version.rs` 的
 # `DEFAULT_REPO` 一致；换构建仓库时三处一起改。
-BUILD_REPO="${BUILD_REPO:-Agent2Builder/agent2api-releases}"
+BUILD_REPO="${BUILD_REPO:-$(git remote get-url origin | sed -E 's#.*github\.com[:/]([^/]+/[^/.]+)(\.git)?$#\1#')}"
 export BUILD_REPO
 
 # ── 两个仓库、两把凭据 ────────────────────────────────────────
@@ -105,7 +103,7 @@ if [ -z "$RUN_ID" ]; then
   echo "→ 查找 $TAG 触发的 build 工作流…"
   # 不按 run 整体 conclusion 过滤：只验「两个安装包 artifact 是否齐全」，
   # 构建成功但别处失败的 run 里安装包照旧可用
-  for id in $(GH_TOKEN="$BUILD_TOKEN" gh run list --workflow=release --repo "$BUILD_REPO" --limit 30 --json databaseId,headBranch \
+  for id in $(GH_TOKEN="$BUILD_TOKEN" gh run list --workflow=build --repo "$BUILD_REPO" --limit 30 --json databaseId,headBranch \
       | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{JSON.parse(s).filter(r=>r.headBranch===process.argv[1]).forEach(r=>process.stdout.write(r.databaseId+"\n"))})' "$TAG"); do
     if GH_TOKEN="$BUILD_TOKEN" gh api "repos/$BUILD_REPO/actions/runs/$id/artifacts" \
          --jq 'any(.artifacts[].name; . == "macos-universal") and any(.artifacts[].name; . == "windows-nsis")' >/dev/null 2>&1; then
@@ -291,20 +289,18 @@ if [ "$PRERELEASE" = true ]; then
   echo "      ↑ beta 版：Release 应显示 Prerelease —— 正式版用户收不到它，"
   echo "        只有开了「加入 beta 版」的用户收得到（见 .agents/skills/release-flow/SKILL.md 第 6 节）"
 else
-  echo "  [2] Docker Hub:      https://hub.docker.com/r/aimodcc/agent2api/tags （$TAG 版本号 + latest）"
+  echo "  [2] GHCR 镜像:       ghcr.io/$(printf %s "$BUILD_REPO" | tr "[:upper:]" "[:lower:]")/agent2api （$TAG 版本号 + latest）"
 fi
 echo "  [3] 安装包「关于」页版本号与 $TAG 一致（Windows exe / macOS dmg / Linux deb+AppImage）"
 echo "  [4] Linux 桌面端：Release 里 .deb 与 .AppImage 都在；在 Linux 上装 deb（或"
 echo "      直接运行 AppImage）后，面板「设置 → 软件更新」能检查到下一版并给出安装入口"
 echo "  [5] 容器内更新：面板「设置 → 软件更新」出现「下载并更新」，且 Release 里"
 echo "      agent2api-server-linux-{amd64,arm64}.tar.gz 与各自的 .sha256 都在"
-echo "  [6] 服务端包（无 GUI）：Release 里还有 windows-server-amd64.zip（含 .sha256）。"
-echo "      两个平台的包解包后都应看到安装脚本 —— Linux: install.sh / agent2api.service"
-echo "      / agent2api.env.example；Windows: install-service.ps1"
-echo "  [7] 手机端：Release 里有 Agent2API-${TAG#v}.apk 与 .sha256；装到 Android 上"
-echo "      能启动、能添加网关并登录（版本号看系统「应用信息」页，手机端界面不显示）"
-echo "  [8] iOS：Release 里有 Agent2API-${TAG#v}.ipa 与 .sha256；未签名包需用"
-echo "      AltStore / SideStore 重签后安装，已签名包可直接走 TestFlight / 描述文件"
+echo "  [6] 服务端包（无 GUI）：Release 里的 agent2api-server-linux-{amd64,arm64}.tar.gz"
+echo "      解包后应看到 agent2api-server / ui/ / install.sh / agent2api.service"
+echo "      / agent2api.env.example；本 fork 暂不发布 Windows 服务端包"
+echo "  [7] 手机端：本 fork 不构建 APK / IPA，手机端只用浏览器 PWA（/m）"
+echo "  [8] 六份安装文档的产物名、镜像名与本次 Release 一致"
 if [ "$PRERELEASE" = true ]; then
-  echo "  [9] Docker 镜像：只出 $TAG 那个版本 tag（beta tag 不移动 :latest）"
+  echo "  [9] GHCR 镜像：beta 只出 ${TAG#v} 与 :beta，不移动 :latest（首次发布后确认包已设为 Public）"
 fi
