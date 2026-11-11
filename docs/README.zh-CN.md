@@ -60,7 +60,7 @@ Agent2API 是一个 **AI 路由网关 + Agent 客户端接管**项目。它将�
 | --- | --- | --- |
 | **桌面端**（Windows / macOS / Linux） | `Agent2API_<版本>_x64-setup.exe`、`_universal.dmg`、`_amd64.deb`、`_amd64.AppImage` | 应用窗口 |
 | **服务端**（Windows Server / Linux，无 GUI） | `agent2api-server-windows-amd64.zip`、`agent2api-server-linux-<arch>.tar.gz` | 浏览器面板 |
-| **Docker** | `ghcr.io/awsl1414/agent2api:beta`（amd64 / arm64；正式版发布后可用 `:latest`） | 浏览器面板 |
+| **Docker** | `ghcr.io/awsl1414/agent2api:latest`（amd64 / arm64；也可用 `:beta` 跟随预发布版） | 浏览器面板 |
 
 **桌面端**：启动后添加自定义提供商与账号，创建网关 Key，再在「Agent」页应用连接配置，或在客户端填入 `http://127.0.0.1:3065/v1` 和该 Key。额外提供商能力需先安装对应插件。
 

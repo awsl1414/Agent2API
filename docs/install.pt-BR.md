@@ -25,9 +25,9 @@ Escolha a linha que corresponde à sua máquina:
 | **Desktop Windows** (recomendado) | `Agent2API_<versão>_x64-setup.exe` | Janela do app | Instalador NSIS, instala em `C:\Program Files\Agent2API` por padrão e exige aprovação de administrador |
 | **Desktop macOS** | `Agent2API_<versão>_universal.dmg` | Janela do app | Binário universal (Apple Silicon e Intel compilados separadamente e mesclados); macOS 10.15+ |
 | **Desktop Linux** | `Agent2API_<versão>_amd64.deb` ou `Agent2API_<versão>_amd64.AppImage` | Janela do app | O deb instala no sistema (requer webkit2gtk-4.1 / gtk3); o AppImage é um único arquivo autossuficiente que roda em qualquer distribuição |
-| **Servidor Windows** (sem GUI) | `agent2api-server-windows-amd64.zip` | **Painel no navegador** | Instalação por linha de comando, registrado como serviço do Windows. Os releases deste fork ainda não trazem este pacote — veja [Servidor](#servidor-windows--linux-sem-interface) |
+| **Servidor Windows** (sem GUI) | `agent2api-server-windows-amd64.zip` | **Painel no navegador** | Instalação por linha de comando, registrado como serviço do Windows — veja [Servidor](#servidor-windows--linux-sem-interface) |
 | **Servidor Linux** (sem GUI) | `agent2api-server-linux-<arch>.tar.gz` | **Painel no navegador** | Instalação por linha de comando, sob systemd; o mesmo pacote também é o payload da atualização dentro do contêiner |
-| **Docker** | `ghcr.io/awsl1414/agent2api:beta` | **Painel no navegador** | Imagens amd64 / arm64, veja [Implantação com Docker](#docker); `:latest` quando houver uma versão estável |
+| **Docker** | `ghcr.io/awsl1414/agent2api:latest` | **Painel no navegador** | Imagens amd64 / arm64, veja [Implantação com Docker](#docker); `:beta` acompanha pré-versões |
 
 > Qual escolher: **você tem um desktop** (quer bandeja, iniciar com o sistema, importar o estado de login local) → app de desktop;
 > **o servidor não tem interface gráfica** (Windows Server / servidor Linux) → o pacote de servidor;
@@ -58,10 +58,12 @@ Para **servidores sem interface gráfica** (Windows Server, servidores Linux, in
 
 O serviço roda como serviço do sistema: inicia no boot, reinicia sozinho após um travamento e não deixa console em segundo plano.
 
-> **Os releases deste fork incluem apenas o pacote de servidor Linux** (`agent2api-server-linux-{amd64,arm64}.tar.gz`).
-> O pacote `agent2api-server-windows-amd64.zip` não é compilado aqui; pegue a mesma versão ou uma mais nova
-> nos [releases upstream da aimod-cc/Agent2API](https://github.com/aimod-cc/Agent2API/releases)
-> ou compile a partir do código com os comandos abaixo. Os passos do Windows valem para os dois casos.
+> **O pacote de servidor Windows não está na lista de downloads da versão atual.** Para a forma de
+> serviço do Windows, compile a partir do código com os passos abaixo ou pegue-a em outra
+> [versão do GitHub Releases](https://github.com/awsl1414/Agent2API/releases).
+> Os passos do Windows valem para os dois casos.
+
+### Windows Server
 
 Baixe `agent2api-server-windows-amd64.zip`, extraia e abra o PowerShell **como administrador**:
 
@@ -162,12 +164,12 @@ No Linux coloque-as em `/etc/agent2api/agent2api.env`; no Windows edite a chave 
 
 ## Docker
 
-Tags da imagem: `latest` acompanha a versão estável mais recente, enquanto `beta` acompanha a pré-versão beta mais recente. Use uma versão completa, como `3.4.3-beta.2`, para fixá-la. O comando e o Compose abaixo usam `:beta`, já que este repositório só publicou pré-versões até agora; troque por `:latest` quando sair uma versão estável. Atualize com `docker compose pull && docker compose up -d`. Versões beta não alteram `latest`, e builds manuais de desenvolvimento atualizam apenas `dev`. A imagem é publicada no GitHub Container Registry (GHCR) e pode ser baixada sem login. A imagem `aimodcc/agent2api` no Docker Hub pertence ao projeto upstream, não a este fork. **Enquanto este repositório não publicar a primeira versão estável, `latest` não existe** — use `:beta` ou uma versão completa.
+Tags da imagem: `latest` acompanha a versão estável mais recente, enquanto `beta` acompanha a pré-versão beta mais recente. Use uma versão completa, como `3.4.3-beta.2`, para fixá-la. O comando e o Compose abaixo usam `:latest`; troque por `:beta` para acompanhar as pré-versões. Atualize com `docker compose pull && docker compose up -d`. Versões beta não alteram `latest`, e builds manuais de desenvolvimento atualizam apenas `dev`. A imagem é publicada no GitHub Container Registry (GHCR) e pode ser baixada sem login.
 
 ```bash
 docker run -d --name agent2api --restart unless-stopped \
   -p 3065:3065 -v ./data:/data \
-  ghcr.io/awsl1414/agent2api:beta
+  ghcr.io/awsl1414/agent2api:latest
 ```
 
 Abra `http://<host>:3065` no navegador: a primeira visita guia o **cadastro do administrador**; depois de entrar, crie uma API key na página "Gateway Keys" para os clientes — `http://<host>:3065/v1` é o endpoint compatível com OpenAI (sem nenhuma chave ele recusa o encaminhamento). Todo o estado (banco SQLite / configuração / logs) fica em um único volume `./data`.
@@ -177,7 +179,7 @@ Para quem usa compose (há imagens amd64 e arm64):
 ```yaml
 services:
   agent2api:
-    image: ghcr.io/awsl1414/agent2api:beta
+    image: ghcr.io/awsl1414/agent2api:latest
     container_name: agent2api
     restart: unless-stopped
     ports:
@@ -199,7 +201,7 @@ Variáveis de ambiente (todas opcionais):
 | `AGENT2API_IMAGE_CACHE_MB` | Limite do cache em memória de download das imagens geradas (MiB, padrão `128`, faixa 8–4096). Valores inválidos ou fora da faixa voltam ao padrão |
 | `AGENT2API_IMAGE_COMPRESS_CACHE_MB` | Limite do cache em memória do resultado da compactação de imagens de sessão (MiB, padrão `128`, faixa 8–4096, mesmas regras) |
 | `AGENT2API_PLUGIN_LOADER` | Avançado (Linux): quando o interpretador dinâmico do ELF de um plugin não está no caminho padrão, defina-o como o caminho do `ld-linux`; o gateway então inicia o plugin como `<loader> --library-path <diretório do plugin> <plugin>`. Sem a variável, nada muda. Se a entrada existe mas não consegue iniciar, a mensagem de erro indica essa variável e o caminho do interpretador |
-| `WORKBUDDY_UPDATE_REPO` + `WORKBUDDY_UPDATE_API_BASE` | Avançado: aponte "verificar atualizações / baixar atualizações" para a sua própria fonte. O primeiro troca o repositório (por padrão `awsl1414/Agent2API`, os releases deste fork), o segundo troca a raiz da API (padrão `https://api.github.com`; deve devolver um JSON de release no formato do GitHub). Com uma fonte própria configurada, a lista de permissões de download passa a aceitar, além disso, apenas **o próprio host dessa fonte** (o esquema segue a fonte: uma fonte `http://` também permite download em texto puro — só para ensaios locais / espelhos internos) |
+| `WORKBUDDY_UPDATE_REPO` + `WORKBUDDY_UPDATE_API_BASE` | Avançado: aponte "verificar atualizações / baixar atualizações" para a sua própria fonte. O primeiro troca o repositório (por padrão `awsl1414/Agent2API`), o segundo troca a raiz da API (padrão `https://api.github.com`; deve devolver um JSON de release no formato do GitHub). Com uma fonte própria configurada, a lista de permissões de download passa a aceitar, além disso, apenas **o próprio host dessa fonte** (o esquema segue a fonte: uma fonte `http://` também permite download em texto puro — só para ensaios locais / espelhos internos) |
 
 Compilar a partir do código: clone o repositório e rode `docker compose up -d --build` (a imagem contém apenas o gateway e o painel, sem toolchain Rust).
 
@@ -213,7 +215,7 @@ Em máquinas com pouca memória, vale limitar a memória do contêiner: ao ultra
 # docker run
 docker run -d --name agent2api --restart unless-stopped --memory=1g \
   -p 3065:3065 -v ./data:/data \
-  ghcr.io/awsl1414/agent2api:beta
+  ghcr.io/awsl1414/agent2api:latest
 ```
 
 No compose, adicione `mem_limit: 1g` ao serviço (há um exemplo comentado no `docker-compose.yml`); em swarm ou `docker compose --compatibility`, use `deploy.resources.limits.memory`. Encare o 1g como ponto de partida e ajuste à sua concorrência.

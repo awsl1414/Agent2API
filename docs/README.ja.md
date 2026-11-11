@@ -60,7 +60,7 @@ Agent2API は **AI ルーティングゲートウェイと Agent クライアン
 | --- | --- | --- |
 | **デスクトップ**（Windows / macOS / Linux） | `Agent2API_<バージョン>_x64-setup.exe`、`_universal.dmg`、`_amd64.deb`、`_amd64.AppImage` | アプリウィンドウ |
 | **サーバー**（Windows Server / Linux、GUI なし） | `agent2api-server-windows-amd64.zip`、`agent2api-server-linux-<arch>.tar.gz` | ブラウザーパネル |
-| **Docker** | `ghcr.io/awsl1414/agent2api:beta`（amd64 / arm64。正式版が出たら `:latest` も使えます） | ブラウザーパネル |
+| **Docker** | `ghcr.io/awsl1414/agent2api:latest`（amd64 / arm64。`:beta` でプレリリースを追従） | ブラウザーパネル |
 
 **デスクトップ**: カスタムプロバイダーとアカウントを追加し、ゲートウェイキーを作成。「Agent」ページで接続設定を適用するか、クライアントに `http://127.0.0.1:3065/v1` とそのキーを設定してください。追加の機能は対応プラグインのインストールが必要です。
 

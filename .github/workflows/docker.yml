@@ -21,6 +21,9 @@ name: docker
 #   · 手动 workflow_dispatch(version)：对**已存在的 tag** 补发镜像，
 #     适用于 tag 推上去时镜像任务失败、或旧版本补发；不填 version 时
 #     对当前分支出 :dev
+#   · 手动 workflow_dispatch(initial_latest)：只把主分支当前提交构建一次
+#     并打 :latest —— 仓库还没有正式版 Release 时可先给 :latest 一个起点，
+#     之后每次正式版发版自然接续。不影响任何已有的版本标签。
 #
 # ── 为什么 :latest 只跟正式版走 ──────────────────────────────
 # 应用里的「加入 beta 版」是一次显式选择；`docker pull :latest` 的人
@@ -47,6 +50,11 @@ on:
         description: '要补发镜像的版本号（不带 v 前缀；对应 tag 必须已存在，留空则对当前分支出 :dev）'
         required: false
         type: string
+      initial_latest:
+        description: '只用于首次发布：把主分支当前提交构建并打上 :latest（不填 version 时生效）'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -114,6 +122,7 @@ jobs:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
       VERSION: ${{ needs.meta.outputs.version }}
+      INITIAL_LATEST: ${{ github.event.inputs.initial_latest }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -170,7 +179,12 @@ jobs:
           while IFS= read -r repo; do
             [ -n "$repo" ] || continue
             if [ -z "$VERSION" ]; then
-              tags+=("$repo:dev")
+              # 首次发布：显式要求时把当前提交当 :latest 的起点
+              if [ "$INITIAL_LATEST" = "true" ]; then
+                tags+=("$repo:latest")
+              else
+                tags+=("$repo:dev")
+              fi
               continue
             fi
             tags+=("$repo:$VERSION")
@@ -214,6 +228,8 @@ jobs:
             echo "  ↑ 正式版：latest 的 Pushed 时间应同步更新"
           elif [ -n "$VERSION" ]; then
             echo "  ↑ 预发布：latest 不应被移动，请核对各镜像库的 latest 时间"
+          elif [ "$INITIAL_LATEST" = "true" ]; then
+            echo "  ↑ 首次发布：已把当前提交打上 :latest"
           else
             echo "  ↑ 手动测试：只出 dev，不动任何版本标签"
           fi

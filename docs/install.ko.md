@@ -25,9 +25,9 @@
 | **Windows 데스크톱**(권장) | `Agent2API_<버전>_x64-setup.exe` | 앱 창 | NSIS 설치 프로그램, 기본 설치 경로 `C:\Program Files\Agent2API`, 설치 시 관리자 권한 필요 |
 | **macOS 데스크톱** | `Agent2API_<버전>_universal.dmg` | 앱 창 | 유니버설 바이너리(Apple Silicon과 Intel을 각각 빌드해 병합). macOS 10.15 이상 |
 | **Linux 데스크톱** | `Agent2API_<버전>_amd64.deb` 또는 `Agent2API_<버전>_amd64.AppImage` | 앱 창 | deb는 시스템에 설치(webkit2gtk-4.1 / gtk3 필요), AppImage는 설치가 필요 없는 단일 파일로 모든 배포판에서 실행 |
-| **Windows 서버** (GUI 없음) | `agent2api-server-windows-amd64.zip` | **브라우저 패널** | 명령줄로 설치하고 Windows 서비스로 등록. 이 fork의 Releases에는 아직 없음 —— [서버](#서버windows--linux-헤드리스) 참고 |
+| **Windows 서버** (GUI 없음) | `agent2api-server-windows-amd64.zip` | **브라우저 패널** | 명령줄로 설치하고 Windows 서비스로 등록 —— [서버](#서버windows--linux-헤드리스) 참고 |
 | **Linux 서버** (GUI 없음) | `agent2api-server-linux-<arch>.tar.gz` | **브라우저 패널** | 명령줄로 설치하고 systemd 로 상주. 같은 패키지가 컨테이너 내 업데이트 페이로드도 겸합니다 |
-| **Docker** | `ghcr.io/awsl1414/agent2api:beta` | **브라우저 패널** | amd64 / arm64 이미지, [Docker 배포](#docker) 참고. 정식 버전이 나오면 `:latest`도 사용 가능 |
+| **Docker** | `ghcr.io/awsl1414/agent2api:latest` | **브라우저 패널** | amd64 / arm64 이미지, [Docker 배포](#docker) 참고. `:beta`로 사전 출시 버전 추적 |
 
 > 무엇을 고를까: **데스크톱이 있다**(트레이, 부팅 시 자동 시작, 본机 로그인 상태 가져오기가 필요) → 데스크톱 버전.
 > **서버에 그래픽 인터페이스가 없다**(Windows Server / Linux 서버) → 서버 패키지.
@@ -58,10 +58,9 @@
 
 서비스는 시스템 서비스로 상주합니다: 부팅 시 자동 시작, 크래시 후 자동 재시작, 콘솔 없는 백그라운드 실행.
 
-> **이 fork의 Releases에는 Linux 서버 패키지만 포함됩니다**(`agent2api-server-linux-{amd64,arm64}.tar.gz`).
-> Windows 패키지 `agent2api-server-windows-amd64.zip`은 여기서 빌드하지 않습니다.
-> 같은 버전이거나 더 새로운 버전을 상류 [aimod-cc/Agent2API Releases](https://github.com/aimod-cc/Agent2API/releases)
-> 에서 받거나 아래 명령으로 소스에서 직접 빌드하세요. Windows 절차는 두 경우 모두 동일합니다.
+> **Windows 서버 패키지는 현재 릴리스의 다운로드 목록에 없습니다**. Windows 서비스 형태가 필요하면
+> 아래 개발 절차로 소스에서 빌드하거나, [GitHub Releases](https://github.com/awsl1414/Agent2API/releases)
+> 의 다른 버전에서 받으세요. Windows 절차는 두 경우 모두 동일합니다.
 
 ### Windows Server
 
@@ -164,12 +163,12 @@ Linux 에서는 `/etc/agent2api/agent2api.env` 에, Windows 에서는 서비스 
 
 ## Docker
 
-이미지 태그: `latest`는 최신 정식 버전을, `beta`는 최신 beta 사전 출시 버전을 따릅니다. `3.4.3-beta.2` 같은 전체 버전 번호로 버전을 고정할 수도 있습니다. 아래 명령과 Compose 설정은 `:beta`를 사용합니다(이 저장소는 아직 사전 출시 버전만 배포했습니다). 정식 버전이 나오면 `:latest`로 바꾸세요. 업데이트할 때 `docker compose pull && docker compose up -d`를 실행하세요. beta 출시 시 `latest`는 변경되지 않으며, 수동 개발 빌드는 `dev`만 업데이트합니다. 이미지는 GitHub Container Registry(GHCR)에 게시되며 로그인 없이 받을 수 있습니다. Docker Hub의 `aimodcc/agent2api`는 상류 프로젝트의 이미지이며 이 fork의 산출물이 아닙니다. **이 저장소가 아직 정식 버전을 배포하지 않았다면 `latest`는 없습니다** — `:beta` 또는 전체 버전 번호를 사용하세요.
+이미지 태그: `latest`는 최신 정식 버전을, `beta`는 최신 beta 사전 출시 버전을 따릅니다. `3.4.3-beta.2` 같은 전체 버전 번호로 버전을 고정할 수도 있습니다. 아래 명령과 Compose 설정은 `:latest`를 사용합니다. 사전 출시 버전을 따라가려면 `:beta`로 바꾸세요. 업데이트할 때 `docker compose pull && docker compose up -d`를 실행하세요. beta 출시 시 `latest`는 변경되지 않으며, 수동 개발 빌드는 `dev`만 업데이트합니다. 이미지는 GitHub Container Registry(GHCR)에 게시되며 로그인 없이 받을 수 있습니다.
 
 ```bash
 docker run -d --name agent2api --restart unless-stopped \
   -p 3065:3065 -v ./data:/data \
-  ghcr.io/awsl1414/agent2api:beta
+  ghcr.io/awsl1414/agent2api:latest
 ```
 
 브라우저에서 `http://<호스트>:3065`를 열면 첫 방문 시 **관리자 계정 등록**으로 안내합니다. 로그인 후 "게이트웨이 키" 페이지에서 클라이언트용 API 키를 만들면 됩니다 — `http://<호스트>:3065/v1`이 OpenAI 호환 엔드포인트이며, 키를 만들기 전에는 전달을 거부합니다. 모든 상태(SQLite 데이터베이스 / 설정 / 로그)는 `./data` 볼륨 하나에 저장됩니다.
@@ -179,7 +178,7 @@ compose 사용자용(amd64 / arm64 이미지 모두 제공):
 ```yaml
 services:
   agent2api:
-    image: ghcr.io/awsl1414/agent2api:beta
+    image: ghcr.io/awsl1414/agent2api:latest
     container_name: agent2api
     restart: unless-stopped
     ports:
@@ -201,7 +200,7 @@ services:
 | `AGENT2API_IMAGE_CACHE_MB` | 생성 이미지의 다운로드 메모리 캐시 상한(MiB, 기본 `128`, 범위 8~4096). 잘못된 값 / 범위 밖은 기본값으로 폴백 |
 | `AGENT2API_IMAGE_COMPRESS_CACHE_MB` | 세션 이미지 압축 결과의 메모리 캐시 상한(MiB, 기본 `128`, 범위 8~4096, 기준 동일) |
 | `AGENT2API_PLUGIN_LOADER` | 고급(Linux): 플러그인 ELF의 동적 링커가 기본 경로에 없을 때 `ld-linux` 경로를 설정하면 게이트웨이가 「`<loader> --library-path <플러그인 디렉터리> <플러그인>`」 형태로 플러그인을 실행합니다. 미설정 시 동작은 그대로입니다. 진입 파일은 있는데 시작에 실패하면 오류 메시지에 이 변수와 인터프리터 경로가 표시됩니다 |
-| `WORKBUDDY_UPDATE_REPO` + `WORKBUDDY_UPDATE_API_BASE` | 심화: "업데이트 확인 / 업데이트 다운로드"를 자체 소스로 교체합니다. 전자는 저장소를 바꾸고(기본값은 `awsl1414/Agent2API`, 이 fork의 Releases), 후자는 API 루트를 바꿉니다(기본 `https://api.github.com`, GitHub와 같은 형태의 release JSON을 반환해야 함). 자체 소스 설정 후 다운로드 허용 목록은 **그 소스 자신의 호스트**만 추가로 허용합니다(스킴은 소스를 따름: `http://`를 설정하면 평문 다운로드도 허용. 로컬 연습 / 내부 미러용) |
+| `WORKBUDDY_UPDATE_REPO` + `WORKBUDDY_UPDATE_API_BASE` | 심화: "업데이트 확인 / 업데이트 다운로드"를 자체 소스로 교체합니다. 전자는 저장소를 바꾸고(기본값은 `awsl1414/Agent2API`), 후자는 API 루트를 바꿉니다(기본 `https://api.github.com`, GitHub와 같은 형태의 release JSON을 반환해야 함). 자체 소스 설정 후 다운로드 허용 목록은 **그 소스 자신의 호스트**만 추가로 허용합니다(스킴은 소스를 따름: `http://`를 설정하면 평문 다운로드도 허용. 로컬 연습 / 내부 미러용) |
 
 소스에서 빌드하려면: 이 저장소를 클론한 뒤 `docker compose up -d --build`(이미지에는 게이트웨이와 패널만 들어가며 Rust 도구 체인은 포함되지 않습니다).
 
@@ -215,7 +214,7 @@ services:
 # docker run
 docker run -d --name agent2api --restart unless-stopped --memory=1g \
   -p 3065:3065 -v ./data:/data \
-  ghcr.io/awsl1414/agent2api:beta
+  ghcr.io/awsl1414/agent2api:latest
 ```
 
 compose 사용자는 서비스에 `mem_limit: 1g` 한 줄을 추가하세요(`docker-compose.yml` 에 주석 예시가 있습니다). swarm 또는 `docker compose --compatibility` 에서는 `deploy.resources.limits.memory` 를 씁니다. 1g 는 출발점일 뿐이며 실제 동시 처리량에 맞춰 조정하세요.

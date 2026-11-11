@@ -60,7 +60,7 @@ Agent2API는 **AI 라우팅 게이트웨이와 Agent 클라이언트 설정 관�
 | --- | --- | --- |
 | **데스크톱**(Windows / macOS / Linux) | `Agent2API_<버전>_x64-setup.exe`, `_universal.dmg`, `_amd64.deb`, `_amd64.AppImage` | 앱 창 |
 | **서버**(Windows Server / Linux, GUI 없음) | `agent2api-server-windows-amd64.zip`, `agent2api-server-linux-<arch>.tar.gz` | 브라우저 패널 |
-| **Docker** | `ghcr.io/awsl1414/agent2api:beta`(amd64 / arm64. 정식 버전이 나오면 `:latest`도 사용 가능) | 브라우저 패널 |
+| **Docker** | `ghcr.io/awsl1414/agent2api:latest`(amd64 / arm64. `:beta`로 사전 출시 버전 추적) | 브라우저 패널 |
 
 **데스크톱**: 사용자 지정 공급자와 계정을 추가하고 게이트웨이 키를 만드세요. "Agent" 페이지에서 연결 설정을 적용하거나 클라이언트에 `http://127.0.0.1:3065/v1`과 해당 키를 입력하세요. 추가 기능은 해당 플러그인을 먼저 설치해야 합니다.
 

@@ -20,8 +20,8 @@ services:
   agent2api:
     # `docker compose up -d` 拉这里写的已发布镜像；`up -d --build` 则用本
     # 仓库源码本地构建，产物同样打这个名字（本地构建会盖掉本地那一份缓存，
-    # 不影响远端仓库）。本仓库目前只发过预发布版，正式版出来之后可换成 :latest
-    image: ghcr.io/awsl1414/agent2api:beta
+    # 不影响远端仓库）。要跟随预发布版就把标签换成 :beta
+    image: ghcr.io/awsl1414/agent2api:latest
     build: .
     container_name: agent2api
     restart: unless-stopped

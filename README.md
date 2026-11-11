@@ -60,7 +60,7 @@ Three forms — pick the one that matches your setup; **the complete install, up
 | --- | --- | --- |
 | **Desktop** (Windows / macOS / Linux) | `Agent2API_<version>_x64-setup.exe`, `_universal.dmg`, `_amd64.deb`, `_amd64.AppImage` | App window |
 | **Server** (Windows Server / Linux, headless) | `agent2api-server-windows-amd64.zip`, `agent2api-server-linux-<arch>.tar.gz` | Browser panel |
-| **Docker** | `ghcr.io/awsl1414/agent2api:beta` (amd64 / arm64; `:latest` once a stable release ships) | Browser panel |
+| **Docker** | `ghcr.io/awsl1414/agent2api:latest` (amd64 / arm64; `:beta` follows prereleases) | Browser panel |
 
 **Desktop**: add a custom provider and account, create a gateway key, then apply a connection profile on the Agent page or configure your client with `http://127.0.0.1:3065/v1` and that key. Additional provider capabilities require the corresponding plugin.
 
