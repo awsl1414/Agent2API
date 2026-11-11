@@ -65,7 +65,8 @@ pub fn chat_from_responses(body: &Value) -> Result<Value, ConvertError> {
         body.get("model").cloned().unwrap_or(Value::Null),
     );
 
-    let messages = messages_from_input(body.get("instructions"), body.get("input"))?;
+    let plan = tool_plan::plan_tools(body);
+    let messages = messages_from_input(body.get("instructions"), body.get("input"), &plan)?;
     out.insert("messages".to_string(), Value::Array(messages));
     out.insert(
         "stream".to_string(),
@@ -97,7 +98,6 @@ pub fn chat_from_responses(body: &Value) -> Result<Value, ConvertError> {
     // 顶层 `tools`，以及 `input[]` 里 `type:"additional_tools"` 的项（Codex 的
     // Responses Lite 路径把工具塞在 input 里、顶层 `tools` 为 null）。详见
     // `tool_plan` 模块头：只认顶层字段是 2026-09「Codex 调不动工具」的根因。
-    let plan = tool_plan::plan_tools(body);
     if !plan.declarations.is_empty() {
         let mut converted: Vec<Value> = Vec::new();
         let mut downgraded: Vec<String> = Vec::new();
@@ -159,7 +159,10 @@ pub fn chat_from_responses(body: &Value) -> Result<Value, ConvertError> {
         }
     }
     if let Some(choice) = body.get("tool_choice").filter(|value| is_truthy(value)) {
-        out.insert("tool_choice".to_string(), tool_choice_to_chat(choice));
+        out.insert(
+            "tool_choice".to_string(),
+            tool_choice_to_chat(choice, &plan)?,
+        );
     }
     // text.format → response_format
     if let Some(format) = body
@@ -192,6 +195,7 @@ fn has_effort(value: &Value) -> bool {
 fn messages_from_input(
     instructions: Option<&Value>,
     input: Option<&Value>,
+    plan: &tool_plan::ToolPlan,
 ) -> Result<Vec<Value>, ConvertError> {
     let mut messages: Vec<Value> = Vec::new();
     if let Some(text) = instructions
@@ -212,7 +216,7 @@ fn messages_from_input(
         if input.is_object() {
             let mut pending = PendingReasoning::default();
             let mut images = PendingImages::default();
-            push_input_item(&mut messages, input, &mut pending, &mut images)?;
+            push_input_item(&mut messages, input, &mut pending, &mut images, plan)?;
             images.flush(&mut messages);
             merge_successive_assistants(&mut messages);
         }
@@ -230,7 +234,7 @@ fn messages_from_input(
             messages.push(json!({ "role": "user", "content": text }));
             continue;
         }
-        push_input_item(&mut messages, item, &mut pending, &mut images)?;
+        push_input_item(&mut messages, item, &mut pending, &mut images, plan)?;
     }
     // 收尾：最后一批工具结果后面没有「下一项」来触发下线，这里补一次
     // （客户端把请求停在工具结果上、等模型继续，正是最常见的形状）
@@ -514,6 +518,7 @@ fn push_input_item(
     item: &Value,
     pending: &mut PendingReasoning,
     images: &mut PendingImages,
+    plan: &tool_plan::ToolPlan,
 ) -> Result<(), ConvertError> {
     let kind = string_field(item, "type").to_lowercase();
     // 除了工具结果本身，任何项都是「这一轮工具到此为止」的下线点
@@ -527,7 +532,7 @@ fn push_input_item(
             let call_id = call_id_of(item);
             // 命名空间工具的历史里，名字在 `name`、分组在 `namespace` 两个字段；
             // 给上游必须是展平后的名字，否则模型看到的工具名前后不一致
-            let name = tool_plan::flatten_call_name(item);
+            let name = plan.call_name(item)?;
             let arguments = {
                 let raw = json_text(item.get("arguments").unwrap_or(&Value::Null));
                 if raw.is_empty() {
@@ -574,7 +579,7 @@ fn push_input_item(
         // 多轮里模型看不到自己上一步调过什么 —— 工具调用即便成功，第二轮也会
         // 退化成凭空重问。
         "custom_tool_call" => {
-            let name = tool_plan::flatten_call_name(item);
+            let name = plan.call_name(item)?;
             // 两种来源都要认：客户端回传的原生形态是 `input` 裸文本；
             // 但历史若来自我们自己的回程（已降级），id 相同、字段也可能是
             // `arguments`。取到哪个用哪个，都不丢内容
@@ -978,35 +983,18 @@ fn tool_to_chat(tool: &Value) -> Option<Value> {
 }
 
 /// Responses 的 tool_choice → Chat 的 tool_choice
-fn tool_choice_to_chat(choice: &Value) -> Value {
+fn tool_choice_to_chat(choice: &Value, plan: &tool_plan::ToolPlan) -> Result<Value, ConvertError> {
     if let Some(text) = choice.as_str() {
-        return match text {
-            // Responses 的 "required" 在 Chat 里也是 "required"，语义一致
-            other => Value::String(other.to_string()),
-        };
+        return Ok(match text {
+            "auto" | "none" | "required" => choice.clone(),
+            _ => Value::String(plan.call_name(&json!({ "name": text }))?),
+        });
     }
-    // `{type:"function", name}` → `{type:"function", function:{name}}`
-    let name = {
-        let flat = string_field(choice, "name");
-        if flat.is_empty() {
-            string_field(choice, "function.name")
-        } else {
-            flat
-        }
-    };
-    // `function.name` 是嵌套路径，string_field 取不到，单独处理
-    let name = if name.is_empty() {
-        choice
-            .pointer("/function/name")
-            .map(string_value)
-            .unwrap_or_default()
-    } else {
-        name
-    };
+    let name = plan.call_name(choice)?;
     if !name.is_empty() {
-        return json!({ "type": "function", "function": { "name": name } });
+        return Ok(json!({ "type": "function", "function": { "name": name } }));
     }
-    choice.clone()
+    Ok(choice.clone())
 }
 
 /// 一次工具调用 → Responses 的 output item。
@@ -1041,7 +1029,7 @@ fn tool_call_item(name: &str, call_id: &str, arguments: &str, plan: &tool_plan::
             "arguments": arguments,
         })
     };
-    tool_plan::restore_namespace(item, name, plan)
+    tool_plan::restore_call(item, name, plan)
 }
 
 /// Responses 的 `text.format` → Chat 的 `response_format`
@@ -1743,7 +1731,7 @@ impl ResponsesStream {
             };
             // 命名空间工具要在这里就带上 `namespace`：客户端在**宣告时**就按
             // `{name, namespace}` 建路由，等到收尾才补已经晚了
-            let item = tool_plan::restore_namespace(item, &name, &self.plan);
+            let item = tool_plan::restore_call(item, &name, &self.plan);
             out.push(response_event(
                 &mut self.sequence,
                 "response.output_item.added",
@@ -1791,8 +1779,7 @@ impl ResponsesStream {
         if is_custom {
             return Vec::new();
         }
-        vec![self.event(
-            "response.function_call_arguments.delta",
+        let data = tool_plan::restore_call(
             json!({
                 "output_index": index,
                 "item_id": item_id,
@@ -1800,7 +1787,10 @@ impl ResponsesStream {
                 "name": name,
                 "delta": delta,
             }),
-        )]
+            name,
+            &self.plan,
+        );
+        vec![self.event("response.function_call_arguments.delta", data)]
     }
 
     fn emit_created(&mut self) -> Vec<bytes::Bytes> {
@@ -2044,13 +2034,17 @@ impl ResponsesStream {
                     out.push(response_event(
                         &mut self.sequence,
                         "response.function_call_arguments.done",
-                        json!({
-                            "output_index": final_.index,
-                            "item_id": final_.item_id,
-                            "call_id": final_.call_id,
-                            "name": final_.name,
-                            "arguments": arguments,
-                        }),
+                        tool_plan::restore_call(
+                            json!({
+                                "output_index": final_.index,
+                                "item_id": final_.item_id,
+                                "call_id": final_.call_id,
+                                "name": final_.name,
+                                "arguments": arguments,
+                            }),
+                            &final_.name,
+                            &self.plan,
+                        ),
                     ));
                 }
             }
@@ -2268,5 +2262,258 @@ impl ResponsesCollector {
 impl Default for ResponsesCollector {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Chat 上游只接受 ASCII 字母、数字、下划线和短横线，且名字最长 64 字节。
+    // 超出这个范围的 Responses 工具名会让整次请求被上游拒绝。
+    fn valid_chat_tool_name(name: &str) -> bool {
+        !name.is_empty()
+            && name.len() <= 64
+            && name
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+    }
+
+    fn tool_wire_name(chat: &Value) -> String {
+        chat.pointer("/tools/0/function/name")
+            .and_then(Value::as_str)
+            .expect("工具声明应转换成 Chat function")
+            .to_string()
+    }
+
+    fn assistant_tool_name(chat: &Value) -> Option<&str> {
+        chat["messages"]
+            .as_array()
+            .expect("messages 应为数组")
+            .iter()
+            .find(|message| message["role"] == "assistant")
+            .and_then(|message| message.pointer("/tool_calls/0/function/name"))
+            .and_then(Value::as_str)
+    }
+
+    #[test]
+    fn namespace_child_with_invalid_chars_uses_one_valid_wire_name() {
+        let namespace = "mcp__server.名称";
+        let original = "status.check";
+        let request = json!({
+            "model": "m",
+            "tools": [{
+                "type": "namespace",
+                "name": namespace,
+                "description": "工具分组",
+                "tools": [{
+                    "type": "function",
+                    "name": original,
+                    "parameters": {"type": "object", "properties": {}},
+                    "defer_loading": true
+                }]
+            }],
+            "tool_choice": {"type": "function", "name": original, "namespace": namespace},
+            "input": [
+                {"type": "message", "role": "user", "content": "hi"},
+                {"type": "function_call", "call_id": "call_1", "name": original, "namespace": namespace, "arguments": "{}"}
+            ]
+        });
+
+        let chat = chat_from_responses(&request).expect("合法请求应完成协议转换");
+        let wire = tool_wire_name(&chat);
+        assert!(valid_chat_tool_name(&wire), "wire={wire}");
+        assert_ne!(wire, original);
+        assert_eq!(
+            chat.pointer("/tool_choice/function/name")
+                .and_then(Value::as_str),
+            Some(wire.as_str())
+        );
+        assert_eq!(assistant_tool_name(&chat), Some(wire.as_str()));
+
+        let upstream = json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": Value::Null,
+                    "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": wire, "arguments": "{}"}}]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        });
+        let responses = responses_from_chat(&upstream, "m", &request);
+        let item = responses.pointer("/output/0").expect("应输出工具调用项");
+        assert_eq!(item["type"].as_str(), Some("function_call"));
+        assert_eq!(item["name"].as_str(), Some(original));
+        assert_eq!(item["namespace"].as_str(), Some(namespace));
+    }
+
+    #[test]
+    fn custom_tool_with_invalid_name_is_sanitized_and_restored() {
+        let original = "apply.patch";
+        let request = json!({
+            "model": "m",
+            "tools": [{"type": "custom", "name": original, "description": "补丁工具"}],
+            "tool_choice": original,
+            "input": [
+                {"type": "message", "role": "user", "content": "hi"},
+                {"type": "custom_tool_call", "call_id": "call_1", "name": original, "input": "diff"}
+            ]
+        });
+
+        let chat = chat_from_responses(&request).expect("合法请求应完成协议转换");
+        let wire = tool_wire_name(&chat);
+        assert!(valid_chat_tool_name(&wire), "wire={wire}");
+        assert_eq!(chat["tool_choice"].as_str(), Some(wire.as_str()));
+        assert_eq!(assistant_tool_name(&chat), Some(wire.as_str()));
+
+        let upstream = json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": Value::Null,
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": wire, "arguments": "{\"input\":\"diff\"}"}
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        });
+        let responses = responses_from_chat(&upstream, "m", &request);
+        let item = responses.pointer("/output/0").expect("应输出工具调用项");
+        assert_eq!(item["type"].as_str(), Some("custom_tool_call"));
+        assert_eq!(item["name"].as_str(), Some(original));
+        assert_eq!(item["input"].as_str(), Some("diff"));
+    }
+
+    #[test]
+    fn legal_tool_name_and_function_alias_share_wire_name() {
+        let request = json!({
+            "model": "m",
+            "tools": [{
+                "type": "function",
+                "name": "shell",
+                "parameters": {"type": "object", "properties": {}}
+            }],
+            "tool_choice": {"type": "function", "function": {"name": "functions.shell"}}
+        });
+
+        let chat = chat_from_responses(&request).expect("合法请求应完成协议转换");
+        assert_eq!(
+            chat.pointer("/tools/0/function/name")
+                .and_then(Value::as_str),
+            Some("shell")
+        );
+        assert_eq!(
+            chat.pointer("/tool_choice/function/name")
+                .and_then(Value::as_str),
+            Some("shell")
+        );
+    }
+
+    #[test]
+    fn additional_tools_object_is_promoted_to_request_tools() {
+        let request = json!({
+            "model": "m",
+            "input": {
+                "type": "additional_tools",
+                "tools": [{
+                    "type": "function",
+                    "name": "shell",
+                    "parameters": {"type": "object", "properties": {}}
+                }]
+            }
+        });
+
+        let chat = chat_from_responses(&request).expect("合法请求应完成协议转换");
+        assert_eq!(
+            chat.pointer("/tools/0/function/name")
+                .and_then(Value::as_str),
+            Some("shell")
+        );
+    }
+
+    #[test]
+    fn duplicate_tool_declarations_keep_the_last_definition() {
+        let request = json!({
+            "model": "m",
+            "tools": [
+                {
+                    "type": "function",
+                    "name": "shell",
+                    "description": "旧定义",
+                    "parameters": {"type": "object", "properties": {}}
+                },
+                {
+                    "type": "function",
+                    "name": "shell",
+                    "description": "新定义",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            ]
+        });
+
+        let chat = chat_from_responses(&request).expect("合法请求应完成协议转换");
+        let tools = chat["tools"].as_array().expect("tools 应为数组");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(
+            tools[0]
+                .pointer("/function/description")
+                .and_then(Value::as_str),
+            Some("新定义")
+        );
+    }
+
+    #[test]
+    fn long_tool_name_is_reduced_to_valid_length() {
+        let original = "x".repeat(100);
+        let request = json!({
+            "model": "m",
+            "tools": [{
+                "type": "function",
+                "name": original,
+                "parameters": {"type": "object", "properties": {}}
+            }]
+        });
+
+        let chat = chat_from_responses(&request).expect("合法请求应完成协议转换");
+        let wire = tool_wire_name(&chat);
+        assert!(valid_chat_tool_name(&wire), "wire={wire}");
+        assert_ne!(wire, original);
+    }
+
+    #[test]
+    fn ambiguous_bare_history_name_is_rejected() {
+        let request = json!({
+            "model": "m",
+            "tools": [
+                {
+                    "type": "namespace",
+                    "name": "alpha",
+                    "tools": [{
+                        "type": "function",
+                        "name": "dup",
+                        "parameters": {"type": "object", "properties": {}}
+                    }]
+                },
+                {
+                    "type": "namespace",
+                    "name": "beta",
+                    "tools": [{
+                        "type": "function",
+                        "name": "dup",
+                        "parameters": {"type": "object", "properties": {}}
+                    }]
+                }
+            ],
+            "input": [
+                {"type": "function_call", "call_id": "call_1", "name": "dup", "arguments": "{}"}
+            ]
+        });
+
+        let error = chat_from_responses(&request).expect_err("歧义工具名不能静默任选一个声明");
+        assert!(error.contains("对应多个声明"), "error={error}");
     }
 }
