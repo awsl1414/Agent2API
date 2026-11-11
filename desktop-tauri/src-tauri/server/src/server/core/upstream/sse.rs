@@ -30,7 +30,7 @@
 //! `usage::RequestTelemetry`，完全不参与帧的构造 —— 帧内容与不接钩子时
 //! 逐字节一致（详见该处的注释）。
 //!
-//! ── model 名回写（Agent2API W3-T4）────────────────────────────
+//! ── model 名回写────────────────────────────
 //! 小浣熊上游会把响应 chunk 的 `model` 换成它自己的内部名，而客户端认的是自己
 //! 请求时给的名字（源实现 `raccoon-sse-pipe.mjs` 的 `rewriteSseLine`）。
 //! 「要不要改写」由**适配器**回答（`ProviderAdapter::sse_model_rewrite`），

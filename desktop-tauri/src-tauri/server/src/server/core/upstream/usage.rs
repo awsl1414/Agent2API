@@ -337,7 +337,7 @@ pub struct TelemetrySnapshot {
     /// 账号展示名，取值顺序与限额日志一致：账号名 → 会话昵称 → 账号 id
     /// （所以账号 id 为空但会话带昵称时，这里仍可能非空）
     pub account_name: String,
-    /// 最终承载本次请求的 **provider id**（Agent2API W2b-T3 新增；
+    /// 最终承载本次请求的 **provider id**（新增；
     /// `None` = 还没走到选路就失败了，例如请求体非法 / 模型不存在）。
     ///
     /// 为什么存 id 字符串而不是 `ProviderKind`：这个值要跨模块交给记账点

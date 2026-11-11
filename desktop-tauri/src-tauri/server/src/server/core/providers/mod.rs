@@ -18,9 +18,9 @@
 //!
 //! ── 本文件与其它模块的分工（W4a 起多家 provider）─────────────
 //! 本文件只有**身份与元数据**：枚举、注册表、三个查询函数。
-//! 架构文档 §4.2 的 `ProviderAdapter` trait 与适配器注册表在 `adapter.rs`，
+//! `ProviderAdapter` trait 与适配器注册表在 `adapter.rs`，
 //! 各家的实现分别在 `workbuddy.rs` / `raccoon/` / `catpaw/` / `autoclaw/` /
-//! `qoder/`。过渡期用过的占位适配器（`pending.rs`，W6 删除）已随四家全部接上
+//! `qoder/`。过渡期用过的占位适配器已随四家全部接上
 //! 真身而退场 —— 现在 `adapter_for` 的 match 是穷举的，加新 kind 时编译器会强制
 //! 给出分支，「注册了 provider 却忘了接线」在编译期就被拦住，不再需要运行期的
 //! 占位实现兜底。

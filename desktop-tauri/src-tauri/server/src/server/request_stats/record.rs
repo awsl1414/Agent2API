@@ -96,7 +96,7 @@ pub struct RequestEntry {
     /// 与「上报了 0」是两件事 —— 前端对前者显示「—」，对后者显示「0」。
     #[serde(rename = "credit", default)]
     pub credit: Option<f64>,
-    /// 实际承载本次请求的 provider id（架构文档 §3.6）。
+    /// 实际承载本次请求的 provider id。
     ///
     /// ── 为什么是 `String` + 空串而不是 `Option<String>` ─────────
     /// 与 `accountId` / `accountName` 同一套「空串就是没有」的存储契约：
@@ -422,7 +422,7 @@ pub struct NewRequestEntry {
     /// 上游按请求上报的积分消耗（可空：`None` = 没上报，不是 0；见
     /// `RequestEntry::credit`）
     pub credit: Option<f64>,
-    /// 实际承载本次请求的 provider id（Agent2API 改造 W2b-T3 新增填入，
+    /// 实际承载本次请求的 provider id（新增填入，
     /// W4 接上持久化：见 `normalize` 末尾的透传）。
     ///
     /// `None` = 一次都没发出去就失败了（请求体非法 / 模型不存在 / 无可用账号），

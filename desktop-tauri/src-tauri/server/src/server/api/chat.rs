@@ -366,7 +366,7 @@ pub async fn chat_completions(
 
 /// GET /v1/models —— 免鉴权（Node 版这条没调 checkApiKey）。
 ///
-/// 响应体来自**聚合模型目录**（Agent2API 改造 §4.4）：合并「当前有可用账号」
+/// 响应体来自**聚合模型目录**：合并「当前有可用账号」
 /// 的各 provider 清单，同名去重（保留注册表顺序靠前的那家），OpenAI 响应结构不变。
 /// 对只有 workbuddy 一家且有账号的用户，输出与改造前逐字段相同
 /// （见 `core::providers::catalog` 模块头）。

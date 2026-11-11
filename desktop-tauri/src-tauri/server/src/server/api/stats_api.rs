@@ -34,7 +34,7 @@
 //! 全部是**新增**端点与新增可选查询参数：`/api/logs` 只多认 `start` / `end`
 //! 两个可选参数，不传时行为与以前完全一致（见 `logs_api::query_logs`）。
 //!
-//! ── provider / account 维度（Agent2API W4：T-e1）────────────
+//! ── provider / account 维度 ─────────────────────────────
 //! 两条报表路由的响应各多一处 **provider 维度**，都由存储层组装完再透传
 //! （路由层不加工，理由同上）：
 //!   - `/api/stats/requests`：每行含 `provider`（id，旧行/未承载为空串）

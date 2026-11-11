@@ -711,8 +711,7 @@ const KUKU: ProviderConfig = {
 }
 
 /**
- * Command Code（`api.commandcode.ai`）：一家一个 provider，没有地区之分
- * （规格 §9：参考里只有这一个主机，没有 cn / intl 双域名、没有 region 头）。
+ * Command Code（`api.commandcode.ai`）：一家一个 provider，没有地区之分。
  *
  * ── 凭证是一枚 `user_` 前缀的 API Key，粘贴式 ─────────────────
  * 来源是官方 CLI 的 `~/.commandcode/auth.json` 或网页 studio

@@ -20,7 +20,7 @@
 //! 只读一行、只写一行。
 //!
 //! ── 几条迁移为什么合成一次写入 ──────────────────────────────
-//! `provider` 惰性补齐（架构文档 §3.2）、优先级去重（原 `migrate_priorities`）
+//! `provider` 惰性补齐、优先级去重（原 `migrate_priorities`）
 //! 与 Cline 拆池改名都在启动时、都在同一份账号集合上改字段。若各自读一次、
 //! 写一次，后面那条迁移读到的就是前面写过的库 —— 结果没错，但会多几次全表
 //! 扫描与写入，而且「补 provider 时把已经去重过的优先级又读成并列」这类交叉
@@ -242,7 +242,7 @@ impl AccountStore {
     ///
     /// resetAt 为恢复时间戳；缺失时按第 3 条退避（首撞仍是旧的 10 分钟兜底）。
     ///
-    /// ── 冷却键的最终形态：provider × 账号 × 模型（Agent2API W2b-T3 确认）──
+    /// ── 冷却键的最终形态：provider × 账号 × 模型 ──────────
     /// 落盘位置是 `accounts[i].rateLimits[model] = {status, code, resetAt, message, at, strikes, guessed}`，
     /// 即**冷却键挂在账号记录内部**，而每条账号记录只属于一个 provider
     /// （`record.provider()` 是单值）。所以「provider 维度」已经天然成立，
@@ -767,7 +767,7 @@ impl AccountStore {
         let _guard = self.guard();
         let mut state = self.load(&_guard);
 
-        // ① provider 惰性补齐（架构文档 §3.2）：缺失/空值一律补 workbuddy
+        // ① provider 惰性补齐：缺失/空值一律补 workbuddy
         let mut provider_added = 0usize;
         for record in state.accounts.iter_mut() {
             if record.provider_explicit().is_none() {

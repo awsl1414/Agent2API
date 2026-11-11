@@ -210,9 +210,8 @@ pub fn panel_router(state: ServerState) -> Router {
             "/api/config",
             get(api::config_api::get_config)
                 .post(api::config_api::post_config)
-                // PUT 是 Agent2API 改造新增的**别名**（架构文档 §5 的接口表写作
-                // GET/PUT）：走同一个处理函数，行为逐字一致。既有前端只发 POST，
-                // 多注册一个方法不影响它；新前端按 §5 发 PUT 也能用。
+                // PUT 是新增的**别名**：走同一个处理函数，行为逐字一致。既有前端只发 POST，
+                // 多注册一个方法不影响它；新前端发 PUT 也能用。
                 .put(api::config_api::post_config),
         )
         .route(

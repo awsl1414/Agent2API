@@ -484,14 +484,14 @@ impl AccountStore {
         self.get_current_entry()
     }
 
-    /// 指定 provider 的「当前账号」凭证与会话（Agent2API W2b-T3）。
+    /// 指定 provider 的「当前账号」凭证与会话。
     ///
     /// 判据与 `pick_current_for_provider` 逐条相同（启用 + 有凭证 + 按 (优先级, 加入时间)
     /// 取队首），只是先在**该 provider 的账号组**里缩一遍。转发层逐家尝试时用它拿
     /// 「这一家的默认账号」，与 `accounts_for_provider` 的选路口径一致
     /// （后者用于显式指定的账号链，这里用于「没有账号记录/未登录」时的兜底会话）。
     ///
-    /// ── 小浣熊的桌面端实时账号（W3-T4）─────────────────────────
+    /// ── 小浣熊的桌面端实时账号 ────────────────────────────
     /// 它**记录里本来就没有 accessToken**（凭证在 `~/.box-agent/config/auth.json`），
     /// 因此判据从 `has_token()` 放宽成 `has_credentials()`：带 `desktop: true`
     /// 标记的 raccoon 记录也算「有凭证」，实际 token 由会话构造时实时读入
@@ -630,8 +630,8 @@ impl AccountStore {
         // ── Antigravity 的两个附加键（`antigravity::adapter` 用）──────
         // 与上面 ZCode 同一手法、同一理由：适配器只能看到会话，而这两个字段
         // 在记录里（`antigravity_accounts.rs` 的落盘形态）：
-        //   - `projectId`：cloudaicompanionProject —— 信封的 `project` 字段
-        //     （规格 §3.3），OAuth 刷新 / 添加账号 / 目录刷新三处发现后回写；
+        //   - `projectId`：cloudaicompanionProject —— 信封的 `project` 字段，
+        //     OAuth 刷新 / 添加账号 / 目录刷新三处发现后回写；
         //   - `email`：决定信封的 `userAgent` 标记（非 gmail/googlemail →
         //     `jetski`，Manager 的判定逐字）。会话里的 `account.uid` 对
         //     Antigravity 也是 email，但那是「展示身份」的通用字段，别让

@@ -21,7 +21,7 @@
 //!   POST   /api/accounts/{id}/move      与相邻账号交换优先级 { direction: 'up' | 'down' }
 //!   DELETE /api/accounts/{id}           删除账号
 //!
-//! ── Agent2API 改造在本文件的行为 ─────────────────────────────
+//! ── 本文件相对基线新增的行为 ─────────────────────────────
 //!   - 列表响应的**形状是增量的**：每个账号对象多一个 `provider`、顶层多一个
 //!     `providers` 摘要（都由 `AccountStore::list_accounts` 组装，本文件不用改）；
 //!   - `POST /api/accounts` 按 payload 的 provider **穷举分派**（见 `add_account`）；
@@ -538,7 +538,7 @@ pub async fn dispatch(
 
 // ─── POST /api/accounts ─────────────────────────────────────
 
-/// 添加账号：**按 payload 的 provider 分派到各家的添加路径**（W3-T4 起，
+/// 添加账号：**按 payload 的 provider 分派到各家的添加路径**。
 /// W4a 改为注册表驱动的穷举分派）。
 ///
 /// ── 分派规则（W4a：不再手写「workbuddy/raccoon」清单）──────────
@@ -550,7 +550,7 @@ pub async fn dispatch(
 ///   ② `CatPaw` → 实现已搬到插件：装上插件时上面的 `serves_provider` 分流
 ///      先带走（三种来源都由插件的 `account.normalize` 处理），没装插件时
 ///      如实报 503；
-///   ③ `AutoClaw` → AutoClaw 路径（W4b-T-c2）：`importDesktop === true` 导入
+///   ③ `AutoClaw` → AutoClaw 路径：`importDesktop === true` 导入
 ///      桌面端实时登录态（`%APPDATA%/AutoClaw/auth.json`，DPAPI 解密）；
 ///      否则手动添加（token/refreshToken + deviceId，`enc:` 密文自动解密）；
 ///   ④ `WorkBuddy` / `WorkBuddyIntl` 或**字段缺失** → 既有 workbuddy 路径
@@ -573,7 +573,7 @@ pub async fn dispatch(
 /// ── AutoClaw 曾经在这里显式 400（历史，别改回去）─────────────────
 /// W4a–W4b 之间它的凭证链路还没落地，那时这里对它的 payload 报 400：若让它落进
 /// ④ 的兜底，用户会得到一条**200 + 存进 workbuddy 组**的账号（凭证是别家的、
-/// 分组是错的、转发永远失败），界面上看不出异常。W4b-T-c2 起它有自己的分支
+/// 分组是错的、转发永远失败），界面上看不出异常。它有自己的分支
 /// （③），该 400 随之退役；纪律不变 —— **绝不写进没人认的组**。分派用穷举
 /// match：新增 provider 时编译器会强制给出分支；注册表里没有的 id（前端比后端
 /// 新、或手改的请求）仍走 ④ —— 老客户端不带 provider 字段，未知 id 不能报错。

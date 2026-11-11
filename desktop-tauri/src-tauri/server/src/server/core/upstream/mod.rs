@@ -21,7 +21,7 @@
 //!                    ——ZCode 活动套餐、Command Code、Antigravity 三家各一台
 //!   usage.rs        usage 旁路槽：token 用量 / 承载 provider+账号 / 尝试次数
 //!
-//! ── provider 差异去哪了（Agent2API 改造 W2b-T3）───────────────
+//! ── provider 差异去哪了 ─────────────────────────────────
 //! 本目录**不含任何 provider 分支**：请求头/URL/system 注入/错误码判定/
 //! token 刷新全在 `core::providers` 的适配器里（`workbuddy.rs`），
 //! 本目录只通过 `ProviderAdapter` 契约（`providers::adapter`）使用它们。

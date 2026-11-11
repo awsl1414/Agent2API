@@ -37,7 +37,7 @@
 //! 那个码是 workbuddy 的专属知识，已随转发改造搬进
 //! `providers::workbuddy::retry_advice`；**重试循环**留在编排层
 //! （`provider_loop::send_with_retry`），因为「重试几次、打什么日志」
-//! 是编排职责（架构文档 §4.3）。
+//! 是编排职责：本模块只负责决定选谁，不管重试。
 
 use std::collections::HashMap;
 

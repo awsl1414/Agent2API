@@ -33,7 +33,7 @@
 //!      里给出（只有参考意义）。
 //!   3. **provider 字段的兜底口径**：加载时缺失/为空一律补 `"workbuddy"`
 //!      （历史数据都来自单上游时代），由 `migrate_startup` 与优先级去重
-//!      同机一次落盘完成（架构文档 §3.2）。未知 provider 字符串**原样保留** ——
+//!      同机一次落盘完成。未知 provider 字符串**原样保留** ——
 //!      可能是新版本写入的数据被旧版本读到，强行归一会让账号跑进错误的组。
 //!
 //! ── provider 白名单：没有第二份清单（W4a 明确）─────────────────
@@ -229,7 +229,7 @@ pub(crate) const COMMANDCODE_PROVIDER_ID: &str = crate::server::core::providers:
 
 /// Antigravity provider id（账号存储内部多处要用；**从注册表推导**）。
 /// 账号形态见 `antigravity_accounts.rs`（单一 provider、没有地区之分 ——
-/// `sandbox`/`daily`/`prod` 是环境不是地区，规格 §6）。
+/// `sandbox`/`daily`/`prod` 是环境不是地区。
 pub(crate) const ANTIGRAVITY_PROVIDER_ID: &str = crate::server::core::providers::kind_id(
     crate::server::core::providers::ProviderKind::Antigravity,
 );

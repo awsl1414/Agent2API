@@ -182,7 +182,7 @@ windows-sys = { version = "0.59", features = [
   "Win32_System_Threading",
 ] }
 # AutoClaw 适配器要解 Electron safeStorage 的 os_crypt 密钥：DPAPI 的
-# CryptUnprotectData（providers/autoclaw/crypto.rs，架构文档 §10.1 指定的依赖）。
+# CryptUnprotectData（providers/autoclaw/crypto.rs 里调用）。
 # ── 为什么是 windows 而不是上面那个 windows-sys ──────────────
 # windows-sys 是**扁平句柄 + 手写 GetLastError**（本文件上方「查端口监听者」
 # 那几项就是这种用法：状态码自己判、错误码自己取）。DPAPI 这里要的是

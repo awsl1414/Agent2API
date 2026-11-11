@@ -70,7 +70,7 @@ impl AccountStore {
         let fields = record.fields();
         let mut public = Map::new();
         public.insert("id".to_string(), Value::String(record.id().to_string()));
-        // 所属提供商（Agent2API 改造新增字段）：缺失时按 workbuddy 兜底，
+        // 所属提供商：缺失时按 workbuddy 兜底，
         // 保证界面拿到的每条账号都能直接分组，不必自己判断「没有 provider = 老数据」
         public.insert("provider".to_string(), Value::String(record.provider()));
         // name 无兜底：原样透出（含非字符串的脏值），缺失时不出现该键
@@ -332,8 +332,8 @@ impl AccountStore {
     /// 记录 → 公开形态（**按 provider 分派**）。
     ///
     /// 各家的公开字段集不同：workbuddy 有 uid/nickname/edition/enterprise…，
-    /// 小浣熊有 userId/tokenExpiresAt/desktop 且**没有**积分字段（架构文档 §5/§6），
-    /// CatPaw 有 uid/loginName/tokenTail/desktop 且**没有**积分/签到（W5-T-d4）。
+    /// 小浣熊有 userId/tokenExpiresAt/desktop 且**没有**积分字段，
+    /// CatPaw 有 uid/loginName/tokenTail/desktop 且**没有**积分/签到。
     /// 分派点放在这里，调用方（列表快照、批量目标解析、限额事件日志）
     /// 一行都不用改 —— 它们拿到的就是各自 provider 该有的形状。
     ///

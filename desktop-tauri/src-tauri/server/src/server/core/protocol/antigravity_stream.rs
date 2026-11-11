@@ -7,7 +7,7 @@
 //! 壳（`upstream::translate::AntigravityToChatStream`）负责空闲守卫、
 //! 调试采集与帧保序，分派在 `upstream::provider_loop`。
 //!
-//! ── 信封解包（规格 §4.2，最容易写错的一处）──────────────────
+//! ── 信封解包（最容易写错的一处）───────────────────────────
 //! 上游每帧是 v1internal 包装：真正的 Gemini 响应在 `response` 键下，
 //! **缺省回退顶层**（两套参考都是这个取值链：Manager
 //! `response.get("response").unwrap_or(response)`、9router `chunk.response || chunk`）。
@@ -225,7 +225,7 @@ impl ChatFromAntigravityStream {
         if self.finished {
             return Vec::new();
         }
-        // 信封解包：真身在 `response` 键下，缺省回退顶层（规格 §4.2）
+        // 信封解包：真身在 `response` 键下，缺省回退顶层
         let inner = event
             .get("response")
             .filter(|value| value.is_object())
@@ -441,8 +441,7 @@ impl ChatFromAntigravityStream {
             let text = string_field(error, "code");
             text.trim().parse::<i64>().ok()
         });
-        // Google 把语义写在 `error.status` 字符串里（规格 §3.2 的分类口径），
-        // 数字 code 缺失/越界时按它兜底
+        // Google 把语义写在 `error.status` 字符串里，数字 code 缺失或越界时按它兜底
         let status = code
             .and_then(|code| u16::try_from(code).ok())
             .filter(|status| (100..=599).contains(status))

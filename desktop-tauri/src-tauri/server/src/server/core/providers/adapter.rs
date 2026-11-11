@@ -1,4 +1,4 @@
-//! ProviderAdapter 契约（Agent2API 改造 W2b-T3，架构文档 §4.2）。
+//! ProviderAdapter 契约：一次转发里网关与各家协议之间的边界。
 //!
 //! ── 这一层解决什么问题 ──────────────────────────────────────
 //! 改造前，转发链路的每一步都默认「上游就是 WorkBuddy」：URL 是写死的
@@ -7,7 +7,7 @@
 //! 只做**协议无关的编排**（去重、逐家轮询、SSE 透传、聚合），
 //! 所有「这一家长什么样」的知识收进各自的适配器 —— 本模块定义的就是那份契约。
 //!
-//! ── 四个动作（语义不得改，架构文档 §4.2 的硬要求 + 内容拦截一档）──
+//! ── 四个动作（语义不得改：三档错误分类 + 内容拦截一档）──────
 //!   1. [`UpstreamErrorClass::QuotaLimited`] → 标记账号对该模型冷却 + 换下一个账号；
 //!   2. [`UpstreamErrorClass::TokenExpired`] → 刷新凭证后**同一账号**重试一次；
 //!   3. [`UpstreamErrorClass::ContentBlocked`] → **不罚账号**：换中性提示词后同一
@@ -38,7 +38,7 @@
 //!   3. `allows_anonymous_default_session`：本 provider 是否允许「一个账号
 //!      都没有时用环境变量凭证/默认登录态转发」。workbuddy 有这条旁路
 //!      （`WORKBUDDY_TOKEN`），小浣熊也有（`RACCOON_TOKEN`，实现在插件里）。
-//!   4. `sse_model_rewrite`（W3-T4 追加）：SSE 透传**要不要把下发帧的 `model`
+//!   4. `sse_model_rewrite`：SSE 透传**要不要把下发帧的 `model`
 //!      改写成客户端请求的那个名字**。小浣熊上游网关会回自己的内部模型名
 //!      （这类上游会把 chunk 里的 `model` 换成内部名，客户端认自己请求的那个），
 //!      而 workbuddy 上游原样回显。帧改写发生在 `upstream::ForwardStream`
@@ -134,7 +134,7 @@ use crate::server::errors::GatewayError;
 
 use super::ProviderKind;
 
-/// 转发前对「账号 + 请求体」的完整构造计划（架构文档 §4.2 的 ChatRequestPlan）。
+/// 转发前对「账号 + 请求体」的完整构造计划。
 ///
 /// ── 与 `upstream::request::TransportRequest` 的区别（重要）───
 /// 那个是**传输层**形态：已序列化好的 `payload: String` + 出网代理，
@@ -243,7 +243,7 @@ pub enum UpstreamResponse {
     AiSdkNdjson,
     /// Antigravity 的 **Gemini v1internal 信封 + SSE**：上游是 Google Cloud Code
     /// Assist 的 `:streamGenerateContent?alt=sse`，每帧是 `data: {json}`，且真正的
-    /// Gemini 响应在 `response` 键下（缺省回退顶层，见规格 §4.2）。
+    /// Gemini 响应在 `response` 键下，缺省回退顶层。
     /// 字段路径（`candidates[0].content.parts[*]`、`usageMetadata`、
     /// `finishReason`、`thought` 位、`thoughtSignature`）全是 Gemini 方言，
     /// 因此与 Anthropic / NDJSON 并列另开一台状态机（`upstream::translate` 的
@@ -269,7 +269,7 @@ pub enum UpstreamResponse {
     ChatglmSnapshot,
 }
 
-/// 上游错误分类（架构文档 §4.2；三个动作的语义见模块头）。
+/// 上游错误分类（三档动作的语义见模块头）。
 ///
 /// ── 文案口径：`message` 是**客户端可见的最终文案**（含前缀）────
 /// 改造前客户端的错误体是 `上游返回 {status}: {上游原文}{提示}`，其中提示只在
@@ -370,7 +370,7 @@ pub enum ReasoningPatch {
     },
 }
 
-/// 单个提供商的转发适配能力（架构文档 §4.2）。
+/// 单个提供商的转发适配能力。
 ///
 /// 实现者必须是**无状态或内部自带共享句柄**的：`adapter_for` 返回的
 /// `&'static` 引用会被并发调用，而 trait 没有 `&mut self` 方法。
@@ -1031,7 +1031,7 @@ pub trait ProviderAdapter: Send + Sync {
 
     /// 本 provider 是否有「默认模型」概念（模块头扩展 4）。
     ///
-    /// 语义（架构文档 §4.4 末句）：客户端**未指定 `model`** 时，网关仍取
+    /// 语义：客户端**未指定 `model`** 时，网关仍取
     /// config.json 的 `defaultModel`（那是 workbuddy 语义）注入 —— 但只在
     /// 「这个默认值命中的 provider 里有家认这个概念」时才注入；
     /// 都不认就按「未指定」处理，让上游用它自己的默认模型。
@@ -1061,8 +1061,7 @@ pub trait ProviderAdapter: Send + Sync {
         false
     }
 
-    /// 本 provider 的上游是否为**有状态（conversation 协议）**（模块头扩展 6，
-    /// 架构文档 §4.2.1）。
+    /// 本 provider 的上游是否为**有状态（conversation 协议）**。
     ///
     /// 默认 false（一次 HTTP 请求 = 一次对话）。CatPaw 覆写成 true：它的上游是
     /// round → event(running) → turn(SSE) → 工具循环 → event(completed) 的多步
@@ -1076,7 +1075,7 @@ pub trait ProviderAdapter: Send + Sync {
         false
     }
 
-    /// **会话式转发入口**（模块头扩展 6 的配套；架构文档 §4.2.1）。
+    /// **会话式转发入口**（与 `is_stateful` 配套，仅对返回 true 的 provider 调用）。
     ///
     /// 只有有状态 provider 覆写它（`is_stateful` 为 true 的家，见各自 `mod.rs`）。
     /// 默认实现返回 503：走到这里
@@ -2516,13 +2515,13 @@ pub async fn refresh_implemented_forced(
     results
 }
 
-// ─── 占位适配器（W2b-T3 起三次演化，W6 删除）─────────────────
+// ─── 占位适配器 ──────────────────────────────────────────
 //
-// W2b-T3 这里曾有一个 `PlaceholderAdapter`（构造请求返回 501）。
+// 这里曾有一个 `PlaceholderAdapter`（构造请求返回 501）。
 // W4a 之后「未实现的已注册 provider」成了真实情形（四家里两家是占位），它被
 // 参数化成 `pending::PendingAdapter` 并**真正接进** `adapter_for` 的
 // CatPaw / AutoClaw 分支（状态码也从 501 改成语义更准的 503，
 // 并补上 `is_stateful` 的如实声明）。
-// 两家先后接上真身（W5-T-d4 / W4b-T-c2）后，占位实现不再有任何生产调用点，
+// 两家先后接上真身后，占位实现不再有任何生产调用点，
 // W6 收尾时连文件一起删除 —— 现在加 provider 的过渡方案是：先在
 // `adapter_for` 里给一个最小实现，而不是重新引入一层占位结构。

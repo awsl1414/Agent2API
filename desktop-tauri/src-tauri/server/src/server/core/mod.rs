@@ -3,7 +3,7 @@
 //! 对照 Node 版 src/*.mjs 的落位：
 //!   endpoints.rs         端点/版本/UA/上下文          （workbuddy-endpoints.mjs）
 //!   providers/           提供商注册表（id/label）+ 聚合模型目录 + 模型路由
-//!                        （Agent2API 改造新增；见本文件末尾的模块分工）
+//!                        （新增；见本文件末尾的模块分工）
 //!   account_store/       账号列表、凭证、优先级、迁移  （workbuddy-account-store.mjs）
 //!   account_transfer.rs  账号导入/导出                （workbuddy-account-transfer.mjs）
 //!   auth_http.rs         上游请求发送与解包、鉴权错误   （workbuddy-auth.mjs 的 api/unwrap）
@@ -45,7 +45,7 @@
 //!                        读侧的兼容与降级处理仍在 `api_keys.rs`
 //!   update/              软件更新（版本/出网/下载状态机）（workbuddy-update.mjs）
 //!
-//! ── 模型清单的三个层次（Agent2API 改造 W2a-T2）─────────────
+//! ── 模型清单的三个层次 ─────────────────────────────────
 //!   providers/mod.rs      身份与元数据（id/label/默认路由优先级）
 //!   models/               **workbuddy 一家**的清单（内置 + 远程刷新）
 //!   providers/catalog.rs  聚合目录：各家清单合并成 /v1/models 的单一视图

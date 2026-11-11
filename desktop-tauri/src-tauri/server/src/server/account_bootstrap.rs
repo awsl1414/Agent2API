@@ -204,7 +204,7 @@ pub(crate) fn run(store: &AccountStore) {
     // `~/.box-agent/config/auth.json` 分别是旧网关的多账号文件与客户端登录态，
     // 后者属于上游客户端知识。存量用户由插件 `account.normalize` 在「导入
     // 桌面端登录态」时补齐，旧代理账号文件走 `authFileContent` 手工导入一次。
-    // CatPaw 旧数据一次性导入（架构文档 §9，W5-T-d4）**已随实现搬到插件**：
+    // CatPaw 旧数据一次性导入**已随实现搬到插件**：
     // 它读的两个来源（`~/.meituan-catpaw/catpaw-proxy-accounts.json` 与
     // `~/.meituan-catpaw/auth.json`）都是 CatPaw 客户端的私有文件布局，
     // 属于「上游知识」，不该留在网关。存量用户由插件的 `account.normalize`
