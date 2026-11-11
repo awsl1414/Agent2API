@@ -222,10 +222,14 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: 输出镜像地址
+        env:
+          TAGS: ${{ steps.tags.outputs.list }}
         run: |
           set -euo pipefail
           echo "已推送镜像："
-          printf '  %s\n' ${{ steps.tags.outputs.list }}
+          # TAGS 是多行清单，必须整体作为一个参数交给 printf，
+          # 直接内联会被拆成多个带冒号的词、当成命令执行
+          printf '  %s\n' "$TAGS"
           if [ -n "$VERSION" ] && [[ "$VERSION" != *-* ]]; then
             echo "  ↑ 正式版：latest 的 Pushed 时间应同步更新"
           elif [ -n "$VERSION" ]; then
