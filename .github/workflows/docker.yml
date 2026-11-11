@@ -137,7 +137,9 @@ jobs:
         id: images
         run: |
           set -euo pipefail
-          images=("ghcr.io/${GITHUB_REPOSITORY}")
+          # 镜像仓库名必须全小写，GitHub 仓库名带大写时不能直接用
+          # GITHUB_REPOSITORY，否则 buildx 报 repository name must be lowercase
+          images=("ghcr.io/$(printf %s "${GITHUB_REPOSITORY}" | tr "[:upper:]" "[:lower:]")")
           if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_TOKEN" ]; then
             images+=("${DOCKERHUB_USERNAME}/agent2api")
           fi
