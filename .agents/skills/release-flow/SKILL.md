@@ -10,7 +10,7 @@ description: Agent2API 仓库的协作与发版规范 —— 分支落脚点、�
 
 下列两件事**必须由人先审过、明确点头**，代理才能继续；可以准备草稿、可以列依据，不能自己拍板往下走：
 
-1. **发版**：进入发版流程（改版本号、建发布提交、推 main、打 tag、挂 Release）之前，先把版本号与「这次要发什么」讲清楚，等用户确认。**未经确认不得推任何分支或 tag** —— tag 一旦推出去就会触发构建、产出公开的安装包与镜像，收不回来。
+1. **发版**：进入发版流程（改版本号、squash `beta` 进 `main`、推 `main`、打 tag、挂 Release）之前，先把版本号与「这次要发什么」讲清楚，等用户确认。**未经确认不得推任何分支或 tag** —— tag 一旦推出去就会触发构建、产出公开的安装包与镜像，收不回来。
 2. **更新日志**：写好的日志（发布提交的提交信息，同时也是 GitHub Release 正文）必须先给用户逐条过目。用户要求改措辞、增删条目、调整分类前缀时，按反馈改完要**再确认一次**，不能因为「改得不多」就直接提交。
 
 一次发版里两条同时适用：既要有版本号的确认，也要有日志的确认；用户说「继续」之后才动手。
@@ -94,16 +94,37 @@ git push origin vX.Y.Z
 
 `app.repo` 必须是 `owner/repo` 形式；写成 URL 或带空格会被当成无效值，静默回落到内置默认值。
 
-## 1. 分支落脚点：本 fork 只有 main
+## 0.6 上游同步：逐条吸收，不整仓合并
+
+上游 `aimod-cc/Agent2API` 有自己的 `beta` 线，fork 的 `beta` 与它不是同一个东西（fork 的
+`beta` 是本仓集成分支）。**不要用 `git merge upstream/beta` 同步**：两侧在同一批文件上都改过
+（fork 已把上游 beta 的修复重写过），整仓合并会产生数百个冲突，把 `-X ours` 硬压下去又等于
+丢掉上游改动。
+
+同步逐条取舍：先 `git fetch upstream`，列出
+`<上次同步点>..upstream/beta` 的提交，逐条判「本仓是否已修 / 需要 / 不需要」，需要的在
+`beta` 上重写实现，提交信息标 `sync(upstream): <上游摘要> (<hash>)`。上次同步点与已吸收
+清单维护在审计工作区的 `SYNC-STATE.md`、`DIVERGENCE-LEDGER.md`。
+
+## 1. 分支落脚点：`beta` 开发、`main` 发布
 
 | 分支 | 角色 | 什么时候动它 |
 |---|---|---|
-| `main` | 唯一分支：日常改动、PR 合并、发版都在这里 | 全部 |
+| `beta` | 集成分支：日常改动、PR 合并、上游吸收全部落这里 | 每次开发 |
+| `main` | 发布分支：只接收 `beta` 的 squash 合并 | 发版时 |
 
-- **日常改动直接提交到 `main` 并推送**；PR 的 base 选 `main`。
-- 没有 `beta` 集成分支：上游那套「beta 集成 / main 只在发版时动」在这里不成立，别为了
-  对齐上游凭空建一条 beta —— 两条分支会立刻分叉，还得靠合并提交往回捞。
-- beta 版（预发布）只是**版本号带 `-` 后缀的 tag**，分支不变，见第 6 节。
+- **日常改动提交到 `beta` 并推送**；PR 的 base 选 `beta`。GitHub 默认分支仍是 `main`，
+  建 PR 时不会自动选中，**必须手动改成 `beta`**。
+- `main` **只接受 `beta` 的 squash 合并**：一次发版一个语义提交，不为任何单条改动单独提交
+  `main`。紧急修复同样先落 `beta`，随下次发版一起进 `main`。
+- 合并用 `git merge --squash beta` 后自己写一条提交（信息 = 本次更新日志），再 `git push
+  origin main`；`beta` 不因此被改写，下次继续在它上面开发。
+- **`beta` 从 `main` 分出来后，`main` 上的提交不会再回流入 `beta`**，所以发版提交不要带代码
+  改动以外的内容；确实需要同步时，用 `git cherry-pick` 或把 `main` 合回 `beta`，别让两侧
+  长期分叉。
+- beta 版（预发布）仍是**版本号带 `-` 后缀的 tag**，见第 6 节；预发布 tag 打在 `beta` 上，
+  正式版 tag 打在 `main` 上。
+- 上游同步（`upstream/beta` 的增量）按逐条取舍落地到 `beta`，不做整仓 merge，见 0.6 节。
 
 ## 2. 合并 PR：保留贡献者署名
 
@@ -158,18 +179,19 @@ GitHub 的归属规则只有一条：**提交头里的 author 邮箱出现在某
 git status --short        # 必须为空；有改动就先提交或清理
 cargo check               # 或前端有改动时做一次构建自检
 
-# 2. 切到 main（本 fork 只有 main 一条分支，日常改动也直接落 main）
+# 2. 切到 main 并先把 beta 压缩合入
 git switch main && git pull
 git status --short        # 再确认一次
+git merge --squash beta   # 只暂存、不产生合并提交，冲突在这里解
 
 # 3. 六处版本号一起改（默认末位 +1，幅度听用户）；改完刷新 Cargo.lock
 cargo check
 
-# 4. 写发布提交：提交信息 = 更新日志
-git commit -am "…更新日志…"
+# 4. 写发布提交：提交信息 = 更新日志（本次 squash 的内容与版本号改动一起提交）
+git commit -m "…更新日志…"
 
-# 5. 推 main、打 tag、推 tag
-git push origin main
+# 5. 推 main、等缓存预热跑完、打 tag、推 tag
+git push origin main        # 推 main 会自动触发一次 warm-cache（缓存作用域跟分支走）
 git tag vX.Y.Z
 git push origin vX.Y.Z
 
@@ -177,6 +199,10 @@ git push origin vX.Y.Z
 gh run list --limit 4
 gh run watch <run-id> --exit-status
 ```
+
+**`git merge --squash beta` 之后必须真的提交**：squash 只把 `beta` 的改动放进暂存区，不写
+历史。此时 `HEAD` 还是旧版本，若直接打 tag，发出去的是上一次发版的代码。提交信息写本次
+更新日志，正文末尾加一行 `Co-authored-by:` 保留 `beta` 上贡献者的署名（规则见第 2 节）。
 
 **发布提交的提交信息 = 更新日志**。`build.yml` 的 `release` job 读 tag 附注（轻量 tag 回落成
 提交信息）解析成 Release 正文，所以**打 annotated tag 并把更新日志写进附注**最稳妥：
@@ -250,21 +276,21 @@ bash scripts/release.sh vX.Y.Z <run-id>
 更新，没打开的人只看正式发布。**
 
 beta 版不是另一条流水线，而是第 5 节流程的变体 —— 唯一结构差别是**版本号与 tag 带预发布
-后缀**，提交、tag、Release、验收逐字照旧。第 0 节的两条红线同样适用。本 fork 只有 `main`
-一条分支，所以 tag 就落在 `main` 的提交上。
+后缀**。第 0 节的两条红线同样适用。**预发布 tag 打在 `beta` 分支上**：它是开发中的快照，
+不必先进 `main`；正式版才需要 `beta` → `main` 的 squash。
 
 ```bash
-# 1. 在 main 上动手
-git switch main && git pull
+# 1. 在 beta 上动手
+git switch beta && git pull
 git status --short          # 必须为空
 
 # 2. 六处版本号一起改成「与 tag 逐字一致」的形态：
 #    tag 打 v3.4.3-beta.2 → 六处都写 3.4.3-beta.2（清单见第 4 节）
 cargo check                 # 顺带刷新 Cargo.lock
 
-# 3. 提交并推 main（提交信息 = 这次的 beta 更新日志，格式同第 5 节）
+# 3. 提交并推 beta（提交信息 = 这次的 beta 更新日志，格式同第 5 节）
 git commit -am "…beta 版日志…"
-git push origin main
+git push origin beta
 
 # 4. 打 annotated tag 并推
 git tag -a v3.4.3-beta.2 -m "…同一份日志…"
@@ -292,7 +318,8 @@ gh run list --limit 4
 - **再发一个 beta**：核心号不变、递增序号（`3.4.3-beta.3`，六处一起改，上面那套命令照走）。
   预发布序号能分出先后（`beta.3` > `beta.2`），已经在 beta 上的人照样收到更新 —— 所以
   beta 之间也要保持「tag 与版本号逐字一致」。
-- **转正**（发 `3.4.3` 正式版）：按第 5 节走，六处版本号去掉后缀。**beta 用户不会自动接回
+- **转正**（发 `3.4.3` 正式版）：按第 5 节走 —— 先 `git merge --squash beta` 把预发布之后的
+  改动带进 `main`，六处版本号去掉后缀，一次提交，再打 tag。**beta 用户不会自动接回
   正式版**：开关开着的人只看预发布版（`pick_listed_release` 按「当前跑的是不是 beta 版」
   筛），转正的 `3.4.3` 对他们不算更新 —— 要留在 beta 频道的人等下一个 beta；想回正式版
   由用户自己关开关，关掉后只在**版本号高于他手上那个 beta** 的正式版发布时才收到更新。

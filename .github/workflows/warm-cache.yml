@@ -18,11 +18,18 @@ name: warm-cache
 # 因为早期一条进了 main 作用域而每次都命中的现成例子。
 #
 # ── 触发方式 ──────────────────────────────────────────────────
-#   · push 到 main：代码变了，缓存随之更新
+#   · push 到 main：发版 squash 合入后缓存随之更新
 #   · 每周一 UTC 19:00（北京周二 03:00）：兜底 —— GitHub 会清理
-#     7 天未访问的缓存，main 不常推时靠它保活
+#     7 天未访问的缓存
 #   · 手动 workflow_dispatch：⚠️ 必须在 Actions 页面选 main 分支
 #     触发 —— 缓存的作用域跟触发分支走，选了别的分支等于白跑
+#
+# 日常开发在 beta，而 tag 构建只能读默认分支 main 作用域的缓存（GitHub
+# 按 ref 隔离缓存，tag 可读默认分支但读不到普通分支）。所以推 main 这一步
+# 本身就是预热：发版 squash 合入后自动跑一次，tag 构建随后就能命中。
+# 不要在推 main 之后再手动 dispatch —— 两者同在 warm-cache 并发组里，
+# cancel-in-progress 会取消先启动的那一个。手动 dispatch 只用于 main 多天
+# 没动的补跑。
 #
 # ── job 名为什么必须与 build.yml 一致（macos / windows）───────
 # rust-cache 生成的缓存 key 里包含 job id（观察到的形如
