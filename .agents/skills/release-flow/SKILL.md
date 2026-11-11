@@ -207,7 +207,9 @@ git tag -a vX.Y.Z -m "$(cat 更新日志.txt)"
 # 补发镜像（对已存在的 tag，不填 version 时对当前分支出 :dev）
 gh workflow run docker.yml -f version=X.Y.Z
 # 补发安装包（对已存在的 tag 重跑整个 build.yml，未变的部分命中缓存）
-gh workflow run build.yml -f version=X.Y.Z
+# ⚠️ 必须带 --ref main：workflow_dispatch 用的是 --ref 那个提交里的工作流文件，
+# 缺省时会取仓库默认分支，但显式写出来能避免「派发后跑的是 tag 上的旧工作流」
+gh workflow run build.yml --ref main -f version=X.Y.Z
 ```
 
 **附件清单是硬校验**：`build.yml` 的 `release` job 要求恰好 4 个安装包 + 2 个服务端包；
@@ -224,6 +226,13 @@ bash scripts/release.sh vX.Y.Z <run-id>
 - 脚本找的是名为 **`build`** 的工作流；
 - 更新日志仍从本仓库取（`git log -1 --format=%B "$TAG"`），所以要在源码仓库目录里跑；
 - 脚本会清空当前目录的 `dist/`，**使用前检查并保护已有产物**，建议在独立工作区运行。
+
+### 工作流派发要用 main 的版本
+
+`workflow_dispatch` 用的是 **`--ref` 指向的那个提交里的工作流文件**，与要补发的版本无关。
+补发老 tag 时如果 `--ref vX.Y.Z`，跑的是那个 tag 当时的旧工作流 —— 新增的 job（比如
+`linux-server`）根本不会出现，日志里也不报错。所以补发一律 `--ref main`，代码仍由
+`meta` job 解析出的 tag 决定（checkout `ref` 用的是 tag）。
 
 ### GHCR 与包可见性
 
