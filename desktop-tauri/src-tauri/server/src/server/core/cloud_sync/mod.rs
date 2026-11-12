@@ -45,6 +45,7 @@ pub(crate) mod webdav;
 use std::sync::OnceLock;
 
 use serde_json::{json, Value};
+use zeroize::Zeroizing;
 
 use crate::server::core::crypto::{self, SecretScope};
 use crate::server::db::Db;
@@ -215,20 +216,23 @@ pub(crate) async fn remote_info() -> Result<Value, String> {
 pub(crate) async fn upload(db: &Db) -> Result<Value, String> {
     let _guard = sync_lock().lock().await;
     let settings = require_enabled()?;
-    upload_locked(db, &settings).await
+    // 快照、哈希、密钥在同一次准备里取齐，再交给上传；网络等待期间不重新取密钥。
+    let snapshot = snapshot::build(db)?;
+    let key = crypto::backup_key(SecretScope::Accounts)?.map(Zeroizing::new);
+    let content_hash = snapshot.content_hash(key.as_deref())?;
+    upload_locked(&settings, snapshot, content_hash, key).await
 }
 
 /// 上传本体（调用方已持锁）。自动同步也走这里，避免两处顺序漂移。
 pub(crate) async fn upload_locked(
-    db: &Db,
     settings: &settings::CloudSyncSettings,
+    snapshot: snapshot::Snapshot,
+    content_hash: String,
+    key_bytes: Option<Zeroizing<[u8; 32]>>,
 ) -> Result<Value, String> {
-    let transport = Transport::from_settings(settings)?;
-    transport.test_connection().await?;
-
-    let snapshot = snapshot::build(db)?;
-    let snapshot_bytes =
-        serde_json::to_vec(&snapshot).map_err(|error| format!("序列化同步快照失败: {error}"))?;
+    settings.validate()?;
+    let snapshot_bytes = serde_json::to_vec(&snapshot)
+        .map_err(|error| format!("序列化同步快照失败: {error}"))?;
     if snapshot_bytes.len() as u64 > MAX_ARTIFACT_BYTES {
         return Err(format!(
             "本机业务数据超过同步上限（{} 字节 > {} 字节），请先清理签到 / 余额记录",
@@ -237,17 +241,16 @@ pub(crate) async fn upload_locked(
         ));
     }
 
-    // 账号密钥：本机还没有密钥（从未保存过账号）时不传
-    let key_bytes = crypto::existing_key_bytes(SecretScope::Accounts);
-    let password = settings
-        .sync_password_plain()?
-        .ok_or_else(|| "未设置同步密码，无法加密上云的账号密钥".to_string())?;
-    let key_envelope = match key_bytes.as_ref() {
+    // 账号密钥与内容指纹来自同一次准备，不能在等待网络之后重新取另一把密钥。
+    let password = settings.sync_password_plain()?.ok_or_else(|| {
+        "未设置同步密码，无法加密上云的账号密钥".to_string()
+    })?;
+    let key_envelope = match key_bytes.as_deref() {
         Some(bytes) => Some(keyfile::seal_key(bytes, &password)?),
         None => None,
     };
     let key_fingerprint = key_bytes
-        .as_ref()
+        .as_deref()
         .map(|bytes| crypto::fingerprint_of(bytes));
 
     let manifest = snapshot::build_manifest(
@@ -257,6 +260,13 @@ pub(crate) async fn upload_locked(
     );
     let manifest_bytes = serde_json::to_vec_pretty(&manifest)
         .map_err(|error| format!("序列化 manifest 失败: {error}"))?;
+
+    let transport = Transport::from_settings(settings)?;
+    // 固定文件名的上传可能只完成一部分，此后不能再把旧指纹视为远端仍然有效。
+    settings::update_status_for(settings, |status| {
+        status.begin_upload_attempt(logging::now_ms());
+    })?;
+    transport.test_connection().await?;
 
     // 顺序：artifact 先、manifest 最后（见 manifest 模块头）
     transport
@@ -271,17 +281,18 @@ pub(crate) async fn upload_locked(
         .put(REMOTE_MANIFEST, manifest_bytes, "application/json")
         .await?;
 
-    let content_hash = snapshot.content_hash(key_bytes.as_ref())?;
     let snapshot_id = manifest.snapshot_id.clone();
-    settings::update_status(|status| {
-        status.last_sync_at = Some(logging::now_ms());
-        status.last_action = Some("upload".to_string());
-        status.last_snapshot_id = Some(snapshot_id.clone());
-        status.last_local_hash = Some(content_hash.clone());
-        status.last_key_fingerprint = key_fingerprint.clone();
-        status.last_error = None;
-        status.last_error_source = None;
-    });
+    let now = logging::now_ms();
+    settings::update_status_for(settings, |status| {
+        status.finish_upload(
+            now,
+            &snapshot_id,
+            content_hash,
+            settings.target_id(),
+            key_fingerprint,
+        );
+    })
+    .map_err(|error| format!("云端上传完成，但本机同步状态未保存：{error}"))?;
     logging::log(
         "[CloudSync]",
         &format!(
@@ -330,7 +341,8 @@ pub(crate) async fn download_locked(
     // 这里**不**自动用本机保存的同步密码去解 —— 那个密码是「上传时用的」，
     // 远端这份可能来自另一台机器（用了不同的密码）。让用户显式输入，失败
     // 的提示才准确（「同步密码不正确」而不是「账号解不开」）。
-    let local_fingerprint = crypto::key_fingerprint(SecretScope::Accounts);
+    let key = crypto::backup_key(SecretScope::Accounts)?.map(Zeroizing::new);
+    let local_fingerprint = key.as_deref().map(|bytes| crypto::fingerprint_of(bytes));
     if manifest.key_fingerprint.is_some() && manifest.key_fingerprint != local_fingerprint {
         return Err(KEY_REQUIRED.to_string());
     }
@@ -347,34 +359,31 @@ pub(crate) async fn download_locked(
         snapshot::safety_backup(&current, config_dir)?
     };
 
-    let (applied, content_hash) = {
-        let _suppress = auto_sync::SuppressionGuard::new();
-        // 下载路径本机密钥已通过上面的指纹比对，这里取出来给恢复后的
-        // 业务指纹用（解密 accounts.data 信封）；取不到时指纹自然报错，
-        // 比落一个错的「已同步」哈希好。
-        let key = crypto::existing_key_bytes(SecretScope::Accounts);
-        let (applied, content_hash) = snapshot::apply(db, &snapshot, key.as_ref())?;
-        // 配置快照重读：下载改的就是 kv，不重读的话本次运行还是旧配置
-        crate::server::config::reload();
-        // 余额事实表重读：选路依赖它（账号可能被换掉了一半）
-        crate::server::core::usage_records::reload_facts();
-        crate::server::core::limiter::sources::reload();
-        crate::server::core::limiter::counter::invalidate();
-        (applied, content_hash)
-    };
+    let _suppress = auto_sync::SuppressionGuard::new();
+    let (applied, content_hash) = snapshot::apply(db, &snapshot, key.as_deref())?;
+    // 配置快照重读：下载改的就是 kv，不重读的话本次运行还是旧配置
+    crate::server::config::reload();
+    // 余额事实表重读：选路依赖它（账号可能被换掉了一半）
+    crate::server::core::usage_records::reload_facts();
+    crate::server::core::limiter::sources::reload();
+    crate::server::core::limiter::counter::invalidate();
 
     let snapshot_id = manifest.snapshot_id.clone();
     let device = manifest.device_name.clone();
     let created_at = manifest.created_at.clone();
-    settings::update_status(|status| {
-        status.last_sync_at = Some(logging::now_ms());
-        status.last_action = Some("download".to_string());
-        status.last_snapshot_id = Some(snapshot_id.clone());
-        status.last_local_hash = Some(content_hash);
-        status.last_key_fingerprint = manifest.key_fingerprint.clone();
-        status.last_error = None;
-        status.last_error_source = None;
-    });
+    // 目标身份与恢复后的业务指纹都写进状态：抑制守卫结束后的补查会据此跳过，
+    // 不会把刚下载的内容立刻回传。
+    settings::update_status_for(settings, |status| {
+        status.finish_download(
+            logging::now_ms(),
+            &snapshot_id,
+            content_hash,
+            settings.target_id(),
+            local_fingerprint,
+        );
+    })
+    .map_err(|error| format!("云端数据已恢复，但本机同步状态未保存：{error}"))?;
+    drop(_suppress);
     logging::log(
         "[CloudSync]",
         &format!(

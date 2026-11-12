@@ -71,6 +71,8 @@ const EXCLUDED_CONFIG_KEYS: &[&str] = &[
     "kernelDir",
     // 另一把密钥（update-token.key）加密，带过去解不开
     "githubToken",
+    // 面板登录人机验证绑定本机域名和独立密钥，跨机器快照带过来也不能写回本机
+    "panelCaptcha",
     // 代理内核的下载出网线路：绑本机网络环境
     "kernelProxy",
     crate::server::config::KEY_INSTALLED_UPDATE_VERSION,
@@ -539,6 +541,8 @@ mod tests {
         assert!(!is_synced_kv_key("kernelDir"));
         // 另一把密钥加密：不同步
         assert!(!is_synced_kv_key("githubToken"));
+        // 绑定本机域名 / 独立密钥的登录校验：不同步
+        assert!(!is_synced_kv_key("panelCaptcha"));
         // 保留键：白名单里的同步，其余不同步
         assert!(is_synced_kv_key("agentProfiles"));
         assert!(is_synced_kv_key("proxyPool"));
@@ -546,6 +550,58 @@ mod tests {
         assert!(!is_synced_kv_key("panelTokens"));
         assert!(!is_synced_kv_key("cloudSync"));
         assert!(!is_synced_kv_key("backgroundTaskState"));
+    }
+
+    #[test]
+    fn apply_preserves_machine_local_kv_on_download() {
+        let (db, _guard) =
+            crate::server::db::test_temp::TempDb::open("cloud-sync-local-kv");
+        db.with(|conn| {
+            for (key, value) in [
+                ("panelTokens", "local-session"),
+                ("panelCaptcha", "local-captcha"),
+                ("promptMode", "old"),
+            ] {
+                conn.execute(
+                    "INSERT INTO kv (key, value) VALUES (?1, ?2)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    rusqlite::params![key, value],
+                )
+                .unwrap();
+            }
+        })
+        .unwrap();
+
+        let mut kv = BTreeMap::new();
+        kv.insert("panelTokens".to_string(), "remote-session".to_string());
+        kv.insert("panelCaptcha".to_string(), "remote-captcha".to_string());
+        kv.insert("promptMode".to_string(), "new".to_string());
+        let snapshot = Snapshot {
+            format: SNAPSHOT_FORMAT.to_string(),
+            version: SNAPSHOT_VERSION,
+            schema_version: SCHEMA_VERSION,
+            exported_at: 0,
+            tables: BTreeMap::new(),
+            kv,
+        };
+        let (applied, hash) = apply(&db, &snapshot, None).unwrap();
+        assert!(hash.starts_with("business-v1:"));
+        assert_eq!(applied["kv"], json!(3));
+
+        // 下载只会替换同步范围内的键：本机登录态和面板验证配置必须原样留着。
+        let read = |key: &str| {
+            db.with(|conn| {
+                conn.query_row("SELECT value FROM kv WHERE key = ?1", [key], |row| {
+                    row.get::<_, String>(0)
+                })
+                .ok()
+            })
+            .flatten()
+        };
+        assert_eq!(read("panelTokens").as_deref(), Some("local-session"));
+        assert_eq!(read("panelCaptcha").as_deref(), Some("local-captcha"));
+        assert_eq!(read("promptMode").as_deref(), Some("new"));
+        drop(db);
     }
 
     #[test]
@@ -560,5 +616,7 @@ mod tests {
         };
         let (db, _guard) = crate::server::db::test_temp::TempDb::open("cloud-sync-newer-schema");
         assert!(apply(&db, &snapshot, None).is_err());
+        // Windows 上文件还被 db 持有时删不掉临时库，先放连接再让守卫清理。
+        drop(db);
     }
 }

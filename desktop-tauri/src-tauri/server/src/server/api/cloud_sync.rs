@@ -48,6 +48,8 @@ pub async fn put_settings(State(_state): State<ServerState>, body: Bytes) -> Res
         Ok(input) => input,
         Err(message) => return errors::management_error(400, message),
     };
+    // 保存可能改目标身份，正在进行的上传 / 下载不该把旧目标的状态写回来。
+    let _guard = cloud_sync::sync_lock().lock().await;
     match cloud_sync::save_settings(input) {
         Ok(data) => ok_json(data),
         Err(message) => errors::management_error(400, message),
@@ -176,6 +178,18 @@ fn parse_save_input(payload: &Value) -> Result<settings::SaveInput, String> {
             .to_string()
     };
     let flag = |key: &str| object.get(key).and_then(Value::as_bool).unwrap_or(false);
+    let auto_sync_interval_minutes = object
+        .get("autoSyncIntervalMinutes")
+        .map(|value| {
+            value
+                .as_u64()
+                .filter(|minutes| {
+                    (1..=u64::from(settings::MAX_AUTO_SYNC_INTERVAL_MINUTES)).contains(minutes)
+                })
+                .map(|minutes| minutes as u32)
+                .ok_or_else(|| "最小自动上传间隔必须是 1–1440 分钟的整数".to_string())
+        })
+        .transpose()?;
     Ok(settings::SaveInput {
         provider: {
             let provider = text("provider");
@@ -198,6 +212,7 @@ fn parse_save_input(payload: &Value) -> Result<settings::SaveInput, String> {
         sync_password: text("syncPassword"),
         enabled: flag("enabled"),
         auto_sync: flag("autoSync"),
+        auto_sync_interval_minutes,
         remote_root: text("remoteRoot"),
         profile: text("profile"),
     })
@@ -214,4 +229,52 @@ pub fn describe() -> Value {
         "autoSync": settings.auto_sync,
         "lastSyncAt": settings.status.last_sync_at,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_save_input_defaults_provider_and_interval() {
+        let input = parse_save_input(&json!({})).unwrap();
+        assert_eq!(input.provider, settings::PROVIDER_WEBDAV);
+        assert_eq!(input.auto_sync_interval_minutes, None);
+    }
+
+    #[test]
+    fn parse_save_input_accepts_interval_in_range() {
+        let input = parse_save_input(&json!({ "autoSyncIntervalMinutes": 30 })).unwrap();
+        assert_eq!(input.auto_sync_interval_minutes, Some(30));
+        let input = parse_save_input(&json!({ "autoSyncIntervalMinutes": 1440 })).unwrap();
+        assert_eq!(input.auto_sync_interval_minutes, Some(1440));
+    }
+
+    #[test]
+    fn parse_save_input_rejects_bad_interval() {
+        for value in [json!(0), json!(1441), json!(-1), json!("30"), json!(null)] {
+            let payload = json!({ "autoSyncIntervalMinutes": value });
+            let message = parse_save_input(&payload)
+                .err()
+                .expect("越界 / 类型不符的间隔必须报错");
+            assert!(message.contains("1–1440"), "值 {value} 应被拒绝");
+        }
+    }
+
+    #[test]
+    fn parse_save_input_keeps_provider_specific_fields() {
+        let input = parse_save_input(&json!({
+            "provider": "s3",
+            "s3Bucket": "bucket",
+            "s3Region": "auto",
+            "autoSync": true,
+            "enabled": true,
+        }))
+        .unwrap();
+        assert_eq!(input.provider, "s3");
+        assert_eq!(input.s3_bucket, "bucket");
+        assert_eq!(input.s3_region, "auto");
+        assert!(input.auto_sync);
+        assert!(input.enabled);
+    }
 }
