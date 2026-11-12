@@ -55,7 +55,7 @@ import { CreditDetailButton, creditRowsOf } from './accounts-credit-detail'
 import { creditExpirySummaryOf, creditExpiryText, creditExpiryUnitOf, expiringCreditsOf, type CreditExpirySummary, type ExpiringCredit } from '../../../ui-shared/credit-expiry'
 import { useDisplayClock } from '../../../ui-shared/use-display-clock'
 import { UsageWindowsCell, usageWindows } from './accounts-usage-windows'
-import { accountReloginText } from './accounts-authorization'
+import { accountReloginText, supportsTokenRefresh } from './accounts-authorization'
 import { credentialExpiryRowsOf, credentialExpiryText, type CredentialExpiryRow } from '../../../ui-shared/credential-expiry'
 import { creditStatisticsWalletsOf, isSnapshotWallet, snapshotReadingsOf, usageAggregateOf, usageSupplementReadingsOf, usageUnitLabel, usageWarningsOf, usageWindowLabel, usageWindowView } from '../../../ui-shared/usage-readings'
 import { LimitDetailButton, limitRowsOf } from './accounts-limit-detail'
@@ -123,12 +123,13 @@ export function OrderCell({ account, rank, sortActive }: {
 /* ─── 分组带 ────────────────────────────────── */
 
 /**
- * 分组带的 ⋯ 菜单：整组启用 / 禁用、批量操作本组、折叠本组。
+ * 分组带的 ⋯ 菜单：整组启用 / 禁用、批量操作本组、刷新本组 Token、折叠本组。
  *
  * 「整组启用 / 禁用」直接落批量端点（一次改一组，与单行开关同一口径）；
  * 「批量操作本组」打开既有那一个批量弹窗（改代理、设置并发上限这类要挑参数的
  * 动作用它）—— 挑参数的动作个个都要在弹窗里给一档，但**入口只留这一个**，
- * 不为每件参数化动作在菜单里再各开一项；折叠那一项与组头那颗箭头同一个状态 ——
+ * 不为每件参数化动作在菜单里再各开一项。刷新 Token 不带参数，单独给一个入口，
+ * 省掉在弹窗里再切一次动作；折叠那一项与组头那颗箭头同一个状态 ——
  * **它是个开关**，所以文案必须跟着当前状态变：已经收起的那一组，这一项写
  * 「展开这一组」才是它真做的事。
  *
@@ -157,6 +158,11 @@ function GroupMenu({ group, ids, collapsed }: { group: AccountGroup; ids: string
             title={t('打开批量操作弹窗，并预选这一组的账号（改代理等动作在弹窗里挑参数）')}
             onClick={() => { setOpen(false); openBatchDialog(ids, 'proxy') }}>
             {t('批量操作本组')}
+          </Button>
+          <Button variant='ghost' size='sm' className={itemClass}
+            title={t('逐个刷新所选账号的 Token，未到期也会尝试刷新；不改变启用状态、代理或转发顺序。')}
+            onClick={() => { setOpen(false); openBatchDialog(ids, 'refresh') }}>
+            {t('刷新 Token')}
           </Button>
           <Button variant='ghost' size='sm' className={itemClass}
             title={t('导出本组全部账号，每个账号一个 JSON 文件（含被筛选隐藏的）')}
@@ -1732,7 +1738,7 @@ export function ActionsCell({ account, atFront }: { account: AccountRecord; atFr
  * 顺序（不改启用状态），排在它之后；「并发上限」是账号属性（标签里带当前值）；
  * 「删除账号」同样最重，排在最后并加一条分隔线。首尾两项都标 danger：它们会立刻改变
  * 转发可用性。
- * 「刷新 Token」按 `hasRefreshToken` 决定（桌面端账号的记录里不落 refreshToken，
+ * 「刷新 Token」按统一的刷新能力位决定（桌面端账号的记录里不落 refreshToken，
  * 所以这一项对它不出现 —— 手动刷新走的是「不过期就原样返回」的路径）。
  */
 export function MoreMenu({ account, atFront }: { account: AccountRecord; atFront: boolean }) {
@@ -1762,7 +1768,7 @@ export function MoreMenu({ account, atFront }: { account: AccountRecord; atFront
             onClick={() => { setOpen(false); openSettingsDialog(account.id) }}>
             {t('并发上限：{value}', { value: maxConcurrent > 0 ? maxConcurrent : t('不限') })}
           </Button>
-          {account.desktop !== true && (account.canRefresh === true || account.hasRefreshToken === true) ? (
+          {supportsTokenRefresh(account) ? (
             <Button variant='ghost' size='sm' className={itemClass} disabled={account.needsRelogin === true}
               title={account.needsRelogin ? accountReloginText(account) : undefined}
               onClick={() => { setOpen(false); shared().wbApp?.runAccountAction?.('refresh', account.id) }}>
