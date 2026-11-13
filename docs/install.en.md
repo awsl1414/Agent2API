@@ -163,7 +163,7 @@ On Linux put them in `/etc/agent2api/agent2api.env`; on Windows edit the service
 
 ## Docker
 
-Image tags: `latest` follows the latest stable release, while `beta` follows the latest beta prerelease. Use a full version such as `3.4.3-beta.2` to pin a version. The command and Compose file below use `:latest`; switch to `:beta` to follow prereleases. Update with `docker compose pull && docker compose up -d`. Beta releases never move `latest`, and manual development builds only update `dev`. The image is published to the GitHub Container Registry (GHCR) and can be pulled anonymously.
+Image tags: `latest` follows the latest stable release, while `beta` follows the latest beta prerelease. Use a full version such as `3.4.3-beta.3` to pin a version. The command and Compose file below use `:latest`; switch to `:beta` to follow prereleases. Update with `docker compose pull && docker compose up -d`. Beta releases never move `latest`, and manual development builds only update `dev`. The image is published to the GitHub Container Registry (GHCR) and can be pulled anonymously.
 
 ```bash
 docker run -d --name agent2api --restart unless-stopped \

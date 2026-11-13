@@ -164,7 +164,7 @@ No Linux coloque-as em `/etc/agent2api/agent2api.env`; no Windows edite a chave 
 
 ## Docker
 
-Tags da imagem: `latest` acompanha a versão estável mais recente, enquanto `beta` acompanha a pré-versão beta mais recente. Use uma versão completa, como `3.4.3-beta.2`, para fixá-la. O comando e o Compose abaixo usam `:latest`; troque por `:beta` para acompanhar as pré-versões. Atualize com `docker compose pull && docker compose up -d`. Versões beta não alteram `latest`, e builds manuais de desenvolvimento atualizam apenas `dev`. A imagem é publicada no GitHub Container Registry (GHCR) e pode ser baixada sem login.
+Tags da imagem: `latest` acompanha a versão estável mais recente, enquanto `beta` acompanha a pré-versão beta mais recente. Use uma versão completa, como `3.4.3-beta.3`, para fixá-la. O comando e o Compose abaixo usam `:latest`; troque por `:beta` para acompanhar as pré-versões. Atualize com `docker compose pull && docker compose up -d`. Versões beta não alteram `latest`, e builds manuais de desenvolvimento atualizam apenas `dev`. A imagem é publicada no GitHub Container Registry (GHCR) e pode ser baixada sem login.
 
 ```bash
 docker run -d --name agent2api --restart unless-stopped \

@@ -177,7 +177,7 @@ Linux 写在 `/etc/agent2api/agent2api.env`；Windows 改服务注册表的
 
 ## Docker
 
-镜像标签：`latest` 跟随最新正式版，`beta` 跟随最新 beta 预发布版；也可用完整版本号（例如 `3.4.3-beta.2`）固定版本。下面的命令与 Compose 配置用 `:latest`；跟随预发布版就换成 `:beta`。更新时运行 `docker compose pull && docker compose up -d`。beta 发布不会改动 `latest`，手动开发构建只更新 `dev`。镜像发布在 GitHub 容器镜像库（GHCR），公开拉取无需登录。
+镜像标签：`latest` 跟随最新正式版，`beta` 跟随最新 beta 预发布版；也可用完整版本号（例如 `3.4.3-beta.3`）固定版本。下面的命令与 Compose 配置用 `:latest`；跟随预发布版就换成 `:beta`。更新时运行 `docker compose pull && docker compose up -d`。beta 发布不会改动 `latest`，手动开发构建只更新 `dev`。镜像发布在 GitHub 容器镜像库（GHCR），公开拉取无需登录。
 
 ```bash
 docker run -d --name agent2api --restart unless-stopped \

@@ -179,7 +179,7 @@ Linux 寫在 `/etc/agent2api/agent2api.env`；Windows 改服務登錄檔的
 
 ## Docker
 
-映像標籤：`latest` 跟隨最新正式版，`beta` 跟隨最新 beta 預發布版；也可使用完整版本號（例如 `3.4.3-beta.2`）固定版本。下方的命令與 Compose 設定用 `:latest`；跟隨預發布版就換成 `:beta`。更新時執行 `docker compose pull && docker compose up -d`。beta 發布不會改動 `latest`，手動開發建置只更新 `dev`。映像發布在 GitHub Container Registry（GHCR），公開拉取無需登入。
+映像標籤：`latest` 跟隨最新正式版，`beta` 跟隨最新 beta 預發布版；也可使用完整版本號（例如 `3.4.3-beta.3`）固定版本。下方的命令與 Compose 設定用 `:latest`；跟隨預發布版就換成 `:beta`。更新時執行 `docker compose pull && docker compose up -d`。beta 發布不會改動 `latest`，手動開發建置只更新 `dev`。映像發布在 GitHub Container Registry（GHCR），公開拉取無需登入。
 
 ```bash
 docker run -d --name agent2api --restart unless-stopped \

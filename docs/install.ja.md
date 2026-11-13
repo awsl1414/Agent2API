@@ -163,7 +163,7 @@ Linux では `/etc/agent2api/agent2api.env` に、Windows ではサービスの�
 
 ## Docker
 
-イメージタグ：`latest` は最新の正式版、`beta` は最新の beta プレリリースを追従します。`3.4.3-beta.2` のような完全なバージョン番号で固定することもできます。以下のコマンドと Compose 設定は `:latest` を使っています。プレリリースを追うなら `:beta` に切り替えてください。更新時は `docker compose pull && docker compose up -d` を実行してください。beta の公開で `latest` は変更されず、手動の開発ビルドは `dev` のみ更新します。イメージは GitHub Container Registry（GHCR）に公開しており、ログインなしで取得できます。
+イメージタグ：`latest` は最新の正式版、`beta` は最新の beta プレリリースを追従します。`3.4.3-beta.3` のような完全なバージョン番号で固定することもできます。以下のコマンドと Compose 設定は `:latest` を使っています。プレリリースを追うなら `:beta` に切り替えてください。更新時は `docker compose pull && docker compose up -d` を実行してください。beta の公開で `latest` は変更されず、手動の開発ビルドは `dev` のみ更新します。イメージは GitHub Container Registry（GHCR）に公開しており、ログインなしで取得できます。
 
 ```bash
 docker run -d --name agent2api --restart unless-stopped \

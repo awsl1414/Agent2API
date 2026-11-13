@@ -163,7 +163,7 @@ Linux 에서는 `/etc/agent2api/agent2api.env` 에, Windows 에서는 서비스 
 
 ## Docker
 
-이미지 태그: `latest`는 최신 정식 버전을, `beta`는 최신 beta 사전 출시 버전을 따릅니다. `3.4.3-beta.2` 같은 전체 버전 번호로 버전을 고정할 수도 있습니다. 아래 명령과 Compose 설정은 `:latest`를 사용합니다. 사전 출시 버전을 따라가려면 `:beta`로 바꾸세요. 업데이트할 때 `docker compose pull && docker compose up -d`를 실행하세요. beta 출시 시 `latest`는 변경되지 않으며, 수동 개발 빌드는 `dev`만 업데이트합니다. 이미지는 GitHub Container Registry(GHCR)에 게시되며 로그인 없이 받을 수 있습니다.
+이미지 태그: `latest`는 최신 정식 버전을, `beta`는 최신 beta 사전 출시 버전을 따릅니다. `3.4.3-beta.3` 같은 전체 버전 번호로 버전을 고정할 수도 있습니다. 아래 명령과 Compose 설정은 `:latest`를 사용합니다. 사전 출시 버전을 따라가려면 `:beta`로 바꾸세요. 업데이트할 때 `docker compose pull && docker compose up -d`를 실행하세요. beta 출시 시 `latest`는 변경되지 않으며, 수동 개발 빌드는 `dev`만 업데이트합니다. 이미지는 GitHub Container Registry(GHCR)에 게시되며 로그인 없이 받을 수 있습니다.
 
 ```bash
 docker run -d --name agent2api --restart unless-stopped \
